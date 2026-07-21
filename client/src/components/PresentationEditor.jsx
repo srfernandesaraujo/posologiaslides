@@ -314,7 +314,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               <button className="btn-primary" onClick={() => setIsReportOpen(true)} style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}>
                 <BarChart3 size={16} /> Relatórios
               </button>
-              <button className="btn-primary" onClick={() => setShowPresenterWindow(true)} style={{ background: 'linear-gradient(135deg, #a855f7, #ec4899)', fontSize: '0.82rem' }}>
+              <button className="btn-primary" onClick={() => setShowPresenterWindow(true)} style={{ background: 'linear-gradient(135deg, #22d3ee, #10b981)', fontSize: '0.82rem' }}>
                 <Tv size={16} /> Visão Apresentador
               </button>
               <button className="btn-primary" onClick={toggleFullscreen} style={{ fontSize: '0.82rem' }}>
@@ -362,7 +362,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       {!isFullscreen && (
         <div className="sidebar-chat">
           <div className="chat-header">
-            <Bot size={18} color="#a855f7" />
+            <Bot size={18} color="var(--accent-primary)" />
             <span>Editar Slide #{activeIndex + 1} com IA</span>
           </div>
 

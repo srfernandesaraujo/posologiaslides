@@ -140,7 +140,7 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
       <div className="modal-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ background: 'linear-gradient(135deg, #a855f7, #3b82f6)', padding: '0.5rem', borderRadius: '0.5rem' }}>
+            <div style={{ background: 'linear-gradient(135deg, #22d3ee, #3b82f6)', padding: '0.5rem', borderRadius: '0.5rem' }}>
               <Sparkles size={24} color="#fff" />
             </div>
             <div>
@@ -249,7 +249,7 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
           </div>
 
           {loadingStatus && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#a855f7', fontSize: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-primary)', fontSize: '0.85rem' }}>
               <Loader2 className="animate-spin" size={18} />
               <span>{loadingStatus}</span>
             </div>

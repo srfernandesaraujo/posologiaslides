@@ -67,7 +67,7 @@ export default function SettingsModal({ isOpen, onClose }) {
       <div className="modal-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ background: 'linear-gradient(135deg, #a855f7, #ec4899)', padding: '0.5rem', borderRadius: '0.5rem' }}>
+            <div style={{ background: 'linear-gradient(135deg, #22d3ee, #3b82f6)', padding: '0.5rem', borderRadius: '0.5rem' }}>
               <Key size={24} color="#fff" />
             </div>
             <div>
@@ -129,7 +129,7 @@ export default function SettingsModal({ isOpen, onClose }) {
             </div>
           )}
 
-          <div style={{ background: 'rgba(168, 85, 247, 0.1)', padding: '0.8rem', borderRadius: '0.5rem', borderLeft: '4px solid #a855f7', fontSize: '0.82rem', color: '#e9d5ff' }}>
+          <div style={{ background: 'rgba(34, 211, 238, 0.1)', padding: '0.8rem', borderRadius: '0.5rem', borderLeft: '4px solid #22d3ee', fontSize: '0.82rem', color: '#cffafe' }}>
             🔒 <strong>Segurança:</strong> Suas chaves de API ficam salvas na sua conta (Firestore, vinculadas ao seu login) — disponíveis automaticamente em qualquer dispositivo em que você entrar, sem precisar configurar de novo.
           </div>
 

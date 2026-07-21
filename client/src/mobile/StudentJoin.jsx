@@ -85,7 +85,7 @@ export default function StudentJoin() {
     return (
       <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #090d16 0%, #111827 100%)', color: '#fff', padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
         <div className="glass-panel" style={{ width: '100%', maxWidth: '400px', padding: '2rem', textAlign: 'center' }}>
-          <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'linear-gradient(135deg, #a855f7, #3b82f6)', display: 'flex', alignItems: 'center', justify: 'center', margin: '0 auto 1rem auto' }}>
+          <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'linear-gradient(135deg, #22d3ee, #3b82f6)', display: 'flex', alignItems: 'center', justify: 'center', margin: '0 auto 1rem auto' }}>
             <Smartphone size={28} color="#fff" />
           </div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '0.3rem' }}>Participar da Apresentação</h2>
@@ -197,7 +197,7 @@ export default function StudentJoin() {
       </div>
 
       <div style={{ textAlign: 'center', fontSize: '0.75rem', color: '#6b7280' }}>
-        Posologia Active Learning Mobile Engine
+        Posologia Slides
       </div>
     </div>
   );

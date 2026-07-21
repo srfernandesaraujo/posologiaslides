@@ -172,7 +172,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
             {user.avatarUrl ? (
               <img src={user.avatarUrl} alt={user.name} referrerPolicy="no-referrer" style={{ width: 28, height: 28, borderRadius: '50%' }} />
             ) : (
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 700 }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 700 }}>
                 {user.name?.[0]?.toUpperCase() || '?'}
               </div>
             )}

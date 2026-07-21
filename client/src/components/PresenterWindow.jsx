@@ -78,7 +78,7 @@ export default function PresenterWindow({
       {/* Barra de Topo do Apresentador */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.04)', padding: '0.8rem 1.2rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.1)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <span style={{ fontSize: '1rem', fontWeight: 800, color: '#a855f7' }}>
+          <span style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--accent-primary)' }}>
             🎙️ VISÃO DO APRESENTADOR (PRESENTER VIEW)
           </span>
           <span style={{ fontSize: '0.85rem', color: '#9ca3af' }}>
@@ -115,9 +115,9 @@ export default function PresenterWindow({
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '1.5rem', flex: 1 }}>
         {/* Coluna Esquerda: Slide Atual em Grande Escala */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ flex: 1, aspectRatio: '16/9', borderRadius: '0.75rem', overflow: 'hidden', border: '2px solid #a855f7', position: 'relative' }}>
+          <div style={{ flex: 1, aspectRatio: '16/9', borderRadius: '0.75rem', overflow: 'hidden', border: '2px solid var(--accent-primary)', position: 'relative' }}>
             <PresentationViewer htmlContent={currentSlide.html} />
-            <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(168,85,247,0.9)', color: '#fff', padding: '0.3rem 0.6rem', borderRadius: '0.4rem', fontSize: '0.75rem', fontWeight: 800 }}>
+            <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(34,211,238,0.9)', color: '#071019', padding: '0.3rem 0.6rem', borderRadius: '0.4rem', fontSize: '0.75rem', fontWeight: 800 }}>
               EXIBIDO NO TELÃO
             </div>
           </div>
@@ -150,13 +150,13 @@ export default function PresenterWindow({
           </div>
 
           {/* Copiloto de IA: Sugestão de Perguntas Instigantes */}
-          <div className="glass-panel" style={{ padding: '1rem', border: '1px solid #a855f7' }}>
-            <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#c084fc', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <div className="glass-panel" style={{ padding: '1rem', border: '1px solid var(--accent-primary)' }}>
+            <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#67e8f9', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Lightbulb size={16} /> Copiloto IA: Perguntas para a Plateia
             </h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {aiSuggestions.map((q, idx) => (
-                <div key={idx} style={{ background: 'rgba(168,85,247,0.1)', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', fontSize: '0.82rem', color: '#e9d5ff', borderLeft: '3px solid #a855f7' }}>
+                <div key={idx} style={{ background: 'rgba(34,211,238,0.1)', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', fontSize: '0.82rem', color: '#cffafe', borderLeft: '3px solid var(--accent-primary)' }}>
                   {q}
                 </div>
               ))}

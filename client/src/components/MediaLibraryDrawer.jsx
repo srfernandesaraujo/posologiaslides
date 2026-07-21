@@ -111,8 +111,8 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
             onClick={() => { setTab(t.id); setError(''); }}
             style={{
               flex: 1, padding: '0.4rem', fontSize: '0.75rem', fontWeight: 700, borderRadius: '0.4rem', border: 'none', cursor: 'pointer',
-              background: tab === t.id ? 'var(--accent-purple)' : 'transparent',
-              color: tab === t.id ? '#fff' : '#9ca3af'
+              background: tab === t.id ? 'var(--accent-primary)' : 'transparent',
+              color: tab === t.id ? '#071019' : '#9ca3af'
             }}
           >
             {t.label}
@@ -207,7 +207,7 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', overflow: 'hidden' }}>
               {media.type === 'image' && <Image size={18} color="#38bdf8" />}
-              {media.type === 'video' && <Video size={18} color="#a855f7" />}
+              {media.type === 'video' && <Video size={18} color="var(--accent-primary)" />}
               {media.type === 'audio' && <Music size={18} color="#10b981" />}
               {media.type === 'webpage' && <Globe size={18} color="#f59e0b" />}
               <span style={{ fontSize: '0.82rem', color: '#e5e7eb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

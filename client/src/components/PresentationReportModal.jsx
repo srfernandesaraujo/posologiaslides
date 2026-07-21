@@ -54,7 +54,7 @@ export default function PresentationReportModal({ isOpen, onClose, presentationT
         </div>
 
         {loading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#a855f7', padding: '2rem', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-primary)', padding: '2rem', justifyContent: 'center' }}>
             <Loader2 className="animate-spin" size={18} /> Carregando dados reais da sessão...
           </div>
         )}
@@ -80,9 +80,9 @@ export default function PresentationReportModal({ isOpen, onClose, presentationT
 
               <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <div style={{ fontSize: '0.75rem', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <Users size={14} color="#a855f7" /> Participantes Conectados
+                  <Users size={14} color="var(--accent-primary)" /> Participantes Conectados
                 </div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#c084fc', marginTop: '0.4rem' }}>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#67e8f9', marginTop: '0.4rem' }}>
                   {report.totalParticipants}
                 </div>
               </div>

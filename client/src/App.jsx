@@ -126,8 +126,8 @@ export default function App() {
             <ArrowLeft size={20} />
           </button>
           <div className="app-title">
-            <Presentation size={24} color="#a855f7" />
-            <span>Posologia Interactive Slides AI</span>
+            <Presentation size={24} color="var(--accent-primary)" />
+            <span>Posologia Slides</span>
           </div>
         </div>
 

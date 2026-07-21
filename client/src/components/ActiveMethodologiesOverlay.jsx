@@ -71,7 +71,7 @@ export default function ActiveMethodologiesOverlay({
       {/* Widget de Quiz ao Vivo */}
       {currentSlide?.type === 'quiz' && (
         <div className="glass-panel" style={{ padding: '1rem', width: '320px', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#a855f7', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
             <BarChart2 size={16} /> Respostas ao Vivo ({liveData.answers.length})
           </div>
 
@@ -88,7 +88,7 @@ export default function ActiveMethodologiesOverlay({
                     <span>{count} ({pct}%)</span>
                   </div>
                   <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #38bdf8, #a855f7)', transition: 'width 0.3s ease' }} />
+                    <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #38bdf8, #10b981)', transition: 'width 0.3s ease' }} />
                   </div>
                 </div>
               );
