@@ -326,7 +326,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
         {/* Palco do Slide com Overlay de Metodologias Ativas */}
         <div ref={stageRef} className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}>
-          <PresentationViewer htmlContent={currentSlide.html} />
+          <PresentationViewer htmlContent={currentSlide.html} reloadKey={isFullscreen} />
 
           <ActiveMethodologiesOverlay
             socket={socket}

@@ -22,6 +22,8 @@ REGRAS DE DESIGN E CONTEÚDO:
    - Área central com layout responsivo em colunas (ex: texto explicativo na esquerda + dashboard/gráfico/simulador na direita).
    - Footer com indicação sutil do tópico.
 5. SEM DEPENDÊNCIAS EXTERNAS COMPLEXAS além de Chart.js e Fontes. Todo a interatividade JS deve ser limpa e sem erros.
+6. ANIMAÇÕES DE ENTRADA: os elementos principais do slide (header, cards, itens de lista, gráfico) devem aparecer com uma animação sutil de entrada (fade-in combinado com leve translateY, via @keyframes + animation-fill-mode: both), escalonada por elemento com animation-delay curto (ex: 0.06s a 0.1s entre um item e o próximo). Use durações curtas (300–500ms) e easing suave (ease-out); nunca anime propriedades que quebrem o layout (evite animar width/height de containers).
+7. COMPATIBILIDADE COM TOQUE E CANETA (o slide roda em tablets, incl. iPad com Apple Pencil): SEMPRE que precisar de interatividade além de <input type="range">/<button> nativos (ex: um elemento arrastável, um "canvas" de desenho customizado, drag-and-drop), use Pointer Events (pointerdown/pointermove/pointerup/pointercancel) e NUNCA apenas mousedown/mousemove/mouseup — mouse events não disparam a partir de toque/caneta e o elemento simplesmente não responderá em um tablet. Elementos nativos (<input type="range">, <button>, links) já funcionam com toque sem nenhum cuidado extra.
 `;
 
 // Monta os "parts" enviados ao Gemini: texto puro quando não há imagens de

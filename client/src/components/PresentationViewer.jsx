@@ -12,8 +12,16 @@ import React, { useEffect, useRef } from 'react';
  * allow-popups é intencionalmente adicionado (baixo risco: só permite que uma página
  * embutida via <iframe> no slide abra uma aba nova, ex. "assistir no YouTube") sem
  * reintroduzir allow-same-origin, que quebraria o isolamento acima.
+ *
+ * reloadKey: entrar/sair do modo tela cheia NÃO muda htmlContent (é o mesmo slide),
+ * então o efeito abaixo não recarregava o iframe nessa transição — o Chart.js e
+ * outros scripts sensíveis a tamanho do slide já tinham medido o container ANTES
+ * do palco redimensionar para o novo tamanho da tela cheia, e não recalculavam
+ * corretamente depois. Passar isFullscreen como reloadKey força um recarregamento
+ * completo (documento novo) toda vez que essa transição acontece, para que o
+ * script do slide meça o tamanho final já estabilizado.
  */
-export default function PresentationViewer({ htmlContent }) {
+export default function PresentationViewer({ htmlContent, reloadKey }) {
   const iframeRef = useRef(null);
 
   useEffect(() => {
@@ -40,9 +48,22 @@ ${content}
 </body>
 </html>`;
 
-    // srcdoc substitui todo o documento do iframe (novo contexto isolado a cada troca de slide)
-    iframe.srcdoc = doc;
-  }, [htmlContent]);
+    // Espera o layout do palco (tamanho novo de tela cheia, se for o caso) se
+    // assentar por um frame antes de carregar o documento, para o script do
+    // slide medir o container já no tamanho final.
+    let frame1, frame2;
+    frame1 = requestAnimationFrame(() => {
+      frame2 = requestAnimationFrame(() => {
+        // srcdoc substitui todo o documento do iframe (novo contexto isolado a cada troca de slide)
+        iframe.srcdoc = doc;
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(frame1);
+      if (frame2) cancelAnimationFrame(frame2);
+    };
+  }, [htmlContent, reloadKey]);
 
   return (
     <iframe

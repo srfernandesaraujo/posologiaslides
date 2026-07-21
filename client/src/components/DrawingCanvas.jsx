@@ -4,6 +4,10 @@ import React, { useRef, useEffect, useState } from 'react';
  * DrawingCanvas é uma camada transparente sobre o slide que fornece ferramentas
  * de anotação (Caneta, Marca-texto, Borracha e Apontador Laser).
  * Quando a ferramenta ativa é 'pointer', pointer-events é desativado para permitir interatividade com o slide.
+ *
+ * Usa Pointer Events (não Mouse Events) para desenhar: mouse events nunca disparam
+ * a partir de toque/caneta em touchscreens (iPad + Apple Pencil, por exemplo),
+ * então desenhar simplesmente não funcionava nesses dispositivos antes.
  */
 export default function DrawingCanvas({ 
   tool = 'pointer', // 'pointer' | 'pen' | 'highlighter' | 'eraser' | 'laser'
@@ -40,11 +44,12 @@ export default function DrawingCanvas({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }, [clearTrigger]);
 
-  // Manipuladores de Eventos de Desenho
+  // Manipuladores de Eventos de Desenho (Pointer Events: unificam mouse, toque e caneta)
   const startDrawing = (e) => {
     if (tool === 'pointer') return;
     const canvas = canvasRef.current;
     if (!canvas) return;
+    canvas.setPointerCapture?.(e.pointerId);
     const ctx = canvas.getContext('2d');
 
     const rect = canvas.getBoundingClientRect();
@@ -127,14 +132,18 @@ export default function DrawingCanvas({
     >
       <canvas
         ref={canvasRef}
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={stopDrawing}
-        onMouseLeave={stopDrawing}
+        onPointerDown={startDrawing}
+        onPointerMove={draw}
+        onPointerUp={stopDrawing}
+        onPointerCancel={stopDrawing}
+        onPointerLeave={stopDrawing}
         style={{
           width: '100%',
           height: '100%',
-          cursor: tool === 'pointer' ? 'default' : tool === 'laser' ? 'none' : 'crosshair'
+          cursor: tool === 'pointer' ? 'default' : tool === 'laser' ? 'none' : 'crosshair',
+          // Sem isto, no iPad um toque/caneta em modo de desenho também rola/dá
+          // zoom na página em vez de (ou além de) desenhar o traço.
+          touchAction: 'none'
         }}
       />
 
