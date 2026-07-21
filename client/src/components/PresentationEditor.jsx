@@ -10,7 +10,7 @@ import PresentationReportModal from './PresentationReportModal';
 import { io } from 'socket.io-client';
 import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
-import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText } from 'lucide-react';
+import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -39,6 +39,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [attachLoading, setAttachLoading] = useState(false);
 
   const stageRef = useRef(null);
+  const chatMessagesRef = useRef(null);
 
   useEffect(() => {
     let newSocket;
@@ -105,6 +106,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
+
+  // Rola o chat até o fim sempre que uma mensagem nova ou o indicador de
+  // "digitando" aparece — sem isso o feedback de carregamento podia ficar
+  // fora da área visível e passar despercebido.
+  useEffect(() => {
+    if (chatMessagesRef.current) {
+      chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
+    }
+  }, [chatMessages, chatLoading]);
 
   const handleNavigateBranch = (targetSlideId) => {
     const targetIndex = presentation.slides.findIndex(s => s.id === targetSlideId || s.title.includes(targetSlideId));
@@ -275,6 +285,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             if (presentation.slides.length <= 1) return;
             const newSlides = presentation.slides.filter((_, i) => i !== idxToDelete);
             setPresentation({ ...presentation, slides: newSlides });
+            // Sem isto, apagar o slide ativo (ou qualquer um antes dele) deixava
+            // activeIndex apontando para fora do novo array — o palco caía no
+            // placeholder "Nenhum slide gerado" e parecia que nada tinha acontecido.
+            setActiveIndex((prev) => {
+              const shifted = idxToDelete < prev ? prev - 1 : prev;
+              return Math.min(shifted, newSlides.length - 1);
+            });
           }}
         />
       )}
@@ -349,7 +366,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             <span>Editar Slide #{activeIndex + 1} com IA</span>
           </div>
 
-          <div className="chat-messages">
+          <div className="chat-messages" ref={chatMessagesRef}>
             {chatMessages.map((msg, i) => (
               <div key={i} className={`chat-msg ${msg.sender}`} style={{ whiteSpace: 'pre-line' }}>
                 {msg.text}
@@ -364,6 +381,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 )}
               </div>
             ))}
+            {chatLoading && (
+              <div className="chat-msg ai" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Loader2 size={14} className="animate-spin" />
+                <span>A IA está editando o slide...</span>
+              </div>
+            )}
           </div>
 
           {chatAttachments.length > 0 && (
@@ -403,18 +426,19 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           )}
 
           <form onSubmit={handleSendChatMessage} className="chat-input-area">
-            <button type="button" className="btn-icon" onClick={() => setShowAttachMenu(!showAttachMenu)} title="Anexar material de referência (PDF, imagem, link)">
+            <button type="button" className="btn-icon" onClick={() => setShowAttachMenu(!showAttachMenu)} disabled={chatLoading} title="Anexar material de referência (PDF, imagem, link)">
               <Paperclip size={16} />
             </button>
             <input
               type="text"
               className="chat-input"
-              placeholder="Instrua a IA sobre este slide..."
+              placeholder={chatLoading ? 'Aguarde a IA terminar...' : 'Instrua a IA sobre este slide...'}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
+              disabled={chatLoading}
             />
-            <button type="submit" className="btn-primary" style={{ padding: '0.6rem 0.8rem' }}>
-              <Send size={16} />
+            <button type="submit" className="btn-primary" style={{ padding: '0.6rem 0.8rem' }} disabled={chatLoading}>
+              {chatLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
             </button>
           </form>
         </div>

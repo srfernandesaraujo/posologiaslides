@@ -153,7 +153,7 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
             </button>
           </div>
           <p style={{ fontSize: '0.72rem', color: '#6b7280' }}>
-            Para arquivos grandes: cole a URL de um arquivo já hospedado (sem limite de tamanho).
+            Use aqui a URL <strong>direta do arquivo</strong> (termina em .jpg, .png, .mp4, .mp3 etc. — como a de um arquivo já hospedado). Para o link de uma página comum (ex. YouTube, ou qualquer site), use a aba "Embed Página" ao lado.
           </p>
         </div>
       )}
@@ -174,7 +174,7 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
             </button>
           </div>
           <p style={{ fontSize: '0.72rem', color: '#6b7280' }}>
-            Links do YouTube/Vimeo são convertidos automaticamente para o formato embutível. Alguns sites bloqueiam ser exibidos dentro de outra página (restrição do próprio site) e não vão aparecer mesmo assim.
+            Links do YouTube/Vimeo são convertidos automaticamente para o formato embutível. Se depois de inserir a área ficar em branco, é porque aquele site específico bloqueia ser exibido dentro de outra página (restrição do próprio site, ex. X-Frame-Options) — não tem como contornar isso, é preciso usar outro link/fonte.
           </p>
         </div>
       )}

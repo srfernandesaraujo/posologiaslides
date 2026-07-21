@@ -167,14 +167,23 @@ body {
 }
 
 /* Fullscreen Mode Override */
+/* Os slides são gerados pela IA assumindo a proporção 16:9 (mesma do palco
+   normal). Esticar o palco para 100vw/100vh "cru" distorce esse contrato
+   sempre que a tela/janela não é exatamente 16:9 — o layout do slide (grids,
+   alturas fixas de gráfico etc.) desalinha e parece "quebrado" justamente no
+   modo apresentação. Em vez disso, mantemos 16:9 e "letterboxamos" (barras
+   pretas nas bordas, como um player de vídeo) usando min()/calc() para achar
+   a maior caixa 16:9 que cabe na tela — a barra preta vem de graça do
+   backdrop nativo da Fullscreen API por trás do elemento fullscreen. */
 .fullscreen-stage {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw !important;
-  height: 100vh !important;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(100vw, calc(100vh * 16 / 9)) !important;
+  height: min(100vh, calc(100vw * 9 / 16)) !important;
   max-width: none !important;
-  aspect-ratio: auto !important;
+  aspect-ratio: 16 / 9 !important;
   border-radius: 0 !important;
   border: none !important;
   z-index: 9999;
@@ -323,6 +332,14 @@ body {
 
 .chat-input:focus {
   border-color: var(--accent-purple);
+}
+
+/* O popup nativo de <select> ignora o tema escuro do .chat-input e usa fundo
+   claro do navegador; sem cor explícita nas opções, o texto herda branco e
+   fica ilegível (branco sobre branco) — exceto a opção em destaque/selecionada. */
+.chat-input option {
+  color: #0f172a;
+  background: #fff;
 }
 
 /* Modal Styles */
