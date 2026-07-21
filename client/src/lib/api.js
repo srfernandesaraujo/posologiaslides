@@ -5,11 +5,6 @@ import { auth } from './firebase';
 // para a URL completa da API.
 export const API_URL = import.meta.env.VITE_API_URL || '';
 
-// Lê a chave Gemini salva em SettingsModal (localStorage) para uso em
-// qualquer chamada de IA — evita cada tela ter seu próprio estado
-// desconectado da configuração central do usuário.
-export const getGeminiKey = () => localStorage.getItem('gemini_api_key') || '';
-
 // Wrapper fino sobre fetch que anexa o ID token do Firebase (renovado
 // automaticamente pelo SDK) como Bearer token em toda chamada à API.
 export async function apiFetch(path, options = {}) {

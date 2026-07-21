@@ -179,3 +179,25 @@ export async function deletePresentation(id, userId) {
   await ref.delete();
   return true;
 }
+
+// Chaves de API do usuário: salvas no perfil do Firestore (não no localStorage)
+// para que fiquem disponíveis em qualquer dispositivo em que ele fizer login.
+export async function getUserSettings(userId) {
+  const snap = await userRef(userId).get();
+  const data = snap.data() || {};
+  return {
+    geminiApiKey: data.geminiApiKey || '',
+    openaiApiKey: data.openaiApiKey || '',
+    anthropicApiKey: data.anthropicApiKey || ''
+  };
+}
+
+export async function saveUserSettings(userId, { geminiApiKey, openaiApiKey, anthropicApiKey }) {
+  const ref = userRef(userId);
+  await ref.set({
+    geminiApiKey: (geminiApiKey || '').trim(),
+    openaiApiKey: (openaiApiKey || '').trim(),
+    anthropicApiKey: (anthropicApiKey || '').trim()
+  }, { merge: true });
+  return getUserSettings(userId);
+}

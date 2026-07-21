@@ -1,7 +1,18 @@
 import express from 'express';
 import { generatePresentationOutline, generateSlideHtml, editSlideWithAi } from '../services/aiService.js';
+import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
+
+// Resolve a chave efetiva: prioriza um valor enviado explicitamente na
+// requisição (uso avançado/pontual) e cai para a chave salva na nuvem
+// (Firestore, por usuário) — assim funciona em qualquer dispositivo, sem
+// depender de localStorage do navegador.
+async function resolveApiKey(userId, requestApiKey) {
+  if (requestApiKey) return requestApiKey;
+  const { geminiApiKey } = await getUserSettings(userId);
+  return geminiApiKey || undefined;
+}
 
 // Rota 1: Gerar Outline da Apresentação
 router.post('/generate-outline', async (req, res) => {
@@ -11,7 +22,8 @@ router.post('/generate-outline', async (req, res) => {
       return res.status(400).json({ error: 'O prompt principal é obrigatório.' });
     }
 
-    const { outline, warning } = await generatePresentationOutline({ prompt, materials, numSlides, apiKey, images });
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const { outline, warning } = await generatePresentationOutline({ prompt, materials, numSlides, apiKey: effectiveApiKey, images });
     res.json({ success: true, outline, warning: warning || null });
   } catch (error) {
     console.error('Erro na rota generate-outline:', error);
@@ -27,6 +39,7 @@ router.post('/generate-slides', async (req, res) => {
       return res.status(400).json({ error: 'O outline com lista de slides é obrigatório.' });
     }
 
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
     const generatedSlides = [];
     let firstWarning = null;
     for (let i = 0; i < outline.slides.length; i++) {
@@ -36,7 +49,7 @@ router.post('/generate-slides', async (req, res) => {
         presentationTitle: outline.title,
         index: i + 1,
         totalSlides: outline.slides.length,
-        apiKey,
+        apiKey: effectiveApiKey,
         images
       });
       if (warning && !firstWarning) firstWarning = warning;
@@ -72,7 +85,8 @@ router.post('/edit-slide', async (req, res) => {
       return res.status(400).json({ error: 'HTML atual e instrução são obrigatórios.' });
     }
 
-    const { html: newHtml, warning } = await editSlideWithAi({ currentHtml, instruction, apiKey, materials, images });
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const { html: newHtml, warning } = await editSlideWithAi({ currentHtml, instruction, apiKey: effectiveApiKey, materials, images });
     res.json({ success: true, newHtml, warning: warning || null });
   } catch (error) {
     console.error('Erro na rota edit-slide:', error);

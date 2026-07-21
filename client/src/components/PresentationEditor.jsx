@@ -8,7 +8,7 @@ import MediaLibraryDrawer from './MediaLibraryDrawer';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
 import { io } from 'socket.io-client';
-import { apiFetch, API_URL, getGeminiKey } from '../lib/api';
+import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
 import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText } from 'lucide-react';
 
@@ -212,7 +212,6 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         body: JSON.stringify({
           currentHtml: currentSlide.html,
           instruction: userText,
-          apiKey: getGeminiKey(),
           materials: materials || undefined,
           images: images.length ? images : undefined
         })

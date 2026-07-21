@@ -12,6 +12,7 @@ import aiRoutes from './routes/aiRoutes.js';
 import materialsRoutes from './routes/materialsRoutes.js';
 import sessionsRoutes from './routes/sessionsRoutes.js';
 import presentationsRoutes from './routes/presentationsRoutes.js';
+import settingsRoutes from './routes/settingsRoutes.js';
 import { requireAuth } from './middleware/auth.js';
 import { setupSocketIO } from './sockets/sessionSocket.js';
 
@@ -37,6 +38,7 @@ app.use('/api/ai', requireAuth, aiRoutes);
 app.use('/api/materials', requireAuth, materialsRoutes);
 app.use('/api/sessions', requireAuth, sessionsRoutes);
 app.use('/api/presentations', requireAuth, presentationsRoutes);
+app.use('/api/settings', requireAuth, settingsRoutes);
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Servidor e WebSockets rodando em http://localhost:${PORT}`);

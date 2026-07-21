@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Sparkles, Upload, Link, FileText, X, Loader2, Image as ImageIcon } from 'lucide-react';
-import { apiFetch, getGeminiKey } from '../lib/api';
+import { apiFetch } from '../lib/api';
 
 export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
   const [prompt, setPrompt] = useState('');
@@ -11,10 +11,6 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
-
-  useEffect(() => {
-    if (isOpen) setApiKey(getGeminiKey());
-  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -191,13 +187,13 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
 
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: '0.4rem', color: '#9ca3af' }}>
-                Chave API Gemini / OpenAI (Opcional)
+                Sobrescrever Chave Gemini (Opcional)
               </label>
               <input
                 type="password"
                 className="chat-input"
                 style={{ width: '100%' }}
-                placeholder="Usar padrão offline se vazio"
+                placeholder="Deixe vazio para usar a chave salva em Configurações"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />

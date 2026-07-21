@@ -1,31 +1,65 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Shield, Save, X, Check } from 'lucide-react';
+import { Key, Shield, Save, X, Check, Loader2 } from 'lucide-react';
+import { apiFetch } from '../lib/api';
 
 export default function SettingsModal({ isOpen, onClose }) {
   const [geminiKey, setGeminiKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    setGeminiKey(localStorage.getItem('gemini_api_key') || '');
-    setOpenaiKey(localStorage.getItem('openai_api_key') || '');
-    setAnthropicKey(localStorage.getItem('anthropic_api_key') || '');
+    if (!isOpen) return;
+    setError('');
+    setLoading(true);
+    apiFetch('/api/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setGeminiKey(data.geminiApiKey || '');
+          setOpenaiKey(data.openaiApiKey || '');
+          setAnthropicKey(data.anthropicApiKey || '');
+        } else {
+          setError(data.error || 'Falha ao carregar configurações.');
+        }
+      })
+      .catch(() => setError('Não foi possível carregar suas chaves salvas.'))
+      .finally(() => setLoading(false));
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    localStorage.setItem('gemini_api_key', geminiKey.trim());
-    localStorage.setItem('openai_api_key', openaiKey.trim());
-    localStorage.setItem('anthropic_api_key', anthropicKey.trim());
+    setSaving(true);
+    setError('');
 
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      onClose();
-    }, 1200);
+    try {
+      const res = await apiFetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          geminiApiKey: geminiKey.trim(),
+          openaiApiKey: openaiKey.trim(),
+          anthropicApiKey: anthropicKey.trim()
+        })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Falha ao salvar.');
+
+      setSaved(true);
+      setTimeout(() => {
+        setSaved(false);
+        onClose();
+      }, 1200);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -38,7 +72,7 @@ export default function SettingsModal({ isOpen, onClose }) {
             </div>
             <div>
               <h2 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Configuração de Chaves de API (IA)</h2>
-              <p style={{ fontSize: '0.85rem', color: '#9ca3af', margin: 0 }}>Cadastre suas chaves para usar modelos Gemini, OpenAI ou Anthropic</p>
+              <p style={{ fontSize: '0.85rem', color: '#9ca3af', margin: 0 }}>Cadastre suas chaves para usar modelos Gemini, OpenAI ou Anthropic — salvas na sua conta, disponíveis em qualquer dispositivo</p>
             </div>
           </div>
           <button className="btn-icon" onClick={onClose}>
@@ -89,17 +123,23 @@ export default function SettingsModal({ isOpen, onClose }) {
             />
           </div>
 
+          {error && (
+            <div style={{ fontSize: '0.82rem', color: '#f87171', background: 'rgba(248,113,113,0.1)', padding: '0.6rem', borderRadius: '0.4rem' }}>
+              {error}
+            </div>
+          )}
+
           <div style={{ background: 'rgba(168, 85, 247, 0.1)', padding: '0.8rem', borderRadius: '0.5rem', borderLeft: '4px solid #a855f7', fontSize: '0.82rem', color: '#e9d5ff' }}>
-            🔒 <strong>Segurança:</strong> Suas chaves de API são armazenadas localmente no seu navegador e enviadas diretamente às rotas seguras do servidor.
+            🔒 <strong>Segurança:</strong> Suas chaves de API ficam salvas na sua conta (Firestore, vinculadas ao seu login) — disponíveis automaticamente em qualquer dispositivo em que você entrar, sem precisar configurar de novo.
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
             <button type="button" className="btn-icon" onClick={onClose} style={{ width: 'auto', padding: '0 1rem' }}>
               Cancelar
             </button>
-            <button type="submit" className="btn-primary">
-              {saved ? <Check size={18} /> : <Save size={18} />}
-              {saved ? 'Salvo!' : 'Salvar Chaves'}
+            <button type="submit" className="btn-primary" disabled={loading || saving}>
+              {saved ? <Check size={18} /> : saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+              {saved ? 'Salvo!' : saving ? 'Salvando...' : 'Salvar Chaves'}
             </button>
           </div>
         </form>
