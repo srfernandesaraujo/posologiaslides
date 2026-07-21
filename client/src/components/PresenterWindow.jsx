@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import PresentationViewer from './PresentationViewer';
-import { Clock, Eye, Sparkles, Search, ChevronRight, ChevronLeft, Lightbulb, MessageSquare } from 'lucide-react';
+import { Clock, Eye, Sparkles, Search, ChevronRight, ChevronLeft, Lightbulb, MessageSquare, X } from 'lucide-react';
 
 export default function PresenterWindow({
   slides,
   currentIndex,
   onSelectSlide,
+  onClose,
   speakerNotes = ''
 }) {
   const [secondsElapsed, setSecondsElapsed] = useState(0);
@@ -103,6 +104,10 @@ export default function PresenterWindow({
               <ChevronRight size={20} />
             </button>
           </div>
+
+          <button className="btn-icon" onClick={onClose} title="Fechar Visão do Apresentador">
+            <X size={20} />
+          </button>
         </div>
       </div>
 

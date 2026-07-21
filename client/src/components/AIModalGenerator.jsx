@@ -1,15 +1,20 @@
-import React, { useState } from 'react';
-import { Sparkles, Upload, Link, FileText, X, Loader2 } from 'lucide-react';
-import { apiFetch } from '../lib/api';
+import React, { useState, useEffect } from 'react';
+import { Sparkles, Upload, Link, FileText, X, Loader2, Image as ImageIcon } from 'lucide-react';
+import { apiFetch, getGeminiKey } from '../lib/api';
 
 export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
   const [prompt, setPrompt] = useState('');
   const [numSlides, setNumSlides] = useState(5);
   const [linkUrl, setLinkUrl] = useState('');
   const [uploadedMaterial, setUploadedMaterial] = useState(null);
+  const [uploadedImages, setUploadedImages] = useState([]);
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
+
+  useEffect(() => {
+    if (isOpen) setApiKey(getGeminiKey());
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -28,13 +33,21 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
       });
       const data = await res.json();
       if (data.success) {
-        setUploadedMaterial(`[Arquivo: ${data.filename}]\n${data.text}`);
+        if (data.mimeType && data.mimeType.startsWith('image/')) {
+          setUploadedImages(prev => [...prev, { id: Date.now().toString(), name: data.filename, mimeType: data.mimeType, data: data.base64 }]);
+        } else {
+          setUploadedMaterial(`[Arquivo: ${data.filename}]\n${data.text}`);
+        }
       }
     } catch (err) {
       alert('Erro ao carregar arquivo: ' + err.message);
     } finally {
       setLoadingStatus('');
     }
+  };
+
+  const removeUploadedImage = (id) => {
+    setUploadedImages(prev => prev.filter(img => img.id !== id));
   };
 
   const handleParseUrl = async () => {
@@ -70,6 +83,8 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
     setLoading(true);
     setLoadingStatus('Gerando estrutura e slides interativos com IA...');
 
+    const images = uploadedImages.map(({ mimeType, data }) => ({ mimeType, data }));
+
     try {
       // 1. Gerar Outline
       const outlineRes = await apiFetch('/api/ai/generate-outline', {
@@ -79,7 +94,8 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
           prompt,
           materials: uploadedMaterial,
           numSlides,
-          apiKey
+          apiKey,
+          images
         })
       });
       const outlineData = await outlineRes.json();
@@ -96,13 +112,21 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           outline: outlineData.outline,
-          apiKey
+          apiKey,
+          images
         })
       });
       const slidesData = await slidesRes.json();
 
       if (!slidesData.success) {
         throw new Error(slidesData.error || 'Erro ao construir slides.');
+      }
+
+      const combinedWarning = outlineData.warning || slidesData.warning;
+      if (combinedWarning) {
+        // alert (não o estado local) porque a modal pode desmontar logo em
+        // seguida ao trocar de tela para o editor — precisa ficar visível.
+        alert('⚠️ ' + combinedWarning);
       }
 
       onGenerate(slidesData.presentation);
@@ -188,8 +212,8 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
 
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem' }}>
               <label className="btn-primary" style={{ background: 'rgba(255,255,255,0.1)', color: '#e5e7eb', fontSize: '0.82rem', padding: '0.4rem 0.8rem', cursor: 'pointer' }}>
-                <Upload size={16} /> Anexar PDF / TXT
-                <input type="file" accept=".pdf,.txt" style={{ display: 'none' }} onChange={handleFileUpload} />
+                <Upload size={16} /> Anexar PDF / TXT / Imagem
+                <input type="file" accept=".pdf,.txt,image/*" style={{ display: 'none' }} onChange={handleFileUpload} />
               </label>
 
               <div style={{ display: 'flex', flex: 1, gap: '0.4rem' }}>
@@ -208,8 +232,22 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
             </div>
 
             {uploadedMaterial && (
-              <div style={{ fontSize: '0.78rem', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '0.5rem', borderRadius: '0.4rem' }}>
+              <div style={{ fontSize: '0.78rem', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '0.5rem', borderRadius: '0.4rem', marginBottom: uploadedImages.length ? '0.5rem' : 0 }}>
                 ✓ Material de base anexado ({uploadedMaterial.substring(0, 60)}...)
+              </div>
+            )}
+
+            {uploadedImages.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                {uploadedImages.map(img => (
+                  <div key={img.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'rgba(56,189,248,0.1)', color: '#38bdf8', fontSize: '0.75rem', padding: '0.3rem 0.5rem', borderRadius: '0.4rem' }}>
+                    <ImageIcon size={12} />
+                    <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{img.name}</span>
+                    <button type="button" onClick={() => removeUploadedImage(img.id)} style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', display: 'flex' }}>
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

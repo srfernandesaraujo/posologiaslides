@@ -1,5 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
 /**
  * Prompt do sistema para geração de slides HTML interativos
  */
@@ -22,17 +24,31 @@ REGRAS DE DESIGN E CONTEÚDO:
 5. SEM DEPENDÊNCIAS EXTERNAS COMPLEXAS além de Chart.js e Fontes. Todo a interatividade JS deve ser limpa e sem erros.
 `;
 
-export async function generatePresentationOutline({ prompt, materials, numSlides = 5, apiKey }) {
+// Monta os "parts" enviados ao Gemini: texto puro quando não há imagens de
+// referência, ou um array [texto, ...imagens inline] para aproveitar a
+// entrada multimodal do modelo (permite à IA "ver" diagramas/fotos anexados).
+function buildParts(promptText, images) {
+  if (!images || !images.length) return promptText;
+  return [
+    promptText,
+    ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } }))
+  ];
+}
+
+function materialsBlock(materials) {
+  return materials ? `MATERIAL DE REFERÊNCIA FORNECIDO PELO USUÁRIO:\n"""\n${materials}\n"""` : '';
+}
+
+export async function generatePresentationOutline({ prompt, materials, numSlides = 5, apiKey, images }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
 
   if (!effectiveApiKey) {
-    // Retorno inteligente de demonstração caso nenhuma API key tenha sido informada
-    return generateFallbackOutline(prompt, numSlides);
+    return { outline: generateFallbackOutline(prompt, numSlides), warning: 'Nenhuma chave de API do Gemini configurada. Exibindo conteúdo de exemplo — configure sua chave em Configurações para gerar conteúdo real.' };
   }
 
   try {
     const genAI = new GoogleGenerativeAI(effectiveApiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
     const fullPrompt = `
     Baseado no seguinte tema e materiais, gere um roteiro (outline) de apresentação com ${numSlides} slides.
@@ -56,26 +72,26 @@ export async function generatePresentationOutline({ prompt, materials, numSlides
     }
     `;
 
-    const result = await model.generateContent(fullPrompt);
+    const result = await model.generateContent(buildParts(fullPrompt, images));
     const responseText = result.response.text();
     const cleanJson = extractJson(responseText);
-    return JSON.parse(cleanJson);
+    return { outline: JSON.parse(cleanJson) };
   } catch (error) {
     console.error('Erro na API Gemini (Outline), usando gerador fallback:', error.message);
-    return generateFallbackOutline(prompt, numSlides);
+    return { outline: generateFallbackOutline(prompt, numSlides), warning: `Falha ao usar a IA Gemini (${error.message}). Exibindo conteúdo de exemplo.` };
   }
 }
 
-export async function generateSlideHtml({ slideOutline, presentationTitle, index, totalSlides, apiKey }) {
+export async function generateSlideHtml({ slideOutline, presentationTitle, index, totalSlides, apiKey, images }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
 
   if (!effectiveApiKey) {
-    return generateFallbackSlideHtml(slideOutline, presentationTitle, index, totalSlides);
+    return { html: generateFallbackSlideHtml(slideOutline, presentationTitle, index, totalSlides), warning: 'Nenhuma chave de API do Gemini configurada. Exibindo conteúdo de exemplo — configure sua chave em Configurações para gerar conteúdo real.' };
   }
 
   try {
     const genAI = new GoogleGenerativeAI(effectiveApiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
     const fullPrompt = `
     ${SYSTEM_PROMPT}
@@ -96,25 +112,25 @@ export async function generateSlideHtml({ slideOutline, presentationTitle, index
     - Se for um simulador, inclua sliders/botões e o JS para atualizar o DOM dinamicamente.
     `;
 
-    const result = await model.generateContent(fullPrompt);
+    const result = await model.generateContent(buildParts(fullPrompt, images));
     const responseText = result.response.text();
-    return cleanCodeBlock(responseText);
+    return { html: cleanCodeBlock(responseText) };
   } catch (error) {
     console.error(`Erro na API Gemini (Slide ${index}), usando gerador fallback:`, error.message);
-    return generateFallbackSlideHtml(slideOutline, presentationTitle, index, totalSlides);
+    return { html: generateFallbackSlideHtml(slideOutline, presentationTitle, index, totalSlides), warning: `Falha ao usar a IA Gemini (${error.message}). Exibindo conteúdo de exemplo.` };
   }
 }
 
-export async function editSlideWithAi({ currentHtml, instruction, apiKey }) {
+export async function editSlideWithAi({ currentHtml, instruction, apiKey, materials, images }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
 
   if (!effectiveApiKey) {
-    return generateEditedFallbackHtml(currentHtml, instruction);
+    return { html: generateEditedFallbackHtml(currentHtml, instruction), warning: 'Nenhuma chave de API do Gemini configurada. Configure sua chave em Configurações para que a IA edite o slide de verdade.' };
   }
 
   try {
     const genAI = new GoogleGenerativeAI(effectiveApiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
     const prompt = `
     ${SYSTEM_PROMPT}
@@ -124,18 +140,21 @@ export async function editSlideWithAi({ currentHtml, instruction, apiKey }) {
     ${currentHtml}
     \`\`\`
 
+    ${materialsBlock(materials)}
+
     SOLICITAÇÃO DE ALTERAÇÃO DO USUÁRIO:
     "${instruction}"
 
     Altere o HTML/CSS/JS do slide para atender à solicitação de forma impecável.
+    Use o material de referência acima (se houver) como base de conteúdo/dados.
     Retorne APENAS o novo HTML completo atualizado.
     `;
 
-    const result = await model.generateContent(prompt);
-    return cleanCodeBlock(result.response.text());
+    const result = await model.generateContent(buildParts(prompt, images));
+    return { html: cleanCodeBlock(result.response.text()) };
   } catch (error) {
     console.error('Erro na API Gemini (Edit Slide):', error.message);
-    return generateEditedFallbackHtml(currentHtml, instruction);
+    return { html: generateEditedFallbackHtml(currentHtml, instruction), warning: `Falha ao usar a IA Gemini (${error.message}). A edição abaixo é apenas um marcador de exemplo.` };
   }
 }
 
@@ -202,7 +221,7 @@ function generateFallbackOutline(prompt, numSlides) {
 
 function generateFallbackSlideHtml(slideOutline, presentationTitle, index, totalSlides) {
   const slideId = `slide-${index}-${Date.now()}`;
-  
+
   if (slideOutline.type === 'simulator') {
     return `
     <div class="slide-root" style="height: 100%; display: flex; flex-direction: column; justify-content: space-between; background: linear-gradient(135deg, #0b0f19 0%, #111827 100%); color: #f3f4f6; padding: 2.5rem; border-radius: 1rem; box-sizing: border-box;">
@@ -220,7 +239,7 @@ function generateFallbackSlideHtml(slideOutline, presentationTitle, index, total
       <main style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: center; margin: 1.5rem 0;">
         <div style="background: rgba(255,255,255,0.03); padding: 1.5rem; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.08);">
           <h3 style="margin-top: 0; color: #38bdf8;">Controles de Simulação</h3>
-          
+
           <div style="margin-bottom: 1.5rem;">
             <label style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 0.5rem;">
               <span>Orçamento Inicial (R$):</span>

@@ -5,7 +5,7 @@ import axios from 'axios';
 import { assertSafeUrl } from '../services/urlSafety.js';
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const MAX_REDIRECTS = 5;
 
@@ -46,8 +46,19 @@ router.post('/upload-file', upload.single('file'), async (req, res) => {
     }
 
     const { originalname, mimetype, buffer } = req.file;
-    let extractedText = '';
 
+    // Imagens não têm texto a extrair: retorna o base64 para uso como entrada
+    // multimodal na IA (Gemini Vision), em vez do texto de placeholder anterior.
+    if (mimetype.startsWith('image/')) {
+      return res.json({
+        success: true,
+        filename: originalname,
+        mimeType: mimetype,
+        base64: buffer.toString('base64')
+      });
+    }
+
+    let extractedText = '';
     if (mimetype === 'application/pdf') {
       const pdfData = await pdfParse(buffer);
       extractedText = pdfData.text;

@@ -8,9 +8,9 @@ import MediaLibraryDrawer from './MediaLibraryDrawer';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
 import { io } from 'socket.io-client';
-import { apiFetch, API_URL } from '../lib/api';
+import { apiFetch, API_URL, getGeminiKey } from '../lib/api';
 import { auth } from '../lib/firebase';
-import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv } from 'lucide-react';
+import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -33,6 +33,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   ]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatAttachments, setChatAttachments] = useState([]);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [attachLinkUrl, setAttachLinkUrl] = useState('');
+  const [attachLoading, setAttachLoading] = useState(false);
 
   const stageRef = useRef(null);
 
@@ -87,11 +91,20 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const toggleFullscreen = () => {
     if (!stageRef.current) return;
     if (!document.fullscreenElement) {
-      stageRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => setIsFullscreen(true));
+      stageRef.current.requestFullscreen().catch(() => {});
     } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => setIsFullscreen(false));
+      document.exitFullscreen().catch(() => {});
     }
   };
+
+  // Mantém isFullscreen sincronizado com o estado real do navegador: cobre a
+  // saída nativa (tecla Esc, UI do navegador), que não passa por toggleFullscreen
+  // e por isso deixava a UI (lista de slides, chat) escondida mesmo após sair.
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   const handleNavigateBranch = (targetSlideId) => {
     const targetIndex = presentation.slides.findIndex(s => s.id === targetSlideId || s.title.includes(targetSlideId));
@@ -111,6 +124,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       mediaTag = `<video src="${media.url}" controls style="max-width: 100%; border-radius: 0.5rem; margin: 1rem 0;"></video>`;
     } else if (media.type === 'audio') {
       mediaTag = `<audio src="${media.url}" controls style="width: 100%; margin: 1rem 0;"></audio>`;
+    } else if (media.type === 'webpage') {
+      mediaTag = `<div style="position: relative; width: 100%; aspect-ratio: 16/9; margin: 1rem 0; border-radius: 0.5rem; overflow: hidden;"><iframe src="${media.url}" style="position:absolute; top:0; left:0; width:100%; height:100%; border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe></div>`;
     }
 
     const updatedSlides = [...presentation.slides];
@@ -122,14 +137,73 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setIsMediaDrawerOpen(false);
   };
 
+  const handleAttachFile = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setAttachLoading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await apiFetch('/api/materials/upload-file', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Falha ao anexar arquivo.');
+
+      if (data.mimeType && data.mimeType.startsWith('image/')) {
+        setChatAttachments(prev => [...prev, { id: Date.now().toString(), kind: 'image', name: data.filename, mimeType: data.mimeType, data: data.base64 }]);
+      } else {
+        setChatAttachments(prev => [...prev, { id: Date.now().toString(), kind: 'text', name: data.filename, content: data.text }]);
+      }
+    } catch (err) {
+      alert('Erro ao anexar arquivo: ' + err.message);
+    } finally {
+      setAttachLoading(false);
+      setShowAttachMenu(false);
+    }
+  };
+
+  const handleAttachLink = async () => {
+    if (!attachLinkUrl.trim()) return;
+    setAttachLoading(true);
+
+    try {
+      const res = await apiFetch('/api/materials/parse-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: attachLinkUrl })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Falha ao ler o link.');
+
+      setChatAttachments(prev => [...prev, { id: Date.now().toString(), kind: 'text', name: attachLinkUrl, content: data.text }]);
+      setAttachLinkUrl('');
+    } catch (err) {
+      alert('Erro ao anexar link: ' + err.message);
+    } finally {
+      setAttachLoading(false);
+      setShowAttachMenu(false);
+    }
+  };
+
+  const removeAttachment = (id) => {
+    setChatAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
   const handleSendChatMessage = async (e) => {
     e.preventDefault();
     if (!chatInput.trim() || chatLoading) return;
 
     const userText = chatInput;
+    const attachmentsSent = chatAttachments;
     setChatInput('');
-    setChatMessages(prev => [...prev, { sender: 'user', text: userText }]);
+    setChatAttachments([]);
+    setChatMessages(prev => [...prev, { sender: 'user', text: userText, attachments: attachmentsSent }]);
     setChatLoading(true);
+
+    const materials = attachmentsSent.filter(a => a.kind === 'text').map(a => `[${a.name}]\n${a.content}`).join('\n\n');
+    const images = attachmentsSent.filter(a => a.kind === 'image').map(({ mimeType, data }) => ({ mimeType, data }));
 
     try {
       const res = await apiFetch('/api/ai/edit-slide', {
@@ -137,7 +211,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           currentHtml: currentSlide.html,
-          instruction: userText
+          instruction: userText,
+          apiKey: getGeminiKey(),
+          materials: materials || undefined,
+          images: images.length ? images : undefined
         })
       });
       const data = await res.json();
@@ -149,7 +226,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           html: data.newHtml
         };
         setPresentation({ ...presentation, slides: updatedSlides });
-        setChatMessages(prev => [...prev, { sender: 'ai', text: `✨ Slide #${activeIndex + 1} atualizado com sucesso!` }]);
+        const successText = `✨ Slide #${activeIndex + 1} atualizado com sucesso!`;
+        setChatMessages(prev => [
+          ...prev,
+          { sender: 'ai', text: data.warning ? `${successText}\n⚠️ ${data.warning}` : successText }
+        ]);
       } else {
         throw new Error(data.error || 'Falha ao atualizar.');
       }
@@ -171,6 +252,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             if (socket) socket.emit('slide_changed', { pin, newIndex: idx });
           }
         }}
+        onClose={() => setShowPresenterWindow(false)}
       />
     );
   }
@@ -270,13 +352,61 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
           <div className="chat-messages">
             {chatMessages.map((msg, i) => (
-              <div key={i} className={`chat-msg ${msg.sender}`}>
+              <div key={i} className={`chat-msg ${msg.sender}`} style={{ whiteSpace: 'pre-line' }}>
                 {msg.text}
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.5rem' }}>
+                    {msg.attachments.map(a => (
+                      <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.72rem', background: 'rgba(255,255,255,0.08)', padding: '0.2rem 0.4rem', borderRadius: '0.3rem' }}>
+                        {a.kind === 'image' ? <Image size={11} /> : <FileText size={11} />} {a.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
 
+          {chatAttachments.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', padding: '0 1rem 0.5rem' }}>
+              {chatAttachments.map(a => (
+                <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', background: 'rgba(56,189,248,0.1)', color: '#38bdf8', padding: '0.25rem 0.5rem', borderRadius: '0.4rem' }}>
+                  {a.kind === 'image' ? <Image size={12} /> : <FileText size={12} />}
+                  <span style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                  <button type="button" onClick={() => removeAttachment(a.id)} style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', display: 'flex' }}>
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {showAttachMenu && (
+            <div style={{ margin: '0 1rem 0.5rem', padding: '0.75rem', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-glass)', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <label className="btn-icon" style={{ width: 'auto', padding: '0.4rem 0.7rem', justifyContent: 'flex-start', gap: '0.4rem', cursor: 'pointer' }}>
+                <Paperclip size={14} /> <span style={{ fontSize: '0.78rem' }}>Anexar PDF / TXT / Imagem</span>
+                <input type="file" accept=".pdf,.txt,image/*" style={{ display: 'none' }} onChange={handleAttachFile} disabled={attachLoading} />
+              </label>
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <input
+                  type="url"
+                  className="chat-input"
+                  placeholder="https://exemplo.com/artigo"
+                  style={{ fontSize: '0.78rem', padding: '0.4rem 0.6rem' }}
+                  value={attachLinkUrl}
+                  onChange={(e) => setAttachLinkUrl(e.target.value)}
+                />
+                <button type="button" className="btn-icon" onClick={handleAttachLink} disabled={attachLoading} style={{ background: 'rgba(255,255,255,0.1)' }}>
+                  <LinkIcon size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSendChatMessage} className="chat-input-area">
+            <button type="button" className="btn-icon" onClick={() => setShowAttachMenu(!showAttachMenu)} title="Anexar material de referência (PDF, imagem, link)">
+              <Paperclip size={16} />
+            </button>
             <input
               type="text"
               className="chat-input"

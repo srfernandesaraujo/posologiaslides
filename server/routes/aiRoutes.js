@@ -6,13 +6,13 @@ const router = express.Router();
 // Rota 1: Gerar Outline da Apresentação
 router.post('/generate-outline', async (req, res) => {
   try {
-    const { prompt, materials, numSlides, apiKey } = req.body;
+    const { prompt, materials, numSlides, apiKey, images } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: 'O prompt principal é obrigatório.' });
     }
 
-    const outline = await generatePresentationOutline({ prompt, materials, numSlides, apiKey });
-    res.json({ success: true, outline });
+    const { outline, warning } = await generatePresentationOutline({ prompt, materials, numSlides, apiKey, images });
+    res.json({ success: true, outline, warning: warning || null });
   } catch (error) {
     console.error('Erro na rota generate-outline:', error);
     res.status(500).json({ error: 'Falha ao gerar o roteiro da apresentação.' });
@@ -22,21 +22,24 @@ router.post('/generate-outline', async (req, res) => {
 // Rota 2: Gerar Slides HTML a partir do Outline
 router.post('/generate-slides', async (req, res) => {
   try {
-    const { outline, apiKey } = req.body;
+    const { outline, apiKey, images } = req.body;
     if (!outline || !outline.slides) {
       return res.status(400).json({ error: 'O outline com lista de slides é obrigatório.' });
     }
 
     const generatedSlides = [];
+    let firstWarning = null;
     for (let i = 0; i < outline.slides.length; i++) {
       const slideInfo = outline.slides[i];
-      const html = await generateSlideHtml({
+      const { html, warning } = await generateSlideHtml({
         slideOutline: slideInfo,
         presentationTitle: outline.title,
         index: i + 1,
         totalSlides: outline.slides.length,
-        apiKey
+        apiKey,
+        images
       });
+      if (warning && !firstWarning) firstWarning = warning;
 
       generatedSlides.push({
         id: `slide-${i + 1}-${Date.now()}`,
@@ -52,7 +55,8 @@ router.post('/generate-slides', async (req, res) => {
         title: outline.title,
         description: outline.description,
         slides: generatedSlides
-      }
+      },
+      warning: firstWarning
     });
   } catch (error) {
     console.error('Erro na rota generate-slides:', error);
@@ -63,13 +67,13 @@ router.post('/generate-slides', async (req, res) => {
 // Rota 3: Editar slide específico via Prompt do Usuário
 router.post('/edit-slide', async (req, res) => {
   try {
-    const { currentHtml, instruction, apiKey } = req.body;
+    const { currentHtml, instruction, apiKey, materials, images } = req.body;
     if (!currentHtml || !instruction) {
       return res.status(400).json({ error: 'HTML atual e instrução são obrigatórios.' });
     }
 
-    const newHtml = await editSlideWithAi({ currentHtml, instruction, apiKey });
-    res.json({ success: true, newHtml });
+    const { html: newHtml, warning } = await editSlideWithAi({ currentHtml, instruction, apiKey, materials, images });
+    res.json({ success: true, newHtml, warning: warning || null });
   } catch (error) {
     console.error('Erro na rota edit-slide:', error);
     res.status(500).json({ error: 'Falha ao editar o slide com IA.' });

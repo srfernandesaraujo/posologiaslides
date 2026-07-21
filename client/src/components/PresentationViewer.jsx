@@ -6,6 +6,12 @@ import React, { useEffect, useRef } from 'react';
  * ao window/document reais da aplicação, a cookies, a localStorage ou às chaves de API do usuário.
  * Chart.js e Mermaid.js são servidos localmente (public/vendor) e injetados dentro do documento
  * isolado para que os slides continuem podendo desenhar gráficos e diagramas.
+ *
+ * Mídia embutida (imagens/vídeos/áudios locais) usa data: URIs em vez de blob: —
+ * blob: é preso à origem que o criou e não atravessa essa fronteira de origem opaca.
+ * allow-popups é intencionalmente adicionado (baixo risco: só permite que uma página
+ * embutida via <iframe> no slide abra uma aba nova, ex. "assistir no YouTube") sem
+ * reintroduzir allow-same-origin, que quebraria o isolamento acima.
  */
 export default function PresentationViewer({ htmlContent }) {
   const iframeRef = useRef(null);
@@ -42,7 +48,7 @@ ${content}
     <iframe
       ref={iframeRef}
       title="slide-content"
-      sandbox="allow-scripts allow-forms"
+      sandbox="allow-scripts allow-forms allow-popups"
       style={{
         width: '100%',
         height: '100%',
