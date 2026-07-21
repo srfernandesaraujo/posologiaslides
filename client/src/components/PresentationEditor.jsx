@@ -5,12 +5,13 @@ import PresentationControls from './PresentationControls';
 import SlideList from './SlideList';
 import ActiveMethodologiesOverlay from './ActiveMethodologiesOverlay';
 import MediaLibraryDrawer from './MediaLibraryDrawer';
+import WidgetLibraryDrawer from './WidgetLibraryDrawer';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
 import { io } from 'socket.io-client';
 import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
-import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2 } from 'lucide-react';
+import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -20,6 +21,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [isMediaDrawerOpen, setIsMediaDrawerOpen] = useState(false);
+  const [isWidgetDrawerOpen, setIsWidgetDrawerOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [showPresenterWindow, setShowPresenterWindow] = useState(false);
 
@@ -145,6 +147,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     };
     setPresentation({ ...presentation, slides: updatedSlides });
     setIsMediaDrawerOpen(false);
+  };
+
+  const handleInsertWidget = (widgetHtml) => {
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = {
+      ...updatedSlides[activeIndex],
+      html: currentSlide.html + widgetHtml
+    };
+    setPresentation({ ...presentation, slides: updatedSlides });
+    setIsWidgetDrawerOpen(false);
   };
 
   const handleAttachFile = async (e) => {
@@ -308,6 +320,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               <button className="btn-icon" onClick={() => setIsMediaDrawerOpen(!isMediaDrawerOpen)} title="Biblioteca de Mídias (Drag & Drop)">
                 <Image size={18} />
               </button>
+              <button className="btn-icon" onClick={() => setIsWidgetDrawerOpen(!isWidgetDrawerOpen)} title="Biblioteca de Widgets Interativos">
+                <Puzzle size={18} />
+              </button>
               <button className="btn-icon" onClick={() => setShowCodeEditor(!showCodeEditor)} title="Ver / Editar HTML do Slide">
                 <Code size={18} />
               </button>
@@ -449,6 +464,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         isOpen={isMediaDrawerOpen}
         onClose={() => setIsMediaDrawerOpen(false)}
         onInsertMedia={handleInsertMedia}
+      />
+
+      {/* Drawer de Widgets Interativos */}
+      <WidgetLibraryDrawer
+        isOpen={isWidgetDrawerOpen}
+        onClose={() => setIsWidgetDrawerOpen(false)}
+        onInsertWidget={handleInsertWidget}
       />
 
       {/* Modal de Relatório Pós-Aula */}
