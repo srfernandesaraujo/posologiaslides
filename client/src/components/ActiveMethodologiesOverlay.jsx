@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Users, BarChart2, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert } from 'lucide-react';
+import { Users, BarChart2, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck } from 'lucide-react';
 
 export default function ActiveMethodologiesOverlay({
   socket,
@@ -44,6 +44,12 @@ export default function ActiveMethodologiesOverlay({
   const quizCounts = { A: 0, B: 0, C: 0, D: 0 };
   liveData.answers.forEach(a => {
     if (quizCounts[a.answer] !== undefined) quizCounts[a.answer]++;
+  });
+
+  // Calcula estatísticas de TBL/iRAT (Verificação de Prontidão Individual)
+  const iratCounts = { A: 0, B: 0, C: 0, D: 0 };
+  liveData.irat.forEach(r => {
+    if (iratCounts[r.choice] !== undefined) iratCounts[r.choice]++;
   });
 
   return (
@@ -124,6 +130,35 @@ export default function ActiveMethodologiesOverlay({
             {liveData.words.length === 0 && (
               <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>Aguardando palavras enviadas pelos alunos...</span>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Widget de TBL/iRAT — Verificação de Prontidão Individual */}
+      {currentSlide?.type === 'tbl' && (
+        <div className="glass-panel" style={{ padding: '1rem', width: '320px', background: 'rgba(15, 23, 42, 0.92)' }}>
+          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+            <ClipboardCheck size={16} /> Verificação Individual — iRAT ({liveData.irat.length})
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {['A', 'B', 'C', 'D'].map(opt => {
+              const count = iratCounts[opt];
+              const total = liveData.irat.length || 1;
+              const pct = Math.round((count / total) * 100);
+
+              return (
+                <div key={opt} style={{ fontSize: '0.8rem' }}>
+                  <div style={{ display: 'flex', justifyBetween: 'space-between', color: '#e5e7eb', fontWeight: 700, marginBottom: '0.2rem' }}>
+                    <span>Opção {opt}</span>
+                    <span>{count} ({pct}%)</span>
+                  </div>
+                  <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #a78bfa, #22d3ee)', transition: 'width 0.3s ease' }} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

@@ -30,7 +30,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -47,6 +47,7 @@ export function setupSocketIO(httpServer) {
         title,
         presenterSocketId: socket.id,
         currentSlideIndex: 0,
+        currentSlideType: slideType || null,
         participants: new Map(), // socketId -> { name, joinedAt }
         responses: {}, // slideIndex -> { answers: [], wordCloud: [], irat: [] }
         startTime: Date.now(),
@@ -74,7 +75,8 @@ export function setupSocketIO(httpServer) {
       socket.emit('joined_successfully', {
         pin,
         title: session.title,
-        currentSlideIndex: session.currentSlideIndex
+        currentSlideIndex: session.currentSlideIndex,
+        slideType: session.currentSlideType
       });
 
       // Notifica apresentador sobre novo aluno
@@ -118,13 +120,14 @@ export function setupSocketIO(httpServer) {
     });
 
     // 4. Apresentador altera slide
-    socket.on('slide_changed', ({ pin, newIndex }) => {
+    socket.on('slide_changed', ({ pin, newIndex, slideType }) => {
       const session = activeSessions.get(pin);
       if (session) {
         commitDwellTime(session);
         session.currentSlideIndex = newIndex;
+        session.currentSlideType = slideType || null;
         // Transmite para todos os alunos sincronizarem o celular
-        io.to(`session_${pin}`).emit('sync_slide', { currentSlideIndex: newIndex });
+        io.to(`session_${pin}`).emit('sync_slide', { currentSlideIndex: newIndex, slideType: session.currentSlideType });
       }
     });
 

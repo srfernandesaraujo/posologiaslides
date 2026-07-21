@@ -10,6 +10,7 @@ export default function StudentJoin() {
   const [joined, setJoined] = useState(false);
   const [sessionTitle, setSessionTitle] = useState('');
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [slideType, setSlideType] = useState(null);
 
   // Estados de resposta do aluno
   const [quizChoice, setQuizChoice] = useState('');
@@ -25,14 +26,16 @@ export default function StudentJoin() {
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
 
-    newSocket.on('joined_successfully', ({ title, currentSlideIndex }) => {
+    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType }) => {
       setJoined(true);
       setSessionTitle(title);
       setCurrentSlideIndex(currentSlideIndex);
+      setSlideType(slideType || null);
     });
 
-    newSocket.on('sync_slide', ({ currentSlideIndex }) => {
+    newSocket.on('sync_slide', ({ currentSlideIndex, slideType }) => {
       setCurrentSlideIndex(currentSlideIndex);
+      setSlideType(slideType || null);
       setSubmitted(false); // Reseta estado de envio para o novo slide
     });
 
@@ -61,7 +64,7 @@ export default function StudentJoin() {
       socket.emit('submit_response', {
         pin,
         slideIndex: currentSlideIndex,
-        responseType: 'quiz',
+        responseType: slideType === 'tbl' ? 'tbl' : 'quiz',
         answer: choice
       });
     }
@@ -145,7 +148,9 @@ export default function StudentJoin() {
         ) : (
           <div style={{ width: '100%', maxWidth: '400px' }}>
             <h4 style={{ textAlign: 'center', fontSize: '1.1rem', color: '#9ca3af', marginBottom: '1.5rem' }}>
-              Slide #{currentSlideIndex + 1} - Selecione sua resposta:
+              {slideType === 'tbl'
+                ? 'Verificação Individual (iRAT) — selecione sua resposta:'
+                : `Slide #${currentSlideIndex + 1} - Selecione sua resposta:`}
             </h4>
 
             {/* Alternativas de Quiz (A, B, C, D) */}

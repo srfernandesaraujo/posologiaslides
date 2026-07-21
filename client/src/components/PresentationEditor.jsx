@@ -56,7 +56,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
       newSocket.emit('create_session', {
         presentationId: presentation.id || 'p-1',
-        title: presentation.title || 'Apresentação'
+        title: presentation.title || 'Apresentação',
+        slideType: presentation.slides?.[0]?.type || null
       });
 
       newSocket.on('session_created', ({ pin: newPin }) => {
@@ -75,19 +76,31 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     html: '<div style="color:white; padding:2rem;">Nenhum slide gerado ainda.</div>'
   };
 
+  // Centraliza a troca de slide ativo: atualiza o estado local e avisa a
+  // sessão ao vivo (se houver) do novo índice E do tipo de interatividade
+  // do slide, pra o celular do aluno já saber o que mostrar.
+  const emitSlideChanged = (newIndex) => {
+    setActiveIndex(newIndex);
+    if (socket) {
+      socket.emit('slide_changed', { pin, newIndex, slideType: presentation.slides[newIndex]?.type || null });
+    }
+  };
+
+  const handleChangeSlideType = (type) => {
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], type: type || undefined };
+    setPresentation({ ...presentation, slides: updatedSlides });
+  };
+
   const handleNext = () => {
     if (activeIndex < presentation.slides.length - 1) {
-      const nextIdx = activeIndex + 1;
-      setActiveIndex(nextIdx);
-      if (socket) socket.emit('slide_changed', { pin, newIndex: nextIdx });
+      emitSlideChanged(activeIndex + 1);
     }
   };
 
   const handlePrev = () => {
     if (activeIndex > 0) {
-      const prevIdx = activeIndex - 1;
-      setActiveIndex(prevIdx);
-      if (socket) socket.emit('slide_changed', { pin, newIndex: prevIdx });
+      emitSlideChanged(activeIndex - 1);
     }
   };
 
@@ -121,8 +134,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleNavigateBranch = (targetSlideId) => {
     const targetIndex = presentation.slides.findIndex(s => s.id === targetSlideId || s.title.includes(targetSlideId));
     if (targetIndex !== -1) {
-      setActiveIndex(targetIndex);
-      if (socket) socket.emit('slide_changed', { pin, newIndex: targetIndex });
+      emitSlideChanged(targetIndex);
     } else {
       handleNext();
     }
@@ -269,8 +281,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         currentIndex={activeIndex}
         onSelectSlide={(idx) => {
           if (idx >= 0 && idx < presentation.slides.length) {
-            setActiveIndex(idx);
-            if (socket) socket.emit('slide_changed', { pin, newIndex: idx });
+            emitSlideChanged(idx);
           }
         }}
         onClose={() => setShowPresenterWindow(false)}
@@ -285,10 +296,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         <SlideList
           slides={presentation.slides}
           activeIndex={activeIndex}
-          onSelectSlide={(idx) => {
-            setActiveIndex(idx);
-            if (socket) socket.emit('slide_changed', { pin, newIndex: idx });
-          }}
+          onSelectSlide={emitSlideChanged}
           onAddSlide={() => {
             const newSlide = { id: `slide-${Date.now()}`, title: `Novo Slide ${presentation.slides.length + 1}`, html: '<div style="padding:2rem; color:white;">Novo Slide Interativo</div>' };
             setPresentation({ ...presentation, slides: [...presentation.slides, newSlide] });
@@ -316,7 +324,19 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               {presentation.title} <span style={{ fontSize: '0.85rem', fontWeight: 400, color: '#9ca3af' }}>({activeIndex + 1}/{presentation.slides.length})</span>
             </h1>
 
-            <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+              <select
+                className="chat-input"
+                value={currentSlide.type || ''}
+                onChange={(e) => handleChangeSlideType(e.target.value)}
+                title="Modo de Interatividade deste Slide (ativa o painel de resultados ao vivo para o apresentador)"
+                style={{ fontSize: '0.78rem', padding: '0.4rem 0.6rem', width: 'auto' }}
+              >
+                <option value="">Sem interatividade</option>
+                <option value="quiz">Quiz ao Vivo</option>
+                <option value="wordcloud">Nuvem de Palavras</option>
+                <option value="tbl">TBL — Verificação Individual (iRAT)</option>
+              </select>
               <button className="btn-icon" onClick={() => setIsMediaDrawerOpen(!isMediaDrawerOpen)} title="Biblioteca de Mídias (Drag & Drop)">
                 <Image size={18} />
               </button>
