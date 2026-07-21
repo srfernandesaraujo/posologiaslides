@@ -1,10 +1,51 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import SlideThumbnail from './SlideThumbnail';
 import { apiFetch } from '../lib/api';
 import {
   Presentation, Search, Sparkles, Settings, Star, MoreHorizontal,
-  Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut
+  Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut,
+  Wand2, Users, Tv, PenTool, BarChart3, Image as ImageIcon
 } from 'lucide-react';
+
+// Features reais do sistema, exibidas na vitrine da Home
+const FEATURES = [
+  { icon: Wand2, title: 'Geração com IA', desc: 'Crie um deck completo a partir de um tema, PDF, link ou imagens em poucos segundos.' },
+  { icon: Users, title: 'Interatividade ao vivo', desc: 'Alunos entram pelo celular com um PIN e respondem quiz ou nuvem de palavras em tempo real.' },
+  { icon: Tv, title: 'Modo Apresentador', desc: 'Notas do orador e um copiloto de IA sugerindo perguntas para engajar a plateia.' },
+  { icon: PenTool, title: 'Anotação ao vivo', desc: 'Desenhe, destaque e use o apontador laser direto sobre o slide durante a aula.' },
+  { icon: BarChart3, title: 'Relatórios de engajamento', desc: 'Métricas reais da sessão: duração, participantes e respostas da turma.' },
+  { icon: ImageIcon, title: 'Mídia embutida', desc: 'Imagens, vídeos e páginas incorporadas direto nos slides gerados.' }
+];
+
+// Conta de 0 até `value` com easing, reanimando sempre que o valor mudar (ex.: nova apresentação criada)
+function AnimatedNumber({ value }) {
+  const [display, setDisplay] = useState(0);
+  const startValueRef = useRef(0);
+
+  useEffect(() => {
+    const start = startValueRef.current;
+    const end = value || 0;
+    const startTime = performance.now();
+    const duration = 900;
+    let frameId;
+
+    const tick = (now) => {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(start + (end - start) * eased));
+      if (progress < 1) {
+        frameId = requestAnimationFrame(tick);
+      } else {
+        startValueRef.current = end;
+      }
+    };
+
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [value]);
+
+  return display.toLocaleString('pt-BR');
+}
 
 function formatRelativeTime(timestamp) {
   if (!timestamp) return null;
@@ -58,6 +99,19 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
   }, [refreshKey]);
 
   const allPresentations = useMemo(() => flattenTree(folders), [folders]);
+
+  const totalSlides = useMemo(
+    () => allPresentations.reduce((sum, p) => sum + (p.slideCount || 0), 0),
+    [allPresentations]
+  );
+  const totalFavorites = useMemo(
+    () => allPresentations.filter((p) => p.favorite).length,
+    [allPresentations]
+  );
+  const recentPresentations = useMemo(
+    () => [...allPresentations].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 5),
+    [allPresentations]
+  );
 
   const visiblePresentations = useMemo(() => {
     let list = allPresentations;
@@ -188,6 +242,70 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
 
       {/* Conteúdo principal */}
       <main className="library-main">
+        <section className="library-hero animate-in">
+          <div className="ambient-glow" />
+          <div className="library-hero-content">
+            <h2 className="library-hero-title">
+              {user?.name ? `Olá, ${user.name.split(' ')[0]}!` : 'Bem-vindo(a)!'}
+            </h2>
+            <p className="library-hero-sub">
+              Crie apresentações interativas com IA e engaje sua turma em tempo real — do primeiro slide ao relatório da aula.
+            </p>
+
+            <div className="stat-grid">
+              <div className="glass-panel-interactive stat-tile highlight">
+                <div className="stat-tile-icon"><Layers size={17} /></div>
+                <div className="stat-value"><AnimatedNumber value={allPresentations.length} /></div>
+                <div className="stat-label">Apresentações</div>
+              </div>
+              <div className="glass-panel-interactive stat-tile">
+                <div className="stat-tile-icon"><Presentation size={17} /></div>
+                <div className="stat-value"><AnimatedNumber value={totalSlides} /></div>
+                <div className="stat-label">Slides criados</div>
+              </div>
+              <div className="glass-panel-interactive stat-tile">
+                <div className="stat-tile-icon"><FolderOpen size={17} /></div>
+                <div className="stat-value"><AnimatedNumber value={folders.length} /></div>
+                <div className="stat-label">Disciplinas</div>
+              </div>
+              <div className="glass-panel-interactive stat-tile">
+                <div className="stat-tile-icon"><Star size={17} /></div>
+                <div className="stat-value"><AnimatedNumber value={totalFavorites} /></div>
+                <div className="stat-label">Favoritas</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {recentPresentations.length > 0 && (
+          <section className="showcase-section animate-in" style={{ animationDelay: '0.1s' }}>
+            <div className="showcase-title"><Clock size={15} /> Continue de onde parou</div>
+            <div className="showcase-strip">
+              {recentPresentations.map((p) => (
+                <div key={p.id} className="glass-panel-interactive showcase-card" onClick={() => onOpenPresentation(p.id)}>
+                  <div className="showcase-card-thumb">
+                    <SlideThumbnail html={p.firstSlideHtml} />
+                  </div>
+                  <div className="showcase-card-title">{p.title}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="showcase-section animate-in" style={{ animationDelay: '0.15s' }}>
+          <div className="showcase-title"><Sparkles size={15} /> O que você pode fazer</div>
+          <div className="feature-grid">
+            {FEATURES.map((f) => (
+              <div key={f.title} className="glass-panel-interactive feature-card">
+                <div className="feature-card-icon"><f.icon size={18} /></div>
+                <div className="feature-card-title">{f.title}</div>
+                <div className="feature-card-desc">{f.desc}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <div className="library-topbar">
           <h1 className="library-page-title">Apresentações</h1>
           <div className="library-search">

@@ -79,7 +79,8 @@ export async function getFolderTree(userId) {
       favorite: !!p.favorite,
       updatedAt: p.updatedAt,
       lastOpenedAt: p.lastOpenedAt || null,
-      firstSlideHtml: Array.isArray(p.slides) ? p.slides[0]?.html || null : null
+      firstSlideHtml: Array.isArray(p.slides) ? p.slides[0]?.html || null : null,
+      slideCount: Array.isArray(p.slides) ? p.slides.length : 0
     });
     presentationsBySubfolder.set(p.subfolderId, list);
   });
