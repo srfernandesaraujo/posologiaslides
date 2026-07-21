@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
+import { API_URL } from '../lib/api';
 import { Smartphone, Send, CheckCircle2, Sparkles, Users } from 'lucide-react';
 
 export default function StudentJoin() {
@@ -21,7 +22,7 @@ export default function StudentJoin() {
     const pinParam = params.get('pin');
     if (pinParam) setPin(pinParam);
 
-    const newSocket = io(window.location.origin);
+    const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
 
     newSocket.on('joined_successfully', ({ title, currentSlideIndex }) => {

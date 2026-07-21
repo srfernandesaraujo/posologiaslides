@@ -8,7 +8,7 @@ import MediaLibraryDrawer from './MediaLibraryDrawer';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
 import { io } from 'socket.io-client';
-import { apiFetch } from '../lib/api';
+import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
 import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv } from 'lucide-react';
 
@@ -44,7 +44,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
       if (cancelled) return;
 
-      newSocket = io(window.location.origin, { auth: { token } });
+      newSocket = io(API_URL || window.location.origin, { auth: { token } });
       setSocket(newSocket);
 
       newSocket.emit('create_session', {
