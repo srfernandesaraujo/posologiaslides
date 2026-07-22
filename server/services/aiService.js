@@ -123,18 +123,43 @@ export async function generateSlideHtml({ slideOutline, presentationTitle, index
   }
 }
 
-export async function editSlideWithAi({ currentHtml, instruction, apiKey, materials, images }) {
+export async function editSlideWithAi({ currentHtml, instruction, apiKey, materials, images, elementHtml }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+  // `elementHtml` presente: o usuário selecionou um elemento específico do
+  // slide no editor — restringe a edição a esse fragmento (ver prompt abaixo),
+  // em vez de reescrever o slide inteiro, que é o que fazia a IA às vezes
+  // derrubar outros elementos ao pedir uma mudança pontual.
+  const isElementScoped = !!elementHtml;
 
   if (!effectiveApiKey) {
-    return { html: generateEditedFallbackHtml(currentHtml, instruction), warning: 'Nenhuma chave de API do Gemini configurada. Configure sua chave em Configurações para que a IA edite o slide de verdade.' };
+    const warning = 'Nenhuma chave de API do Gemini configurada. Configure sua chave em Configurações para que a IA edite o slide de verdade.';
+    return { html: isElementScoped ? elementHtml : generateEditedFallbackHtml(currentHtml, instruction), warning };
   }
 
   try {
     const genAI = new GoogleGenerativeAI(effectiveApiKey);
     const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
-    const prompt = `
+    const prompt = isElementScoped ? `
+    ${SYSTEM_PROMPT}
+
+    Você vai editar SOMENTE o fragmento HTML abaixo, que é UM elemento entre vários dentro de um slide maior — o restante do slide não está incluído aqui de propósito e NÃO deve ser mencionado nem recriado.
+
+    FRAGMENTO ATUAL (o elemento selecionado):
+    \`\`\`html
+    ${elementHtml}
+    \`\`\`
+
+    ${materialsBlock(materials)}
+
+    SOLICITAÇÃO DE ALTERAÇÃO DO USUÁRIO PARA ESTE ELEMENTO:
+    "${instruction}"
+
+    Regras obrigatórias da resposta:
+    - Altere apenas este fragmento para atender à solicitação.
+    - Se o fragmento tiver um elemento raiz com atributos "data-el-source" e/ou "data-el-config", mantenha-os EXATAMENTE como estão (não remova, não altere os valores).
+    - Retorne APENAS o HTML atualizado deste fragmento — sem comentários, sem markdown, sem o resto do slide.
+    ` : `
     ${SYSTEM_PROMPT}
 
     HTML ATUAL DO SLIDE:
@@ -156,7 +181,8 @@ export async function editSlideWithAi({ currentHtml, instruction, apiKey, materi
     return { html: cleanCodeBlock(result.response.text()) };
   } catch (error) {
     console.error('Erro na API Gemini (Edit Slide):', error.message);
-    return { html: generateEditedFallbackHtml(currentHtml, instruction), warning: `Falha ao usar a IA Gemini (${error.message}). A edição abaixo é apenas um marcador de exemplo.` };
+    const warning = `Falha ao usar a IA Gemini (${error.message}). ${isElementScoped ? 'O elemento foi mantido sem alterações.' : 'A edição abaixo é apenas um marcador de exemplo.'}`;
+    return { html: isElementScoped ? elementHtml : generateEditedFallbackHtml(currentHtml, instruction), warning };
   }
 }
 

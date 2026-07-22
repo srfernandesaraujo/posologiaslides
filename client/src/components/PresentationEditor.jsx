@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import PresentationViewer from './PresentationViewer';
+import PresentationViewer, { SLIDE_EDITOR_MESSAGE_SOURCE } from './PresentationViewer';
 import DrawingCanvas from './DrawingCanvas';
 import PresentationControls from './PresentationControls';
 import SlideList from './SlideList';
@@ -11,7 +11,14 @@ import PresentationReportModal from './PresentationReportModal';
 import { io } from 'socket.io-client';
 import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
-import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu } from 'lucide-react';
+import {
+  appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
+  moveElementAt, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta
+} from '../lib/slideHtmlUtils';
+import {
+  Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
+  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target
+} from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -28,6 +35,17 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // gavetas off-canvas em vez de colunas fixas — abertas/fechadas por aqui.
   const [mobileSlideListOpen, setMobileSlideListOpen] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
+
+  // Elemento de topo selecionado no slide (clique dentro do iframe editável)
+  // — { index, scope, rect } | null. `scope` distingue filhos de ".slide-root"
+  // dos de <body> direto (slides sem ".slide-root", ex. slide em branco novo).
+  const [selectedEl, setSelectedEl] = useState(null);
+  // Elemento pré-carregado no WidgetLibraryDrawer pra edição de campos (reabrir
+  // o mesmo formulário de configuração usado na inserção original).
+  const [editingWidgetContext, setEditingWidgetContext] = useState(null);
+  // Quando setado, a próxima mensagem do chat de IA edita só este elemento
+  // (envia o fragmento, não o slide inteiro) — ver handleSendChatMessage.
+  const [chatScope, setChatScope] = useState(null);
 
   // Sockets & PIN para sessão ao vivo
   const [socket, setSocket] = useState(null);
@@ -164,6 +182,31 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     }
   }, [chatMessages, chatLoading]);
 
+  // Recebe a seleção de elemento vinda do script injetado no iframe do slide
+  // (ver PresentationViewer). Só um PresentationViewer "editable" existe por
+  // vez (o palco principal, fora do modo tela cheia), então o identificador
+  // na mensagem já é suficiente pra distinguir do resto do app.
+  useEffect(() => {
+    const handleMessage = (e) => {
+      const data = e.data;
+      if (!data || data.source !== SLIDE_EDITOR_MESSAGE_SOURCE) return;
+      if (data.type === 'select') {
+        setSelectedEl({ index: data.index, scope: data.scope, rect: data.rect });
+      } else if (data.type === 'deselect') {
+        setSelectedEl(null);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  // Índices de seleção só fazem sentido pro slide/estado atual — trocar de
+  // slide ou entrar/sair de tela cheia sempre recarrega o iframe do zero.
+  useEffect(() => {
+    setSelectedEl(null);
+    setChatScope(null);
+  }, [activeIndex, isFullscreen]);
+
   const handleNavigateBranch = (targetSlideId) => {
     const targetIndex = presentation.slides.findIndex(s => s.id === targetSlideId || s.title.includes(targetSlideId));
     if (targetIndex !== -1) {
@@ -195,20 +238,83 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = {
       ...updatedSlides[activeIndex],
-      html: currentSlide.html + mediaTag
+      html: appendIntoRoot(currentSlide.html, mediaTag)
     };
     setPresentation({ ...presentation, slides: updatedSlides });
     setIsMediaDrawerOpen(false);
   };
 
-  const handleInsertWidget = (widgetHtml) => {
+  // `meta` ({ source, config }) só vem preenchido pra itens com formulário de
+  // configuração (blocos/layouts/diagramas/widgets/ícones) — habilita a ação
+  // "Editar campos" depois de inserido. Mídia e infográfico de IA não passam meta.
+  const handleInsertWidget = (widgetHtml, meta) => {
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = {
       ...updatedSlides[activeIndex],
-      html: currentSlide.html + widgetHtml
+      html: appendIntoRoot(currentSlide.html, widgetHtml, meta)
     };
     setPresentation({ ...presentation, slides: updatedSlides });
     setIsWidgetDrawerOpen(false);
+  };
+
+  // Aplica uma mutação estrutural (alinhar/mover/agrupar/apagar/substituir) ao
+  // HTML do slide atual e limpa a seleção — o iframe recarrega do zero com o
+  // novo HTML, então manter um índice de seleção "antigo" não faz sentido.
+  const mutateCurrentSlideHtml = (mutator) => {
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], html: mutator(currentSlide.html) };
+    setPresentation({ ...presentation, slides: updatedSlides });
+    setSelectedEl(null);
+  };
+
+  const handleAlignElement = (align) => {
+    if (!selectedEl) return;
+    mutateCurrentSlideHtml((html) => setAlignmentAt(html, selectedEl.index, align));
+  };
+
+  const handleMoveElement = (direction) => {
+    if (!selectedEl) return;
+    mutateCurrentSlideHtml((html) => moveElementAt(html, selectedEl.index, direction));
+  };
+
+  const handleGroupElement = (neighbor) => {
+    if (!selectedEl) return;
+    mutateCurrentSlideHtml((html) => groupWithNeighborAt(html, selectedEl.index, neighbor));
+  };
+
+  const handleUngroupElement = () => {
+    if (!selectedEl) return;
+    mutateCurrentSlideHtml((html) => ungroupAt(html, selectedEl.index));
+  };
+
+  const handleDeleteElement = () => {
+    if (!selectedEl) return;
+    mutateCurrentSlideHtml((html) => removeElementAt(html, selectedEl.index));
+  };
+
+  // Abre o drawer de widgets pré-carregado no item/valores que geraram o
+  // elemento selecionado, pra editar os campos sem precisar apagar e reinserir.
+  const handleEditElementFields = () => {
+    if (!selectedEl) return;
+    const meta = getElementMeta(currentSlide.html, selectedEl.index);
+    if (!meta) return;
+    setEditingWidgetContext({ index: selectedEl.index, source: meta.source, config: meta.config });
+    setIsWidgetDrawerOpen(true);
+  };
+
+  const handleUpdateWidgetElement = (index, newInnerHtml) => {
+    mutateCurrentSlideHtml((html) => replaceElementInnerAt(html, index, newInnerHtml));
+    setIsWidgetDrawerOpen(false);
+    setEditingWidgetContext(null);
+  };
+
+  // Restringe a próxima mensagem da IA a editar só o elemento selecionado —
+  // evita o problema de pedir uma mudança pontual e a IA reescrever/derrubar
+  // o resto do slide (ela só recebe e só devolve o fragmento deste elemento).
+  const handleScopeChatToSelection = () => {
+    if (!selectedEl) return;
+    setChatScope({ index: selectedEl.index });
+    setMobileChatOpen(true);
   };
 
   const handleAttachFile = async (e) => {
@@ -271,13 +377,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
     const userText = chatInput;
     const attachmentsSent = chatAttachments;
+    const scopeAtSend = chatScope;
     setChatInput('');
     setChatAttachments([]);
+    setChatScope(null);
     setChatMessages(prev => [...prev, { sender: 'user', text: userText, attachments: attachmentsSent }]);
     setChatLoading(true);
 
     const materials = attachmentsSent.filter(a => a.kind === 'text').map(a => `[${a.name}]\n${a.content}`).join('\n\n');
     const images = attachmentsSent.filter(a => a.kind === 'image').map(({ mimeType, data }) => ({ mimeType, data }));
+    const elementHtml = scopeAtSend ? getElementAt(currentSlide.html, scopeAtSend.index) : null;
 
     try {
       const res = await apiFetch('/api/ai/edit-slide', {
@@ -287,19 +396,27 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           currentHtml: currentSlide.html,
           instruction: userText,
           materials: materials || undefined,
-          images: images.length ? images : undefined
+          images: images.length ? images : undefined,
+          elementHtml: elementHtml || undefined
         })
       });
       const data = await res.json();
 
       if (data.success && data.newHtml) {
+        // Com escopo: a resposta é só o fragmento do elemento selecionado —
+        // substitui apenas ele, preservando o resto do slide intacto.
+        const updatedHtml = scopeAtSend
+          ? replaceElementAt(currentSlide.html, scopeAtSend.index, data.newHtml)
+          : data.newHtml;
         const updatedSlides = [...presentation.slides];
         updatedSlides[activeIndex] = {
           ...updatedSlides[activeIndex],
-          html: data.newHtml
+          html: updatedHtml
         };
         setPresentation({ ...presentation, slides: updatedSlides });
-        const successText = `✨ Slide #${activeIndex + 1} atualizado com sucesso!`;
+        const successText = scopeAtSend
+          ? `✨ Elemento selecionado atualizado com sucesso!`
+          : `✨ Slide #${activeIndex + 1} atualizado com sucesso!`;
         setChatMessages(prev => [
           ...prev,
           { sender: 'ai', text: data.warning ? `${successText}\n⚠️ ${data.warning}` : successText }
@@ -510,7 +627,57 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
         {/* Palco do Slide com Overlay de Metodologias Ativas */}
         <div ref={stageRef} className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}>
-          <PresentationViewer htmlContent={currentSlide.html} reloadKey={isFullscreen} />
+          <PresentationViewer htmlContent={currentSlide.html} reloadKey={isFullscreen} editable={!isFullscreen} />
+
+          {/* Barra de ação do elemento selecionado (clique num elemento de topo do slide) */}
+          {!isFullscreen && selectedEl && (() => {
+            const elementMeta = getElementMeta(currentSlide.html, selectedEl.index);
+            const grouped = isGroupedAt(currentSlide.html, selectedEl.index);
+            const btnStyle = { width: '30px', height: '30px' };
+            const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
+
+            return (
+              <div
+                className="glass-panel"
+                style={{
+                  position: 'absolute',
+                  top: `${Math.max(4, selectedEl.rect.top - 46)}px`,
+                  left: `${Math.max(4, selectedEl.rect.left)}px`,
+                  zIndex: 40,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.15rem',
+                  padding: '0.3rem',
+                  background: 'rgba(15, 23, 42, 0.95)'
+                }}
+              >
+                <button className="btn-icon" style={btnStyle} title="Alinhar à esquerda" onClick={() => handleAlignElement('left')}><AlignLeft size={15} /></button>
+                <button className="btn-icon" style={btnStyle} title="Centralizar" onClick={() => handleAlignElement('center')}><AlignCenter size={15} /></button>
+                <button className="btn-icon" style={btnStyle} title="Alinhar à direita" onClick={() => handleAlignElement('right')}><AlignRight size={15} /></button>
+                {divider}
+                <button className="btn-icon" style={btnStyle} title="Mover para cima" onClick={() => handleMoveElement('up')}><ArrowUp size={15} /></button>
+                <button className="btn-icon" style={btnStyle} title="Mover para baixo" onClick={() => handleMoveElement('down')}><ArrowDown size={15} /></button>
+                {divider}
+                {grouped ? (
+                  <button className="btn-icon" style={btnStyle} title="Desagrupar" onClick={handleUngroupElement}><Rows3 size={15} /></button>
+                ) : (
+                  <>
+                    <button className="btn-icon" style={btnStyle} title="Colocar ao lado do anterior" onClick={() => handleGroupElement('prev')}><Columns2 size={15} /></button>
+                    <button className="btn-icon" style={btnStyle} title="Colocar ao lado do próximo" onClick={() => handleGroupElement('next')}><Columns2 size={15} style={{ transform: 'scaleX(-1)' }} /></button>
+                  </>
+                )}
+                {elementMeta && (
+                  <>
+                    {divider}
+                    <button className="btn-icon" style={btnStyle} title="Editar campos" onClick={handleEditElementFields}><Pencil size={15} /></button>
+                  </>
+                )}
+                {divider}
+                <button className="btn-icon" style={btnStyle} title="Editar este elemento com IA" onClick={handleScopeChatToSelection}><Bot size={15} /></button>
+                <button className="btn-icon" style={{ ...btnStyle, color: '#f87171' }} title="Apagar elemento" onClick={handleDeleteElement}><Trash2 size={15} /></button>
+              </div>
+            );
+          })()}
 
           <ActiveMethodologiesOverlay
             socket={socket}
@@ -552,6 +719,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               <X size={16} />
             </button>
           </div>
+
+          {chatScope && (
+            <div style={{ margin: '0.75rem 1rem 0', padding: '0.4rem 0.7rem', background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.3)', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: '#67e8f9' }}>
+              <Target size={13} /> Editando só o elemento selecionado
+              <button type="button" onClick={() => setChatScope(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#67e8f9', cursor: 'pointer', display: 'flex' }}>
+                <X size={13} />
+              </button>
+            </div>
+          )}
 
           <div className="chat-messages" ref={chatMessagesRef}>
             {chatMessages.map((msg, i) => (
@@ -641,8 +817,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       {/* Drawer de Widgets Interativos */}
       <WidgetLibraryDrawer
         isOpen={isWidgetDrawerOpen}
-        onClose={() => setIsWidgetDrawerOpen(false)}
+        onClose={() => { setIsWidgetDrawerOpen(false); setEditingWidgetContext(null); }}
         onInsertWidget={handleInsertWidget}
+        editingContext={editingWidgetContext}
+        onUpdateElement={handleUpdateWidgetElement}
       />
 
       {/* Modal de Relatório Pós-Aula */}

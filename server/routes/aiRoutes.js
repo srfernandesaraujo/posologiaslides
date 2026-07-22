@@ -80,13 +80,16 @@ router.post('/generate-slides', async (req, res) => {
 // Rota 3: Editar slide específico via Prompt do Usuário
 router.post('/edit-slide', async (req, res) => {
   try {
-    const { currentHtml, instruction, apiKey, materials, images } = req.body;
+    const { currentHtml, instruction, apiKey, materials, images, elementHtml } = req.body;
     if (!currentHtml || !instruction) {
       return res.status(400).json({ error: 'HTML atual e instrução são obrigatórios.' });
     }
 
     const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
-    const { html: newHtml, warning } = await editSlideWithAi({ currentHtml, instruction, apiKey: effectiveApiKey, materials, images });
+    // `elementHtml` presente: usuário selecionou um elemento específico do
+    // slide — a IA edita e devolve só esse fragmento, sem reescrever (e sem
+    // risco de derrubar) o resto do slide.
+    const { html: newHtml, warning } = await editSlideWithAi({ currentHtml, instruction, apiKey: effectiveApiKey, materials, images, elementHtml });
     res.json({ success: true, newHtml, warning: warning || null });
   } catch (error) {
     console.error('Erro na rota edit-slide:', error);

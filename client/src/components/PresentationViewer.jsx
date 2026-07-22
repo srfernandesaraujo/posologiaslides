@@ -21,7 +21,74 @@ import React, { useEffect, useRef } from 'react';
  * completo (documento novo) toda vez que essa transição acontece, para que o
  * script do slide meça o tamanho final já estabilizado.
  */
-export default function PresentationViewer({ htmlContent, reloadKey }) {
+// Identificador usado nas mensagens postMessage entre o script de seleção
+// injetado no iframe e o listener no app principal (ver PresentationEditor).
+export const SLIDE_EDITOR_MESSAGE_SOURCE = 'posologia-slide-editor';
+
+// Script injetado apenas quando `editable` é true: permite passar o mouse e
+// clicar nos elementos de topo do slide (filhos diretos de ".slide-root", ou
+// do <body> quando não há ".slide-root") pra selecioná-los no editor. Não
+// chama preventDefault/stopPropagation — cliques em controles do próprio
+// widget (slider, botão) continuam funcionando normalmente; selecionar é só
+// um efeito colateral passivo do clique.
+function buildEditorScript() {
+  return `
+<style>
+  .__pos-hover { outline: 2px dashed rgba(34,211,238,0.7) !important; outline-offset: 2px; cursor: pointer; }
+  .__pos-selected { outline: 2px solid #22d3ee !important; outline-offset: 2px; }
+</style>
+<script>
+(function () {
+  var container = document.querySelector('.slide-root') || document.body;
+  var scope = container === document.body ? 'body' : 'root';
+  var selector = scope === 'root' ? '.slide-root > *' : 'body > *';
+  var hovered = null;
+  var selected = null;
+
+  function indexOf(el) {
+    return Array.prototype.indexOf.call(container.children, el);
+  }
+
+  document.body.addEventListener('mouseover', function (e) {
+    var match = e.target.closest(selector);
+    if (match === hovered) return;
+    if (hovered && hovered !== selected) hovered.classList.remove('__pos-hover');
+    hovered = match;
+    if (hovered && hovered !== selected) hovered.classList.add('__pos-hover');
+  });
+
+  document.body.addEventListener('mouseout', function () {
+    if (hovered && hovered !== selected) hovered.classList.remove('__pos-hover');
+    hovered = null;
+  });
+
+  document.body.addEventListener('click', function (e) {
+    var match = e.target.closest(selector);
+    if (selected) selected.classList.remove('__pos-selected');
+
+    if (!match) {
+      selected = null;
+      window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'deselect' }, '*');
+      return;
+    }
+
+    selected = match;
+    selected.classList.remove('__pos-hover');
+    selected.classList.add('__pos-selected');
+    var rect = match.getBoundingClientRect();
+    window.parent.postMessage({
+      source: '${SLIDE_EDITOR_MESSAGE_SOURCE}',
+      type: 'select',
+      index: indexOf(match),
+      scope: scope,
+      rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+    }, '*');
+  });
+})();
+</script>`;
+}
+
+export default function PresentationViewer({ htmlContent, reloadKey, editable = false }) {
   const iframeRef = useRef(null);
 
   useEffect(() => {
@@ -45,6 +112,7 @@ ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}
 </head>
 <body>
 ${content}
+${editable ? buildEditorScript() : ''}
 </body>
 </html>`;
 
@@ -63,7 +131,7 @@ ${content}
       cancelAnimationFrame(frame1);
       if (frame2) cancelAnimationFrame(frame2);
     };
-  }, [htmlContent, reloadKey]);
+  }, [htmlContent, reloadKey, editable]);
 
   return (
     <iframe

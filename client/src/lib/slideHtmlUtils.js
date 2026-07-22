@@ -5,3 +5,216 @@
 export function uniqueId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
+
+// ==========================================================================
+// Manipulação estrutural do HTML do slide — usada pela seleção de elementos
+// no editor (alinhar, mover, agrupar, apagar, editar campos). Roda sempre no
+// documento principal do app (nunca dentro do iframe sandboxed do slide) via
+// <template>, que faz o parser tratar o HTML como um fragmento de <body> puro
+// (sem as inferências de <head>/<body> do parser de documento completo) e não
+// executa nenhum <script> contido nele.
+// ==========================================================================
+
+function parseFragment(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html || '';
+  return template;
+}
+
+function serializeFragment(template) {
+  return template.innerHTML;
+}
+
+// Filhos diretos de ".slide-root" (contêiner que a IA usa pra montar o layout
+// do slide) quando existir; senão, os filhos diretos do próprio fragmento —
+// é essa lista que define os índices endereçáveis (0, 1, 2...) usados abaixo.
+function getContainer(template) {
+  return template.content.querySelector('.slide-root') || template.content;
+}
+
+export function getElementAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  return el ? el.outerHTML : null;
+}
+
+export function removeElementAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return html;
+  el.remove();
+  return serializeFragment(template);
+}
+
+// Substitui por completo o que ocupa a posição `index` (wrapper de
+// alinhamento/agrupamento incluído, se houver) — usada pela edição via IA
+// restrita a um elemento, onde a resposta já é o substituto completo daquele
+// slot.
+export function replaceElementAt(html, index, newFragmentHtml) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  const newEl = parseFragment(newFragmentHtml).content.firstElementChild;
+  if (!el || !newEl) return html;
+  el.replaceWith(newEl);
+  return serializeFragment(template);
+}
+
+// Substitui só o CONTEÚDO da posição `index`, preservando um wrapper de
+// alinhamento existente — usada por "Editar campos" (reabrir o formulário de
+// configuração), onde queremos manter o alinhamento já aplicado ao elemento.
+export function replaceElementInnerAt(html, index, newInnerHtml) {
+  const template = parseFragment(html);
+  const wrapperOrEl = getContainer(template).children[index];
+  const newEl = parseFragment(newInnerHtml).content.firstElementChild;
+  if (!wrapperOrEl || !newEl) return html;
+
+  if (wrapperOrEl.getAttribute('data-align-wrap') === 'true') {
+    wrapperOrEl.replaceChildren(newEl);
+  } else {
+    wrapperOrEl.replaceWith(newEl);
+  }
+  return serializeFragment(template);
+}
+
+export function moveElementAt(html, index, direction) {
+  const template = parseFragment(html);
+  const container = getContainer(template);
+  const children = Array.from(container.children);
+  const el = children[index];
+  const target = children[index + (direction === 'up' ? -1 : 1)];
+  if (!el || !target) return html;
+
+  if (direction === 'up') {
+    container.insertBefore(el, target);
+  } else {
+    container.insertBefore(target, el);
+  }
+  return serializeFragment(template);
+}
+
+// Alinha o elemento na posição `index` envolvendo-o num flex container que
+// posiciona o conteúdo à esquerda/centro/direita — funciona igual não importa
+// se o elemento original é block, inline ou inline-flex (ícones, botões,
+// tabelas, texto), sem precisar tratar cada tipo de forma diferente.
+// "left" remove o wrapper (é o fluxo normal, sem alinhamento especial).
+export function setAlignmentAt(html, index, align) {
+  const template = parseFragment(html);
+  const container = getContainer(template);
+  const wrapperOrEl = container.children[index];
+  if (!wrapperOrEl) return html;
+
+  const isWrapped = wrapperOrEl.getAttribute('data-align-wrap') === 'true';
+  const innerEl = isWrapped ? wrapperOrEl.firstElementChild : wrapperOrEl;
+  if (!innerEl) return html;
+
+  if (align === 'left') {
+    if (isWrapped) wrapperOrEl.replaceWith(innerEl);
+    return serializeFragment(template);
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('data-align-wrap', 'true');
+  wrapper.style.cssText = `display:flex;justify-content:${align === 'center' ? 'center' : 'flex-end'};width:100%;`;
+  wrapperOrEl.replaceWith(wrapper);
+  wrapper.appendChild(innerEl);
+  return serializeFragment(template);
+}
+
+// Agrupa o elemento em `index` com o vizinho anterior ("prev") ou seguinte
+// ("next") num container flex lado a lado. `ungroupAt` desfaz.
+export function groupWithNeighborAt(html, index, neighbor) {
+  const template = parseFragment(html);
+  const container = getContainer(template);
+  const children = Array.from(container.children);
+  const el = children[index];
+  const other = children[index + (neighbor === 'prev' ? -1 : 1)];
+  if (!el || !other) return html;
+
+  const first = neighbor === 'prev' ? other : el;
+  const second = neighbor === 'prev' ? el : other;
+
+  const group = document.createElement('div');
+  group.setAttribute('data-el-group', 'true');
+  group.style.cssText = 'display:flex;gap:1.5rem;align-items:flex-start;width:100%;';
+  first.replaceWith(group);
+  [first, second].forEach((child) => {
+    child.style.flex = '1';
+    child.style.minWidth = '0';
+    group.appendChild(child);
+  });
+
+  return serializeFragment(template);
+}
+
+export function isGroupedAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  return !!el && el.getAttribute('data-el-group') === 'true';
+}
+
+export function ungroupAt(html, index) {
+  const template = parseFragment(html);
+  const container = getContainer(template);
+  const group = container.children[index];
+  if (!group || group.getAttribute('data-el-group') !== 'true') return html;
+
+  Array.from(group.children).forEach((child) => {
+    child.style.flex = '';
+    child.style.minWidth = '';
+    group.before(child);
+  });
+  group.remove();
+  return serializeFragment(template);
+}
+
+// Lê a origem/configuração de um elemento inserido pela biblioteca de blocos
+// (ver `appendIntoRoot`) — usada pra saber se "Editar campos" deve aparecer,
+// e com quais valores pré-preencher o formulário.
+export function getElementMeta(html, index) {
+  const template = parseFragment(html);
+  const wrapperOrEl = getContainer(template).children[index];
+  if (!wrapperOrEl) return null;
+
+  const el = wrapperOrEl.getAttribute('data-align-wrap') === 'true' ? wrapperOrEl.firstElementChild : wrapperOrEl;
+  if (!el || !el.hasAttribute('data-el-source')) return null;
+
+  let config = {};
+  try {
+    config = JSON.parse(el.getAttribute('data-el-config') || '{}');
+  } catch {
+    // Config corrompida/antiga — segue com valores vazios em vez de quebrar a seleção
+  }
+  return { source: el.getAttribute('data-el-source'), config };
+}
+
+// Insere `fragment` como último filho de ".slide-root" (ou do próprio corpo
+// do slide, se não houver ".slide-root") em vez de simplesmente concatenar a
+// string no fim do HTML — isso mantém o elemento inserido DENTRO da caixa de
+// layout que a IA usa pra montar o slide, em vez de ficar solto depois dela.
+// Quando `meta` é passado ({ source, config }), envolve o fragmento num
+// wrapper marcado com data-el-source/data-el-config, habilitando a edição
+// posterior dos campos (ver `getElementMeta`); blocos sem formulário de
+// configuração (mídia, infográfico gerado por IA) não passam `meta`.
+export function appendIntoRoot(html, fragment, meta) {
+  const template = parseFragment(html);
+  const container = getContainer(template);
+  const fragTemplate = parseFragment(fragment);
+
+  let node;
+  if (meta) {
+    node = document.createElement('div');
+    node.setAttribute('data-el-source', meta.source);
+    node.setAttribute('data-el-config', JSON.stringify(meta.config || {}));
+    node.append(...fragTemplate.content.childNodes);
+  } else if (fragTemplate.content.childNodes.length === 1 && fragTemplate.content.firstElementChild) {
+    node = fragTemplate.content.firstElementChild;
+  } else {
+    // Fragmento com múltiplos nós de topo (ex.: mídia + legenda de crédito)
+    // precisa de um único wrapper pra virar um item endereçável por índice.
+    node = document.createElement('div');
+    node.append(...fragTemplate.content.childNodes);
+  }
+
+  container.appendChild(node);
+  return serializeFragment(template);
+}

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Puzzle, X, Plus, ChevronDown, Sparkles, Loader2, Search,
+  Puzzle, X, Plus, Save, ChevronDown, Sparkles, Loader2, Search,
   Activity, Timer, Shuffle, Calculator, Layers, Columns2,
   Type, Heading1, Heading2, Heading3, Quote, Tag, Table2, List, ListOrdered, ListChecks,
   StickyNote, Info, AlertTriangle, Link2, QrCode,
@@ -39,7 +39,7 @@ function defaultValuesFor(item) {
   return values;
 }
 
-export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget }) {
+export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget, editingContext, onUpdateElement }) {
   const [activeTabId, setActiveTabId] = useState('blocos');
   const [expandedId, setExpandedId] = useState(null);
   const [values, setValues] = useState({});
@@ -56,6 +56,31 @@ export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget })
   const [iconSearch, setIconSearch] = useState('');
   const [iconColor, setIconColor] = useState('#22d3ee');
   const [iconSize, setIconSize] = useState(48);
+  // Ícone já inserido no slide, sendo reconfigurado (cor/tamanho) em vez de
+  // inserir um novo — ver `editingContext`.
+  const [editingIcon, setEditingIcon] = useState(null);
+
+  // Pré-carrega o item/valores (ou o ícone) que geraram o elemento selecionado
+  // no slide, pra editar os campos sem precisar apagar e reinserir do zero.
+  useEffect(() => {
+    if (!editingContext) return;
+
+    if (editingContext.source.startsWith('icon:')) {
+      setActiveTabId('icones');
+      setEditingIcon({ name: editingContext.source.slice('icon:'.length), index: editingContext.index });
+      setIconColor(editingContext.config.color || '#22d3ee');
+      setIconSize(editingContext.config.size || 48);
+      return;
+    }
+
+    const [tabId, itemId] = editingContext.source.split(':');
+    const tab = TABS.find((t) => t.id === tabId);
+    const item = tab?.catalog?.find((i) => i.id === itemId);
+    if (!tab || !item) return;
+    setActiveTabId(tabId);
+    setExpandedId(itemId);
+    setValues(editingContext.config || {});
+  }, [editingContext]);
 
   if (!isOpen) return null;
 
@@ -73,6 +98,7 @@ export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget })
   const handleSelectTab = (tabId) => {
     setActiveTabId(tabId);
     setExpandedId(null);
+    setEditingIcon(null);
     resetAiState();
   };
 
@@ -93,8 +119,19 @@ export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget })
   };
 
   const handleInsert = (item) => {
-    onInsertWidget(item.buildHtml(values));
+    onInsertWidget(item.buildHtml(values), { source: `${activeTabId}:${item.id}`, config: values });
     setExpandedId(null);
+  };
+
+  const handleSaveEdit = (item) => {
+    onUpdateElement(editingContext.index, item.buildHtml(values));
+    setExpandedId(null);
+  };
+
+  const handleSaveIconEdit = () => {
+    if (!editingIcon) return;
+    onUpdateElement(editingIcon.index, buildIconHtml({ icon: editingIcon.name, color: iconColor, size: iconSize }));
+    setEditingIcon(null);
   };
 
   const handleGenerateAi = async (item) => {
@@ -191,42 +228,63 @@ export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget })
               style={{ fontSize: '0.8rem', width: '4.2rem', boxSizing: 'border-box' }}
             />
           </div>
-          <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>
-            Clique num ícone pra inserir direto no slide atual, na cor e tamanho escolhidos:
-          </p>
-
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {filteredIconGroups.length === 0 && (
-              <p style={{ fontSize: '0.8rem', color: '#6b7280', textAlign: 'center', marginTop: '2rem' }}>Nenhum ícone encontrado.</p>
-            )}
-            {filteredIconGroups.map((group) => (
-              <div key={group.label} style={{ marginBottom: '1rem' }}>
-                <div style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: '0.5rem' }}>
-                  {group.label}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '0.4rem' }}>
-                  {group.icons.map((name) => {
-                    const IconComp = getIconComponent(name);
-                    return (
-                      <button
-                        key={name}
-                        title={name}
-                        onClick={() => onInsertWidget(buildIconHtml({ icon: name, color: iconColor, size: iconSize }))}
-                        style={{
-                          aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.4rem', cursor: 'pointer'
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
-                      >
-                        <IconComp size={18} color={iconColor} />
-                      </button>
-                    );
-                  })}
-                </div>
+          {editingIcon ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.9rem', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--accent-primary)', borderRadius: '0.6rem' }}>
+              <div style={{ fontSize: '0.78rem', color: '#9ca3af', textAlign: 'center' }}>Editando o ícone já inserido — ajuste cor/tamanho acima e salve.</div>
+              {(() => {
+                const IconComp = getIconComponent(editingIcon.name);
+                return <IconComp size={Number(iconSize)} color={iconColor} />;
+              })()}
+              <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                <button className="btn-icon" style={{ width: 'auto', flex: 1 }} onClick={() => setEditingIcon(null)}>Cancelar</button>
+                <button className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem' }} onClick={handleSaveIconEdit}>
+                  <Save size={15} /> Salvar Alterações
+                </button>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <>
+              <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>
+                Clique num ícone pra inserir direto no slide atual, na cor e tamanho escolhidos:
+              </p>
+
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                {filteredIconGroups.length === 0 && (
+                  <p style={{ fontSize: '0.8rem', color: '#6b7280', textAlign: 'center', marginTop: '2rem' }}>Nenhum ícone encontrado.</p>
+                )}
+                {filteredIconGroups.map((group) => (
+                  <div key={group.label} style={{ marginBottom: '1rem' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: '0.5rem' }}>
+                      {group.label}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '0.4rem' }}>
+                      {group.icons.map((name) => {
+                        const IconComp = getIconComponent(name);
+                        return (
+                          <button
+                            key={name}
+                            title={name}
+                            onClick={() => onInsertWidget(
+                              buildIconHtml({ icon: name, color: iconColor, size: iconSize }),
+                              { source: `icon:${name}`, config: { icon: name, color: iconColor, size: iconSize } }
+                            )}
+                            style={{
+                              aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.4rem', cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
+                          >
+                            <IconComp size={18} color={iconColor} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </>
       ) : (
         <>
@@ -239,6 +297,7 @@ export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget })
               const Icon = ICONS[item.iconName] || Puzzle;
               const isExpanded = expandedId === item.id;
               const isAiItem = item.kind === 'ai-generate';
+              const isEditingThisItem = editingContext?.source === `${activeTabId}:${item.id}`;
 
               return (
                 <div
@@ -380,9 +439,9 @@ export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget })
                       <button
                         className="btn-primary"
                         style={{ justifyContent: 'center', fontSize: '0.82rem', marginTop: '0.2rem' }}
-                        onClick={() => handleInsert(item)}
+                        onClick={() => (isEditingThisItem ? handleSaveEdit(item) : handleInsert(item))}
                       >
-                        <Plus size={15} /> Inserir no Slide
+                        {isEditingThisItem ? <><Save size={15} /> Salvar Alterações</> : <><Plus size={15} /> Inserir no Slide</>}
                       </button>
                     </div>
                   )}
