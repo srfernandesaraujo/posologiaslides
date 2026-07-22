@@ -152,6 +152,12 @@ button.mobile-toggle-btn {
    (biblioteca não tem header); `.below-header` é usada no editor, que tem
    um `.app-header` fixo de 64px acima do `.main-layout`. */
 .mobile-drawer-backdrop {
+  /* Só faz sentido quando as sidebars viram gaveta off-canvas (ver
+     @media max-width: 1024px abaixo) — sem isso, o backdrop renderiza em
+     qualquer largura de tela e, por não ter z-index elevado como as sidebars
+     ganham só dentro daquele breakpoint, fica por cima do chat/conteúdo no
+     desktop e bloqueia clique em tudo. */
+  display: none;
   position: fixed;
   top: 0;
   left: 0;
@@ -838,6 +844,10 @@ button.mobile-toggle-btn {
   .main-layout,
   .main-layout.full-presentation {
     grid-template-columns: 1fr;
+  }
+
+  .mobile-drawer-backdrop {
+    display: block;
   }
 
   .sidebar-slides,

@@ -62,17 +62,30 @@ export function replaceElementAt(html, index, newFragmentHtml) {
 // Substitui só o CONTEÚDO da posição `index`, preservando um wrapper de
 // alinhamento existente — usada por "Editar campos" (reabrir o formulário de
 // configuração), onde queremos manter o alinhamento já aplicado ao elemento.
-export function replaceElementInnerAt(html, index, newInnerHtml) {
+// `newInnerHtml` pode ter mais de um nó de topo (ex.: diagramas Mermaid e
+// gráficos Chart.js retornam `<div>` + `<script>`) — por isso todos os nós
+// são preservados dentro de um wrapper próprio, em vez de só o primeiro
+// elemento. Atributos do elemento antigo (data-el-source, data-el-anim,
+// estilo de animação) são copiados pro novo; `data-el-config` é atualizado
+// com `newConfig` pra "Editar campos" continuar funcionando numa próxima vez.
+export function replaceElementInnerAt(html, index, newInnerHtml, newConfig) {
   const template = parseFragment(html);
   const wrapperOrEl = getContainer(template).children[index];
-  const newEl = parseFragment(newInnerHtml).content.firstElementChild;
-  if (!wrapperOrEl || !newEl) return html;
+  if (!wrapperOrEl) return html;
 
-  if (wrapperOrEl.getAttribute('data-align-wrap') === 'true') {
-    wrapperOrEl.replaceChildren(newEl);
-  } else {
-    wrapperOrEl.replaceWith(newEl);
+  const isAlignWrap = wrapperOrEl.getAttribute('data-align-wrap') === 'true';
+  const target = isAlignWrap ? wrapperOrEl.firstElementChild : wrapperOrEl;
+  const newNodes = Array.from(parseFragment(newInnerHtml).content.childNodes);
+  if (!target || !newNodes.length) return html;
+
+  const newEl = document.createElement('div');
+  Array.from(target.attributes).forEach((attr) => newEl.setAttribute(attr.name, attr.value));
+  if (newEl.hasAttribute('data-el-config')) {
+    newEl.setAttribute('data-el-config', JSON.stringify(newConfig || {}));
   }
+  newEl.append(...newNodes);
+
+  target.replaceWith(newEl);
   return serializeFragment(template);
 }
 
@@ -117,6 +130,15 @@ export function setAlignmentAt(html, index, align) {
   wrapper.style.cssText = `display:flex;justify-content:${align === 'center' ? 'center' : 'flex-end'};width:100%;`;
   wrapperOrEl.replaceWith(wrapper);
   wrapper.appendChild(innerEl);
+
+  // Um elemento com max-width (tabelas, cards) preenche até esse limite em
+  // fluxo normal de bloco — como item flex, width:auto encolhe pro tamanho do
+  // conteúdo em vez disso. Fixar o flex-basis no próprio max-width mantém a
+  // largura pretendida ao centralizar/alinhar à direita.
+  if (innerEl.style.maxWidth) {
+    innerEl.style.flex = `0 1 ${innerEl.style.maxWidth}`;
+  }
+
   return serializeFragment(template);
 }
 

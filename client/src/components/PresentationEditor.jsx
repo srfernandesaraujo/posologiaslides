@@ -330,8 +330,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setIsWidgetDrawerOpen(true);
   };
 
-  const handleUpdateWidgetElement = (index, newInnerHtml) => {
-    mutateCurrentSlideHtml((html) => replaceElementInnerAt(html, index, newInnerHtml));
+  const handleUpdateWidgetElement = (index, newInnerHtml, config) => {
+    mutateCurrentSlideHtml((html) => replaceElementInnerAt(html, index, newInnerHtml, config));
     setIsWidgetDrawerOpen(false);
     setEditingWidgetContext(null);
   };

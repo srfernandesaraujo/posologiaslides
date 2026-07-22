@@ -124,13 +124,14 @@ export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget, e
   };
 
   const handleSaveEdit = (item) => {
-    onUpdateElement(editingContext.index, item.buildHtml(values));
+    onUpdateElement(editingContext.index, item.buildHtml(values), values);
     setExpandedId(null);
   };
 
   const handleSaveIconEdit = () => {
     if (!editingIcon) return;
-    onUpdateElement(editingIcon.index, buildIconHtml({ icon: editingIcon.name, color: iconColor, size: iconSize }));
+    const config = { icon: editingIcon.name, color: iconColor, size: iconSize };
+    onUpdateElement(editingIcon.index, buildIconHtml(config), config);
     setEditingIcon(null);
   };
 

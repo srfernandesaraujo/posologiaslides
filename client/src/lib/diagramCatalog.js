@@ -16,6 +16,55 @@ function parseRows(raw) {
 
 const CHART_JS_TYPE = { line: 'line', area: 'line', bar: 'bar', horizontalBar: 'bar', pie: 'pie', doughnut: 'doughnut', radar: 'radar', scatter: 'scatter', bubble: 'bubble' };
 
+// Gera o texto (não o objeto — isto é montado como string de código-fonte pro
+// <script> do widget, executado só depois dentro do iframe do slide) da opção
+// `animation` do Chart.js. Em vez do fade genérico de 300ms que tratava o
+// gráfico como bloco único, cada barra/ponto/fatia entra com um atraso
+// crescente — efeito de "desenhar" o gráfico em sequência, tipo motion
+// graphics, em vez de tudo aparecer de uma vez.
+function buildChartAnimationConfig(type) {
+  const isLineLike = type === 'line' || type === 'area';
+
+  if (isLineLike) {
+    // Traça a linha ponto a ponto (esquerda pra direita): cada ponto nasce na
+    // posição Y do ponto anterior (ou da base, no primeiro) e anima até sua
+    // posição real, com o atraso do ponto seguinte encadeado logo após o do
+    // anterior — receita padrão do próprio Chart.js pra "progressive line".
+    return `animation: {
+          x: { type: 'number', easing: 'linear', duration: 260, from: NaN,
+            delay: (ctx) => {
+              if (ctx.type !== 'data' || ctx.xStarted) return 0;
+              ctx.xStarted = true;
+              return ctx.index * 260 + (ctx.datasetIndex || 0) * 350;
+            }
+          },
+          y: { type: 'number', easing: 'linear', duration: 260,
+            from: (ctx) => {
+              if (ctx.index === 0) return ctx.chart.scales.y.getPixelForValue(0);
+              const meta = ctx.chart.getDatasetMeta(ctx.datasetIndex);
+              const prev = meta.data[ctx.index - 1];
+              return prev ? prev.getProps(['y'], true).y : ctx.chart.scales.y.getPixelForValue(0);
+            },
+            delay: (ctx) => {
+              if (ctx.type !== 'data' || ctx.yStarted) return 0;
+              ctx.yStarted = true;
+              return ctx.index * 260 + (ctx.datasetIndex || 0) * 350;
+            }
+          }
+        },`;
+  }
+
+  // Barra/pizza/rosquinha/radar/dispersão/bolha: mantém a animação nativa do
+  // Chart.js (crescer da base, girar a fatia...), só escalona QUANDO cada item
+  // começa a animar. `mode === 'default'` evita reencadear o atraso em
+  // interações (hover), que rodam com outro mode.
+  return `animation: {
+          duration: 700,
+          easing: 'easeOutQuart',
+          delay: (ctx) => (ctx.type === 'data' && ctx.mode === 'default' ? ctx.dataIndex * 90 + (ctx.datasetIndex || 0) * 120 : 0)
+        },`;
+}
+
 function buildChart(config = {}) {
   const uid = uniqueId('chart');
   const type = config.type || 'bar';
@@ -53,6 +102,7 @@ function buildChart(config = {}) {
   const showScales = !['pie', 'doughnut', 'radar'].includes(type);
   // Escapa "</" pra dado colado pelo usuário não poder fechar a tag <script> deste widget.
   const chartDataJson = JSON.stringify(chartData).replace(/<\//g, '<\\/');
+  const animationConfig = buildChartAnimationConfig(type);
 
   return `
 <div style="margin:1.5rem 0;padding:1.25rem;border-radius:1rem;background:rgba(15,23,42,0.55);border:1px solid rgba(255,255,255,0.1);">
@@ -74,7 +124,7 @@ function buildChart(config = {}) {
         responsive: true,
         maintainAspectRatio: false,
         indexAxis: '${type === 'horizontalBar' ? 'y' : 'x'}',
-        animation: { duration: 300 },
+        ${animationConfig}
         ${showScales ? `scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.06)' } }, y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true } },` : ''}
         plugins: { legend: { labels: { color: '#cbd5e1' } } }
       }
