@@ -106,6 +106,18 @@ export default function PresentationViewer({ htmlContent, reloadKey, editable = 
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #090d16; }
   * { box-sizing: border-box; }
+
+  /* Biblioteca de animações aplicáveis a um elemento via o painel "Animar" do
+     editor (ver client/src/lib/animationCatalog.js) — sempre presente (não só
+     em modo editável): a animação é conteúdo real do slide e precisa tocar
+     durante a apresentação de verdade, não só na edição. */
+  @keyframes pos-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pos-fade-in-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pos-fade-in-down { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pos-slide-in-left { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes pos-slide-in-right { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes pos-scale-in { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+  @keyframes pos-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 </style>
 <script src="/vendor/chart.umd.min.js"></script>
 ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}

@@ -13,11 +13,13 @@ import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
-  moveElementAt, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta
+  moveElementAt, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
+  setAnimationAt, getAnimationAt, clearAnimationAt
 } from '../lib/slideHtmlUtils';
+import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
-  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target
+  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2
 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
@@ -46,6 +48,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Quando setado, a próxima mensagem do chat de IA edita só este elemento
   // (envia o fragmento, não o slide inteiro) — ver handleSendChatMessage.
   const [chatScope, setChatScope] = useState(null);
+  // Painel "Animar" do elemento selecionado — aberto/fechado + duração/atraso
+  // configurados no momento (pré-preenchidos com a animação já aplicada, se houver).
+  const [animPanelOpen, setAnimPanelOpen] = useState(false);
+  const [animDuration, setAnimDuration] = useState(ANIMATION_DEFAULTS.duration);
+  const [animDelay, setAnimDelay] = useState(ANIMATION_DEFAULTS.delay);
 
   // Sockets & PIN para sessão ao vivo
   const [socket, setSocket] = useState(null);
@@ -194,6 +201,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         setSelectedEl({ index: data.index, scope: data.scope, rect: data.rect });
       } else if (data.type === 'deselect') {
         setSelectedEl(null);
+        setAnimPanelOpen(false);
       }
     };
     window.addEventListener('message', handleMessage);
@@ -205,7 +213,20 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   useEffect(() => {
     setSelectedEl(null);
     setChatScope(null);
+    setAnimPanelOpen(false);
   }, [activeIndex, isFullscreen]);
+
+  // Ao selecionar um elemento novo, pré-preenche os controles de duração/atraso
+  // do painel "Animar" com a animação já aplicada a ele (se houver) — sem isso,
+  // ajustar os sliders num elemento recém-selecionado partiria de valores
+  // deixados por uma seleção anterior, em vez do que já está de fato aplicado.
+  useEffect(() => {
+    if (!selectedEl) return;
+    const anim = getAnimationAt(currentSlide.html, selectedEl.index);
+    setAnimDuration(anim?.duration ?? ANIMATION_DEFAULTS.duration);
+    setAnimDelay(anim?.delay ?? ANIMATION_DEFAULTS.delay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEl?.index]);
 
   const handleNavigateBranch = (targetSlideId) => {
     const targetIndex = presentation.slides.findIndex(s => s.id === targetSlideId || s.title.includes(targetSlideId));
@@ -261,10 +282,17 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // HTML do slide atual e limpa a seleção — o iframe recarrega do zero com o
   // novo HTML, então manter um índice de seleção "antigo" não faz sentido.
   const mutateCurrentSlideHtml = (mutator) => {
+    updateCurrentSlideHtml(mutator);
+    setSelectedEl(null);
+  };
+
+  // Igual a `mutateCurrentSlideHtml`, mas mantém a seleção — usada por ações
+  // que não mudam a posição do elemento na lista (animar), pra deixar a barra
+  // e o painel abertos e testar vários presets em sequência sem reclicar.
+  const updateCurrentSlideHtml = (mutator) => {
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], html: mutator(currentSlide.html) };
     setPresentation({ ...presentation, slides: updatedSlides });
-    setSelectedEl(null);
   };
 
   const handleAlignElement = (align) => {
@@ -306,6 +334,39 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     mutateCurrentSlideHtml((html) => replaceElementInnerAt(html, index, newInnerHtml));
     setIsWidgetDrawerOpen(false);
     setEditingWidgetContext(null);
+  };
+
+  // Aplica um preset de animação ao elemento selecionado com a duração/atraso
+  // configurados no momento — a troca de HTML já recarrega o palco, então a
+  // animação toca na hora, servindo de preview automático.
+  const handleApplyAnimation = (preset) => {
+    if (!selectedEl) return;
+    updateCurrentSlideHtml((html) => setAnimationAt(html, selectedEl.index, {
+      presetId: preset.id, keyframe: preset.keyframe, loop: preset.loop, duration: animDuration, delay: animDelay
+    }));
+  };
+
+  // Mexer nos sliders só reaplica ao vivo se já houver uma animação — caso
+  // contrário, os valores só ficam prontos pro próximo preset escolhido.
+  const handleAnimSliderChange = (field, value) => {
+    if (field === 'duration') setAnimDuration(value); else setAnimDelay(value);
+    if (!selectedEl) return;
+    const current = getAnimationAt(currentSlide.html, selectedEl.index);
+    if (!current) return;
+    const preset = ANIMATION_PRESETS.find((p) => p.id === current.presetId);
+    if (!preset) return;
+    updateCurrentSlideHtml((html) => setAnimationAt(html, selectedEl.index, {
+      presetId: preset.id,
+      keyframe: preset.keyframe,
+      loop: preset.loop,
+      duration: field === 'duration' ? value : animDuration,
+      delay: field === 'delay' ? value : animDelay
+    }));
+  };
+
+  const handleClearAnimation = () => {
+    if (!selectedEl) return;
+    updateCurrentSlideHtml((html) => clearAnimationAt(html, selectedEl.index));
   };
 
   // Restringe a próxima mensagem da IA a editar só o elemento selecionado —
@@ -633,49 +694,130 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           {!isFullscreen && selectedEl && (() => {
             const elementMeta = getElementMeta(currentSlide.html, selectedEl.index);
             const grouped = isGroupedAt(currentSlide.html, selectedEl.index);
+            const currentAnim = getAnimationAt(currentSlide.html, selectedEl.index);
             const btnStyle = { width: '30px', height: '30px' };
             const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
+            const toolbarTop = Math.max(4, selectedEl.rect.top - 46);
+            const toolbarLeft = Math.max(4, selectedEl.rect.left);
 
             return (
-              <div
-                className="glass-panel"
-                style={{
-                  position: 'absolute',
-                  top: `${Math.max(4, selectedEl.rect.top - 46)}px`,
-                  left: `${Math.max(4, selectedEl.rect.left)}px`,
-                  zIndex: 40,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.15rem',
-                  padding: '0.3rem',
-                  background: 'rgba(15, 23, 42, 0.95)'
-                }}
-              >
-                <button className="btn-icon" style={btnStyle} title="Alinhar à esquerda" onClick={() => handleAlignElement('left')}><AlignLeft size={15} /></button>
-                <button className="btn-icon" style={btnStyle} title="Centralizar" onClick={() => handleAlignElement('center')}><AlignCenter size={15} /></button>
-                <button className="btn-icon" style={btnStyle} title="Alinhar à direita" onClick={() => handleAlignElement('right')}><AlignRight size={15} /></button>
-                {divider}
-                <button className="btn-icon" style={btnStyle} title="Mover para cima" onClick={() => handleMoveElement('up')}><ArrowUp size={15} /></button>
-                <button className="btn-icon" style={btnStyle} title="Mover para baixo" onClick={() => handleMoveElement('down')}><ArrowDown size={15} /></button>
-                {divider}
-                {grouped ? (
-                  <button className="btn-icon" style={btnStyle} title="Desagrupar" onClick={handleUngroupElement}><Rows3 size={15} /></button>
-                ) : (
-                  <>
-                    <button className="btn-icon" style={btnStyle} title="Colocar ao lado do anterior" onClick={() => handleGroupElement('prev')}><Columns2 size={15} /></button>
-                    <button className="btn-icon" style={btnStyle} title="Colocar ao lado do próximo" onClick={() => handleGroupElement('next')}><Columns2 size={15} style={{ transform: 'scaleX(-1)' }} /></button>
-                  </>
+              <>
+                <div
+                  className="glass-panel"
+                  style={{
+                    position: 'absolute',
+                    top: `${toolbarTop}px`,
+                    left: `${toolbarLeft}px`,
+                    zIndex: 40,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.15rem',
+                    padding: '0.3rem',
+                    background: 'rgba(15, 23, 42, 0.95)'
+                  }}
+                >
+                  <button className="btn-icon" style={btnStyle} title="Alinhar à esquerda" onClick={() => handleAlignElement('left')}><AlignLeft size={15} /></button>
+                  <button className="btn-icon" style={btnStyle} title="Centralizar" onClick={() => handleAlignElement('center')}><AlignCenter size={15} /></button>
+                  <button className="btn-icon" style={btnStyle} title="Alinhar à direita" onClick={() => handleAlignElement('right')}><AlignRight size={15} /></button>
+                  {divider}
+                  <button className="btn-icon" style={btnStyle} title="Mover para cima" onClick={() => handleMoveElement('up')}><ArrowUp size={15} /></button>
+                  <button className="btn-icon" style={btnStyle} title="Mover para baixo" onClick={() => handleMoveElement('down')}><ArrowDown size={15} /></button>
+                  {divider}
+                  {grouped ? (
+                    <button className="btn-icon" style={btnStyle} title="Desagrupar" onClick={handleUngroupElement}><Rows3 size={15} /></button>
+                  ) : (
+                    <>
+                      <button className="btn-icon" style={btnStyle} title="Colocar ao lado do anterior" onClick={() => handleGroupElement('prev')}><Columns2 size={15} /></button>
+                      <button className="btn-icon" style={btnStyle} title="Colocar ao lado do próximo" onClick={() => handleGroupElement('next')}><Columns2 size={15} style={{ transform: 'scaleX(-1)' }} /></button>
+                    </>
+                  )}
+                  {divider}
+                  <button
+                    className={`btn-icon ${animPanelOpen ? 'active' : ''}`}
+                    style={btnStyle}
+                    title="Animar elemento"
+                    onClick={() => setAnimPanelOpen((v) => !v)}
+                  >
+                    <Wand2 size={15} />
+                  </button>
+                  {elementMeta && (
+                    <>
+                      {divider}
+                      <button className="btn-icon" style={btnStyle} title="Editar campos" onClick={handleEditElementFields}><Pencil size={15} /></button>
+                    </>
+                  )}
+                  {divider}
+                  <button className="btn-icon" style={btnStyle} title="Editar este elemento com IA" onClick={handleScopeChatToSelection}><Bot size={15} /></button>
+                  <button className="btn-icon" style={{ ...btnStyle, color: '#f87171' }} title="Apagar elemento" onClick={handleDeleteElement}><Trash2 size={15} /></button>
+                </div>
+
+                {animPanelOpen && (
+                  <div
+                    className="glass-panel"
+                    style={{
+                      position: 'absolute',
+                      top: `${toolbarTop + 40}px`,
+                      left: `${toolbarLeft}px`,
+                      zIndex: 41,
+                      width: '230px',
+                      padding: '0.7rem',
+                      background: 'rgba(15, 23, 42, 0.97)'
+                    }}
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem', marginBottom: '0.65rem' }}>
+                      {ANIMATION_PRESETS.map((preset) => {
+                        const active = currentAnim?.presetId === preset.id;
+                        return (
+                          <button
+                            key={preset.id}
+                            onClick={() => handleApplyAnimation(preset)}
+                            style={{
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              padding: '0.4rem 0.3rem',
+                              borderRadius: '0.4rem',
+                              cursor: 'pointer',
+                              border: active ? '1px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.1)',
+                              background: active ? 'rgba(34,211,238,0.15)' : 'rgba(255,255,255,0.04)',
+                              color: active ? '#67e8f9' : '#e5e7eb'
+                            }}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#9ca3af', marginBottom: '0.15rem' }}>
+                      <span>Duração</span><span>{animDuration.toFixed(1)}s</span>
+                    </label>
+                    <input
+                      type="range" min="0.2" max="1.5" step="0.1" value={animDuration}
+                      onChange={(e) => handleAnimSliderChange('duration', Number(e.target.value))}
+                      style={{ width: '100%', accentColor: 'var(--accent-primary)', marginBottom: '0.5rem' }}
+                    />
+
+                    <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#9ca3af', marginBottom: '0.15rem' }}>
+                      <span>Atraso</span><span>{animDelay.toFixed(1)}s</span>
+                    </label>
+                    <input
+                      type="range" min="0" max="1.5" step="0.1" value={animDelay}
+                      onChange={(e) => handleAnimSliderChange('delay', Number(e.target.value))}
+                      style={{ width: '100%', accentColor: 'var(--accent-primary)' }}
+                    />
+
+                    {currentAnim && (
+                      <button
+                        className="btn-icon"
+                        style={{ width: '100%', marginTop: '0.6rem', color: '#f87171', fontSize: '0.75rem', gap: '0.35rem' }}
+                        onClick={handleClearAnimation}
+                      >
+                        <Trash2 size={13} /> Remover animação
+                      </button>
+                    )}
+                  </div>
                 )}
-                {elementMeta && (
-                  <>
-                    {divider}
-                    <button className="btn-icon" style={btnStyle} title="Editar campos" onClick={handleEditElementFields}><Pencil size={15} /></button>
-                  </>
-                )}
-                {divider}
-                <button className="btn-icon" style={btnStyle} title="Editar este elemento com IA" onClick={handleScopeChatToSelection}><Bot size={15} /></button>
-                <button className="btn-icon" style={{ ...btnStyle, color: '#f87171' }} title="Apagar elemento" onClick={handleDeleteElement}><Trash2 size={15} /></button>
-              </div>
+              </>
             );
           })()}
 

@@ -187,6 +187,44 @@ export function getElementMeta(html, index) {
   return { source: el.getAttribute('data-el-source'), config };
 }
 
+// Aplica uma animação CSS (ver client/src/lib/animationCatalog.js) ao elemento
+// de topo em `index` — anima o mesmo "slot" endereçável usado por todas as
+// outras mutações (align/move/group/delete), sem tratamento especial se ele
+// estiver dentro de um wrapper de alinhamento (efeito visual idêntico, já que
+// o wrapper só tem esse filho). Grava `data-el-anim` pra permitir reabrir o
+// painel já com o preset/duração/atraso atuais.
+export function setAnimationAt(html, index, { presetId, keyframe, loop, duration, delay }) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return html;
+
+  el.style.animation = `${keyframe} ${duration}s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s both ${loop ? 'infinite' : '1'}`;
+  el.setAttribute('data-el-anim', JSON.stringify({ presetId, duration, delay }));
+  return serializeFragment(template);
+}
+
+export function getAnimationAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el || !el.hasAttribute('data-el-anim')) return null;
+
+  try {
+    return JSON.parse(el.getAttribute('data-el-anim'));
+  } catch {
+    return null;
+  }
+}
+
+export function clearAnimationAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return html;
+
+  el.style.animation = '';
+  el.removeAttribute('data-el-anim');
+  return serializeFragment(template);
+}
+
 // Insere `fragment` como último filho de ".slide-root" (ou do próprio corpo
 // do slide, se não houver ".slide-root") em vez de simplesmente concatenar a
 // string no fim do HTML — isso mantém o elemento inserido DENTRO da caixa de
