@@ -25,17 +25,22 @@ import React, { useEffect, useRef } from 'react';
 // injetado no iframe e o listener no app principal (ver PresentationEditor).
 export const SLIDE_EDITOR_MESSAGE_SOURCE = 'posologia-slide-editor';
 
-// Script injetado apenas quando `editable` é true: permite passar o mouse e
+// Script injetado apenas quando `editable` é true: permite passar o mouse,
 // clicar nos elementos de topo do slide (filhos diretos de ".slide-root", ou
-// do <body> quando não há ".slide-root") pra selecioná-los no editor. Não
-// chama preventDefault/stopPropagation — cliques em controles do próprio
-// widget (slider, botão) continuam funcionando normalmente; selecionar é só
-// um efeito colateral passivo do clique.
+// do <body> quando não há ".slide-root") pra selecioná-los no editor, e
+// ARRASTAR pra qualquer posição livre (mousedown + mover além de um pequeno
+// limiar vira drag; um clique simples, sem mover, continua só selecionando/
+// desselecionando como antes). Cliques normais em controles do próprio
+// widget (slider, botão) continuam funcionando sem interferência — só um
+// clique que veio depois de um arrasto de verdade é bloqueado (na fase de
+// captura, antes de chegar no controle interno), pra não disparar o onclick
+// dele sem querer ao soltar o mouse.
 function buildEditorScript() {
   return `
 <style>
   .__pos-hover { outline: 2px dashed rgba(34,211,238,0.7) !important; outline-offset: 2px; cursor: pointer; }
-  .__pos-selected { outline: 2px solid #22d3ee !important; outline-offset: 2px; }
+  .__pos-selected { outline: 2px solid #22d3ee !important; outline-offset: 2px; cursor: grab; }
+  .__pos-dragging { cursor: grabbing !important; opacity: 0.85; }
 </style>
 <script>
 (function () {
@@ -44,9 +49,35 @@ function buildEditorScript() {
   var selector = scope === 'root' ? '.slide-root > *' : 'body > *';
   var hovered = null;
   var selected = null;
+  var dragState = null;
+  var justDragged = false;
+  var DRAG_THRESHOLD = 4;
+
+  if (getComputedStyle(container).position === 'static') {
+    container.style.position = 'relative';
+  }
 
   function indexOf(el) {
     return Array.prototype.indexOf.call(container.children, el);
+  }
+
+  // Controles nativos que dependem do próprio mousedown+arrastar pra
+  // funcionar (slider de simulador, campo de texto, botão de aba/flashcard) —
+  // iniciar o arrasto do elemento inteiro nesses casos sequestraria o gesto
+  // e quebraria a interação própria do widget.
+  function isInteractiveTarget(el) {
+    return !!el.closest('input, textarea, select, button, a[href], [contenteditable="true"], label');
+  }
+
+  function sendSelect(el) {
+    var rect = el.getBoundingClientRect();
+    window.parent.postMessage({
+      source: '${SLIDE_EDITOR_MESSAGE_SOURCE}',
+      type: 'select',
+      index: indexOf(el),
+      scope: scope,
+      rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+    }, '*');
   }
 
   document.body.addEventListener('mouseover', function (e) {
@@ -62,6 +93,95 @@ function buildEditorScript() {
     hovered = null;
   });
 
+  document.body.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    if (isInteractiveTarget(e.target)) return;
+    var match = e.target.closest(selector);
+    if (!match) return;
+    var containerRect = container.getBoundingClientRect();
+    var elRect = match.getBoundingClientRect();
+    dragState = {
+      el: match,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startLeftPx: elRect.left - containerRect.left,
+      startTopPx: elRect.top - containerRect.top,
+      startWidthPx: elRect.width,
+      containerWidth: containerRect.width,
+      containerHeight: containerRect.height,
+      moved: false
+    };
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (!dragState) return;
+    var dx = e.clientX - dragState.startClientX;
+    var dy = e.clientY - dragState.startClientY;
+
+    if (!dragState.moved) {
+      if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+      dragState.moved = true;
+
+      // Elemento centralizado/à direita (ver setAlignmentAt) é embrulhado num
+      // <div style="display:flex;width:100%"> — em position:absolute esse
+      // width:100% ocuparia o slide inteiro e a posição livre não teria
+      // efeito visual nenhum, então desembrulha antes de começar a arrastar.
+      if (dragState.el.getAttribute('data-align-wrap') === 'true') {
+        var inner = dragState.el.firstElementChild;
+        dragState.el.replaceWith(inner);
+        dragState.el = inner;
+      }
+
+      if (selected && selected !== dragState.el) selected.classList.remove('__pos-selected');
+      selected = dragState.el;
+      selected.classList.remove('__pos-hover');
+      selected.classList.add('__pos-selected', '__pos-dragging');
+      sendSelect(selected);
+    }
+
+    var leftPx = dragState.startLeftPx + dx;
+    var topPx = dragState.startTopPx + dy;
+    dragState.el.style.position = 'absolute';
+    dragState.el.style.margin = '0';
+    dragState.el.style.zIndex = '10';
+    dragState.el.style.left = (leftPx / dragState.containerWidth * 100) + '%';
+    dragState.el.style.top = (topPx / dragState.containerHeight * 100) + '%';
+    dragState.el.style.width = (dragState.startWidthPx / dragState.containerWidth * 100) + '%';
+  });
+
+  document.addEventListener('mouseup', function () {
+    if (!dragState) return;
+    var moved = dragState.moved;
+    var el = dragState.el;
+    dragState = null;
+    if (!moved) return;
+
+    el.classList.remove('__pos-dragging');
+    justDragged = true;
+    var containerRect = container.getBoundingClientRect();
+    var elRect = el.getBoundingClientRect();
+    window.parent.postMessage({
+      source: '${SLIDE_EDITOR_MESSAGE_SOURCE}',
+      type: 'reposition',
+      index: indexOf(el),
+      scope: scope,
+      leftPct: (elRect.left - containerRect.left) / containerRect.width * 100,
+      topPct: (elRect.top - containerRect.top) / containerRect.height * 100,
+      widthPct: elRect.width / containerRect.width * 100,
+      rect: { top: elRect.top, left: elRect.left, width: elRect.width, height: elRect.height }
+    }, '*');
+  });
+
+  // Fase de captura: intercepta o click nativo que o navegador dispara logo
+  // depois do mouseup de um arrasto de verdade, antes que ele alcance (e
+  // dispare) o onclick de um controle interno do próprio widget.
+  document.addEventListener('click', function (e) {
+    if (!justDragged) return;
+    justDragged = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
   document.body.addEventListener('click', function (e) {
     var match = e.target.closest(selector);
     if (selected) selected.classList.remove('__pos-selected');
@@ -75,14 +195,7 @@ function buildEditorScript() {
     selected = match;
     selected.classList.remove('__pos-hover');
     selected.classList.add('__pos-selected');
-    var rect = match.getBoundingClientRect();
-    window.parent.postMessage({
-      source: '${SLIDE_EDITOR_MESSAGE_SOURCE}',
-      type: 'select',
-      index: indexOf(match),
-      scope: scope,
-      rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
-    }, '*');
+    sendSelect(match);
   });
 })();
 </script>`;

@@ -14,12 +14,12 @@ import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
   moveElementAt, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
-  setAnimationAt, getAnimationAt, clearAnimationAt
+  setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
-  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save
+  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff
 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
@@ -211,11 +211,20 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         setSelectedEl(null);
         setAnimPanelOpen(false);
         setElementHtmlDraft(null);
+      } else if (data.type === 'reposition') {
+        // Arrasto solto no palco (ver buildEditorScript) — grava a posição livre
+        // em % e atualiza o rect da seleção pra barra de ação acompanhar o
+        // elemento na nova posição, sem perder a seleção (mesmo espírito de
+        // `updateCurrentSlideHtml`, usado pelas animações).
+        updateCurrentSlideHtml((html) => setPositionAt(html, data.index, {
+          leftPct: data.leftPct, topPct: data.topPct, widthPct: data.widthPct
+        }));
+        setSelectedEl({ index: data.index, scope: data.scope, rect: data.rect });
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [presentation, activeIndex]);
 
   // Índices de seleção só fazem sentido pro slide/estado atual — trocar de
   // slide ou entrar/sair de tela cheia sempre recarrega o iframe do zero.
@@ -392,6 +401,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleClearAnimation = () => {
     if (!selectedEl) return;
     updateCurrentSlideHtml((html) => clearAnimationAt(html, selectedEl.index));
+  };
+
+  // Desfaz o arrasto (ver 'reposition' em handleMessage): devolve o elemento
+  // pro fluxo normal do slide-root.
+  const handleClearPosition = () => {
+    if (!selectedEl) return;
+    mutateCurrentSlideHtml((html) => clearPositionAt(html, selectedEl.index));
   };
 
   // Restringe a próxima mensagem da IA a editar só o elemento selecionado —
@@ -720,6 +736,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             const elementMeta = getElementMeta(currentSlide.html, selectedEl.index);
             const grouped = isGroupedAt(currentSlide.html, selectedEl.index);
             const currentAnim = getAnimationAt(currentSlide.html, selectedEl.index);
+            const positioned = isPositionedAt(currentSlide.html, selectedEl.index);
             const btnStyle = { width: '30px', height: '30px' };
             const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
             const toolbarTop = Math.max(4, selectedEl.rect.top - 46);
@@ -778,6 +795,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     <>
                       {divider}
                       <button className={`btn-icon ${elementHtmlDraft != null ? 'active' : ''}`} style={btnStyle} title="Editar HTML" onClick={handleOpenElementHtmlEdit}><Code size={15} /></button>
+                    </>
+                  )}
+                  {positioned && (
+                    <>
+                      {divider}
+                      <button className="btn-icon" style={btnStyle} title="Devolver ao fluxo normal (desfazer posição livre)" onClick={handleClearPosition}><PinOff size={15} /></button>
                     </>
                   )}
                   {divider}

@@ -222,6 +222,57 @@ export function getElementMeta(html, index) {
   return { source: el.getAttribute('data-el-source'), config };
 }
 
+// Tira o elemento em `index` do fluxo normal e fixa uma posição livre em
+// porcentagem do container (ver arrasto em PresentationViewer.jsx) — permite
+// colocar o elemento em qualquer lugar do slide, inclusive espaços vazios que
+// o fluxo/flex do slide-root não preenchia. Se o slot estiver embrulhado por
+// alinhamento (`data-align-wrap`, ver `setAlignmentAt`), desembrulha primeiro:
+// aquele wrapper é `width:100%`, que em position:absolute ocuparia o slide
+// inteiro e anularia a posição livre.
+export function setPositionAt(html, index, { leftPct, topPct, widthPct }) {
+  const template = parseFragment(html);
+  const container = getContainer(template);
+  const wrapperOrEl = container.children[index];
+  if (!wrapperOrEl) return html;
+
+  const el = wrapperOrEl.getAttribute('data-align-wrap') === 'true' ? wrapperOrEl.firstElementChild : wrapperOrEl;
+  if (!el) return html;
+  if (el !== wrapperOrEl) wrapperOrEl.replaceWith(el);
+
+  if (!container.style.position) container.style.position = 'relative';
+
+  el.style.position = 'absolute';
+  el.style.margin = '0';
+  el.style.zIndex = '10';
+  el.style.left = `${leftPct}%`;
+  el.style.top = `${topPct}%`;
+  if (widthPct != null) el.style.width = `${widthPct}%`;
+  el.setAttribute('data-el-positioned', 'true');
+  return serializeFragment(template);
+}
+
+// Devolve o elemento em `index` pro fluxo normal, desfazendo `setPositionAt`.
+export function clearPositionAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return html;
+
+  el.style.position = '';
+  el.style.margin = '';
+  el.style.zIndex = '';
+  el.style.left = '';
+  el.style.top = '';
+  el.style.width = '';
+  el.removeAttribute('data-el-positioned');
+  return serializeFragment(template);
+}
+
+export function isPositionedAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  return !!el && el.getAttribute('data-el-positioned') === 'true';
+}
+
 // Aplica uma animação CSS (ver client/src/lib/animationCatalog.js) ao elemento
 // de topo em `index` — anima o mesmo "slot" endereçável usado por todas as
 // outras mutações (align/move/group/delete), sem tratamento especial se ele
