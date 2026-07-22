@@ -52,6 +52,21 @@ export default function ActiveMethodologiesOverlay({
     if (iratCounts[r.choice] !== undefined) iratCounts[r.choice]++;
   });
 
+  // Agrega a nuvem de palavras por frequência (case-insensitive) — sem isso,
+  // 5 alunos respondendo "dor" viravam 5 pills iguais em vez de uma palavra
+  // maior. Tamanho da fonte é proporcional à contagem, não fixo.
+  const wordCounts = new Map();
+  liveData.words.forEach((item) => {
+    const key = item.word.trim().toLowerCase();
+    if (!key) return;
+    if (!wordCounts.has(key)) wordCounts.set(key, { word: item.word.trim(), count: 0 });
+    wordCounts.get(key).count += 1;
+  });
+  const wordEntries = [...wordCounts.values()].sort((a, b) => b.count - a.count);
+  const maxWordCount = wordEntries[0]?.count || 1;
+  const minWordCount = wordEntries[wordEntries.length - 1]?.count || 1;
+  const WORD_COLORS = ['#22d3ee', '#34d399', '#38bdf8', '#67e8f9'];
+
   return (
     <div style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
       {/* Widget do QR Code no Slide de Abertura / Capa */}
@@ -105,29 +120,33 @@ export default function ActiveMethodologiesOverlay({
 
       {/* Widget de Nuvem de Palavras */}
       {currentSlide?.type === 'wordcloud' && (
-        <div className="glass-panel" style={{ padding: '1rem', width: '320px', background: 'rgba(15, 23, 42, 0.92)' }}>
+        <div className="glass-panel" style={{ padding: '1.1rem', width: '380px', background: 'rgba(15, 23, 42, 0.92)' }}>
           <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
-            <Cloud size={16} /> Nuvem de Palavras
+            <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', maxHeight: '120px', overflowY: 'auto' }}>
-            {liveData.words.map((item, idx) => (
-              <span
-                key={idx}
-                style={{
-                  background: 'rgba(56, 189, 248, 0.15)',
-                  color: '#7dd3fc',
-                  border: '1px solid rgba(56, 189, 248, 0.3)',
-                  padding: '0.3rem 0.6rem',
-                  borderRadius: '1rem',
-                  fontSize: '0.8rem',
-                  fontWeight: 600
-                }}
-              >
-                {item.word}
-              </span>
-            ))}
-            {liveData.words.length === 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'center', gap: '0.1rem 0.5rem', maxHeight: '220px', overflowY: 'auto', padding: '0.25rem' }}>
+            {wordEntries.map((entry, idx) => {
+              const ratio = maxWordCount === minWordCount ? 1 : (entry.count - minWordCount) / (maxWordCount - minWordCount);
+              const fontSize = 0.85 + ratio * 1.35;
+              const colorIdx = idx % WORD_COLORS.length;
+              return (
+                <span
+                  key={entry.word}
+                  title={`${entry.count}x`}
+                  style={{
+                    fontSize: `${fontSize}rem`,
+                    fontWeight: 700,
+                    color: WORD_COLORS[colorIdx],
+                    lineHeight: 1.25,
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {entry.word}
+                </span>
+              );
+            })}
+            {wordEntries.length === 0 && (
               <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>Aguardando palavras enviadas pelos alunos...</span>
             )}
           </div>
