@@ -17,12 +17,12 @@ import {
   setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
-import { TRANSITION_PRESETS, DEFAULT_TRANSITION } from '../lib/transitionCatalog';
+import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
 import { buildClosingSlideHtml } from '../lib/closingSlideTemplate';
 import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
-  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff
+  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight
 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
@@ -63,6 +63,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [animPanelOpen, setAnimPanelOpen] = useState(false);
   const [animDuration, setAnimDuration] = useState(ANIMATION_DEFAULTS.duration);
   const [animDelay, setAnimDelay] = useState(ANIMATION_DEFAULTS.delay);
+  // Painel "Transição" do slide atual (como este slide entra em cena) —
+  // aberto/fechado igual ao painel "Animar" de elemento, mas em escopo de slide.
+  const [transitionPanelOpen, setTransitionPanelOpen] = useState(false);
   // Editor de HTML bruto do elemento selecionado — alternativa ao "Editar
   // campos" pra elementos sem metadado de catálogo (títulos, texto solto,
   // diagramas/gráficos escritos direto pela IA na geração do slide), que por
@@ -189,6 +192,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setPresentation({ ...presentation, slides: updatedSlides });
   };
 
+  // Transição de ENTRADA deste slide específico — cada slide guarda a sua
+  // própria (slide.transition = { type, duration }), independente dos demais.
+  const handleChangeSlideTransition = (patch) => {
+    if (atClosingSlide) return;
+    const updatedSlides = [...presentation.slides];
+    const current = resolveTransition(updatedSlides[activeIndex].transition);
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], transition: { ...current, ...patch } };
+    setPresentation({ ...presentation, slides: updatedSlides });
+  };
+
   const handleChangeCorrectAnswer = (answer) => {
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], correctAnswer: answer || undefined };
@@ -299,6 +312,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setChatScope(null);
     setAnimPanelOpen(false);
     setElementHtmlDraft(null);
+    setTransitionPanelOpen(false);
   }, [activeIndex, isFullscreen, atClosingSlide]);
 
   // Ao selecionar um elemento novo, pré-preenche os controles de duração/atraso
@@ -606,7 +620,6 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         currentIndex={activeIndex}
         atClosingSlide={atClosingSlide}
         closingSlide={atClosingSlide ? currentSlide : null}
-        transition={presentation.transition || DEFAULT_TRANSITION}
         onNext={handleNext}
         onPrev={handlePrev}
         onClose={() => setShowPresenterWindow(false)}
@@ -680,17 +693,78 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '0.4rem', gap: '0.4rem', alignItems: 'center' }}>
-              <select
-                className="chat-input"
-                value={presentation.transition || DEFAULT_TRANSITION}
-                onChange={(e) => setPresentation({ ...presentation, transition: e.target.value })}
-                title="Transição ao trocar de slide"
-                style={{ fontSize: '0.78rem', padding: '0.4rem 0.6rem', width: 'auto' }}
-              >
-                {TRANSITION_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>{preset.label}</option>
-                ))}
-              </select>
+              {!atClosingSlide && (() => {
+                const currentTransition = resolveTransition(currentSlide.transition);
+                const currentPreset = TRANSITION_PRESETS.find((p) => p.id === currentTransition.type) || TRANSITION_PRESETS[0];
+                return (
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      className={`btn-primary ${transitionPanelOpen ? 'active' : ''}`}
+                      onClick={() => setTransitionPanelOpen((v) => !v)}
+                      title="Transição de entrada deste slide"
+                      style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.78rem', padding: '0.4rem 0.6rem' }}
+                    >
+                      <ArrowLeftRight size={15} /> <span className="btn-label">{currentPreset.label}</span>
+                    </button>
+
+                    {transitionPanelOpen && (
+                      <div
+                        className="glass-panel"
+                        style={{
+                          position: 'absolute',
+                          top: 'calc(100% + 6px)',
+                          left: 0,
+                          zIndex: 41,
+                          width: '250px',
+                          padding: '0.7rem',
+                          background: 'rgba(15, 23, 42, 0.97)'
+                        }}
+                      >
+                        <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginBottom: '0.5rem' }}>
+                          Como este slide entra em cena
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem', marginBottom: '0.65rem' }}>
+                          {TRANSITION_PRESETS.map((preset) => {
+                            const active = currentTransition.type === preset.id;
+                            return (
+                              <button
+                                key={preset.id}
+                                onClick={() => handleChangeSlideTransition({ type: preset.id })}
+                                style={{
+                                  fontSize: '0.7rem',
+                                  fontWeight: 700,
+                                  padding: '0.4rem 0.3rem',
+                                  borderRadius: '0.4rem',
+                                  cursor: 'pointer',
+                                  border: active ? '1px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.1)',
+                                  background: active ? 'rgba(34,211,238,0.15)' : 'rgba(255,255,255,0.04)',
+                                  color: active ? '#67e8f9' : '#e5e7eb'
+                                }}
+                              >
+                                {preset.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#9ca3af', marginBottom: '0.15rem' }}>
+                          <span>Duração</span><span>{currentTransition.duration.toFixed(1)}s</span>
+                        </label>
+                        <input
+                          type="range"
+                          min={TRANSITION_DURATION_RANGE.min}
+                          max={TRANSITION_DURATION_RANGE.max}
+                          step={TRANSITION_DURATION_RANGE.step}
+                          value={currentTransition.duration}
+                          disabled={currentTransition.type === 'none'}
+                          onChange={(e) => handleChangeSlideTransition({ duration: Number(e.target.value) })}
+                          style={{ width: '100%', accentColor: 'var(--accent-primary)' }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <select
                 className="chat-input"
                 value={currentSlide.type || ''}
@@ -813,7 +887,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         <div ref={stageRef} className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}>
           <div
             key={`${atClosingSlide ? 'closing' : activeIndex}-${!!closingQuote}`}
-            className={`slide-transition-wrapper pos-transition-${presentation.transition || DEFAULT_TRANSITION}`}
+            className={`slide-transition-wrapper pos-transition-${atClosingSlide ? TRANSITION_DEFAULTS.type : resolveTransition(currentSlide.transition).type}`}
+            style={{ '--pos-transition-duration': `${atClosingSlide ? TRANSITION_DEFAULTS.duration : resolveTransition(currentSlide.transition).duration}s` }}
           >
             <PresentationViewer htmlContent={currentSlide.html} reloadKey={isFullscreen} editable={!isFullscreen && !atClosingSlide} />
           </div>

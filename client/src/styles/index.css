@@ -247,18 +247,51 @@ button.mobile-toggle-btn {
 .slide-transition-wrapper {
   position: absolute;
   inset: 0;
+  --pos-transition-duration: 0.6s;
 }
 
 .pos-transition-fade {
-  animation: pos-transition-fade 0.45s ease both;
+  animation: pos-transition-fade var(--pos-transition-duration) ease both;
 }
 
-.pos-transition-slide {
-  animation: pos-transition-slide 0.45s ease both;
+.pos-transition-slide-right {
+  animation: pos-transition-slide-right var(--pos-transition-duration) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.pos-transition-zoom {
-  animation: pos-transition-zoom 0.4s ease both;
+.pos-transition-slide-left {
+  animation: pos-transition-slide-left var(--pos-transition-duration) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.pos-transition-slide-up {
+  animation: pos-transition-slide-up var(--pos-transition-duration) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.pos-transition-zoom-in {
+  animation: pos-transition-zoom-in var(--pos-transition-duration) ease both;
+}
+
+.pos-transition-zoom-out {
+  animation: pos-transition-zoom-out var(--pos-transition-duration) ease both;
+}
+
+/* "Cortina" — o momento de assinatura visual: revela o slide com um wipe da
+   esquerda pra direita (clip-path) acompanhado de uma borda luminosa em
+   gradiente ciano/esmeralda, a mesma dupla de cor já usada em outros
+   destaques do produto (ex. botão "Visão Apresentador"). */
+.pos-transition-wipe {
+  animation: pos-transition-wipe var(--pos-transition-duration) cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+.pos-transition-wipe::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, transparent, #22d3ee, #34d399, transparent);
+  box-shadow: 0 0 20px 4px rgba(34, 211, 238, 0.55);
+  pointer-events: none;
+  animation: pos-transition-wipe-edge var(--pos-transition-duration) cubic-bezier(0.65, 0, 0.35, 1) both;
 }
 
 @keyframes pos-transition-fade {
@@ -266,18 +299,43 @@ button.mobile-toggle-btn {
   to { opacity: 1; }
 }
 
-@keyframes pos-transition-slide {
-  from { opacity: 0; transform: translateX(48px); }
+@keyframes pos-transition-slide-right {
+  from { opacity: 0; transform: translateX(64px); }
   to { opacity: 1; transform: translateX(0); }
 }
 
-@keyframes pos-transition-zoom {
-  from { opacity: 0; transform: scale(0.94); }
+@keyframes pos-transition-slide-left {
+  from { opacity: 0; transform: translateX(-64px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pos-transition-slide-up {
+  from { opacity: 0; transform: translateY(56px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pos-transition-zoom-in {
+  from { opacity: 0; transform: scale(0.9); }
   to { opacity: 1; transform: scale(1); }
 }
 
+@keyframes pos-transition-zoom-out {
+  from { opacity: 0; transform: scale(1.12); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pos-transition-wipe {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes pos-transition-wipe-edge {
+  from { left: 0%; opacity: 1; }
+  to { left: 100%; opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .slide-transition-wrapper {
+  .slide-transition-wrapper, .slide-transition-wrapper::after {
     animation: none !important;
   }
 }

@@ -113,7 +113,6 @@ function serializePresentation(id, p) {
     title: p.title,
     description: p.description,
     slides: p.slides,
-    transition: p.transition,
     favorite: !!p.favorite,
     updatedAt: p.updatedAt,
     lastOpenedAt: p.lastOpenedAt || null
@@ -126,14 +125,14 @@ export async function getPresentation(id, userId) {
 }
 
 export async function savePresentation(presentation, userId) {
-  const { id, title, description, slides, transition } = presentation;
+  const { id, title, description, slides } = presentation;
   const now = Date.now();
 
   if (id) {
     const ref = presentationsRef(userId).doc(id);
     const existing = await ref.get();
     if (existing.exists) {
-      const data = { title, description: description || null, slides, transition: transition || null, updatedAt: now };
+      const data = { title, description: description || null, slides, updatedAt: now };
       await ref.update(data);
       return serializePresentation(id, { ...existing.data(), ...data });
     }
@@ -147,7 +146,6 @@ export async function savePresentation(presentation, userId) {
     title,
     description: description || null,
     slides,
-    transition: transition || null,
     favorite: false,
     createdAt: now,
     updatedAt: now,

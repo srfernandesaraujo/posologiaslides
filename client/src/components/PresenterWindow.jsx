@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import PresentationViewer from './PresentationViewer';
+import { TRANSITION_DEFAULTS, resolveTransition } from '../lib/transitionCatalog';
 import { Clock, Eye, Sparkles, Search, ChevronRight, ChevronLeft, Lightbulb, MessageSquare, X } from 'lucide-react';
 
 export default function PresenterWindow({
@@ -7,7 +8,6 @@ export default function PresenterWindow({
   currentIndex,
   atClosingSlide = false,
   closingSlide = null,
-  transition = 'fade',
   onNext,
   onPrev,
   onClose,
@@ -24,6 +24,7 @@ export default function PresenterWindow({
 
   const currentSlide = atClosingSlide ? closingSlide : (slides[currentIndex] || { title: 'Slide Atual', html: '' });
   const nextSlide = atClosingSlide ? null : (slides[currentIndex + 1] || null);
+  const activeTransition = atClosingSlide ? TRANSITION_DEFAULTS : resolveTransition(currentSlide?.transition);
 
   // Timer da Apresentação
   useEffect(() => {
@@ -120,7 +121,11 @@ export default function PresenterWindow({
         {/* Coluna Esquerda: Slide Atual em Grande Escala */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={{ flex: 1, aspectRatio: '16/9', borderRadius: '0.75rem', overflow: 'hidden', border: '2px solid var(--accent-primary)', position: 'relative' }}>
-            <div key={`${atClosingSlide ? 'closing' : currentIndex}`} className={`slide-transition-wrapper pos-transition-${transition}`}>
+            <div
+              key={`${atClosingSlide ? 'closing' : currentIndex}`}
+              className={`slide-transition-wrapper pos-transition-${activeTransition.type}`}
+              style={{ '--pos-transition-duration': `${activeTransition.duration}s` }}
+            >
               <PresentationViewer htmlContent={currentSlide.html} />
             </div>
             <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(34,211,238,0.9)', color: '#071019', padding: '0.3rem 0.6rem', borderRadius: '0.4rem', fontSize: '0.75rem', fontWeight: 800 }}>
