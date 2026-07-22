@@ -160,6 +160,39 @@ export async function editSlideWithAi({ currentHtml, instruction, apiKey, materi
   }
 }
 
+// Resume respostas abertas de alunos (ex.: nuvem de palavras) — texto puro, sem parse de JSON
+export async function summarizeOpenResponses({ responses, apiKey }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+  const list = (responses || []).map((r) => (r || '').trim()).filter(Boolean);
+
+  if (!effectiveApiKey) {
+    return { summary: null, warning: 'Nenhuma chave de API do Gemini configurada. Configure sua chave em Configurações para gerar o resumo com IA.' };
+  }
+  if (list.length === 0) {
+    return { summary: null, warning: 'Nenhuma resposta para resumir ainda.' };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const prompt = `
+    As respostas abaixo foram enviadas por alunos em uma aula ao vivo, em resposta a uma pergunta aberta.
+    RESPOSTAS:
+    ${list.map((r) => `- ${r}`).join('\n')}
+
+    Resuma em no máximo 3 frases curtas os principais temas e padrões que aparecem nessas respostas.
+    Responda em português, direto, sem introdução nem formatação markdown.
+    `;
+
+    const result = await model.generateContent(prompt);
+    return { summary: result.response.text().trim() };
+  } catch (error) {
+    console.error('Erro na API Gemini (Summarize Responses):', error.message);
+    return { summary: null, warning: `Falha ao gerar o resumo com IA (${error.message}).` };
+  }
+}
+
 // Auxiliares de parsing e fallback inteligente
 function extractJson(text) {
   const match = text.match(/\{[\s\S]*\}/);

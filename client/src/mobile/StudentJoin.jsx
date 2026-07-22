@@ -11,6 +11,8 @@ export default function StudentJoin() {
   const [sessionTitle, setSessionTitle] = useState('');
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [slideType, setSlideType] = useState(null);
+  const [hotspotImageUrl, setHotspotImageUrl] = useState(null);
+  const [scoreFeedback, setScoreFeedback] = useState(null);
 
   // Estados de resposta do aluno
   const [quizChoice, setQuizChoice] = useState('');
@@ -26,17 +28,24 @@ export default function StudentJoin() {
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
 
-    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType }) => {
+    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl }) => {
       setJoined(true);
       setSessionTitle(title);
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
+      setHotspotImageUrl(hotspotImageUrl || null);
     });
 
-    newSocket.on('sync_slide', ({ currentSlideIndex, slideType }) => {
+    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl }) => {
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
+      setHotspotImageUrl(hotspotImageUrl || null);
       setSubmitted(false); // Reseta estado de envio para o novo slide
+      setScoreFeedback(null);
+    });
+
+    newSocket.on('response_scored', ({ correct, points }) => {
+      setScoreFeedback({ correct, points });
     });
 
     newSocket.on('join_error', ({ message }) => {
@@ -66,6 +75,21 @@ export default function StudentJoin() {
         slideIndex: currentSlideIndex,
         responseType: slideType === 'tbl' ? 'tbl' : 'quiz',
         answer: choice
+      });
+    }
+  };
+
+  const handleHotspotTap = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setSubmitted(true);
+    if (socket) {
+      socket.emit('submit_response', {
+        pin,
+        slideIndex: currentSlideIndex,
+        responseType: 'hotspot',
+        answer: { x, y }
       });
     }
   };
@@ -140,10 +164,33 @@ export default function StudentJoin() {
       {/* Área Central de Resposta */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', margin: '2rem 0' }}>
         {submitted ? (
-          <div style={{ textAlign: 'center', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', padding: '2rem', borderRadius: '1rem' }}>
-            <CheckCircle2 size={48} color="#10b981" style={{ margin: '0 auto 1rem auto' }} />
-            <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#34d399' }}>Resposta Enviada!</h3>
-            <p style={{ fontSize: '0.9rem', color: '#a7f3d0', margin: '0.5rem 0 0 0' }}>Sua resposta foi computada e já está aparecendo no telão do professor.</p>
+          <div style={{ textAlign: 'center', background: scoreFeedback && !scoreFeedback.correct ? 'rgba(248, 113, 113, 0.1)' : 'rgba(16, 185, 129, 0.1)', border: `1px solid ${scoreFeedback && !scoreFeedback.correct ? '#f87171' : '#10b981'}`, padding: '2rem', borderRadius: '1rem' }}>
+            <CheckCircle2 size={48} color={scoreFeedback && !scoreFeedback.correct ? '#f87171' : '#10b981'} style={{ margin: '0 auto 1rem auto' }} />
+            {scoreFeedback ? (
+              <>
+                <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: scoreFeedback.correct ? '#34d399' : '#fca5a5' }}>
+                  {scoreFeedback.correct ? `Correto! +${scoreFeedback.points} pontos` : 'Não foi dessa vez'}
+                </h3>
+                <p style={{ fontSize: '0.9rem', color: '#a7f3d0', margin: '0.5rem 0 0 0' }}>Confira o ranking no telão do professor.</p>
+              </>
+            ) : (
+              <>
+                <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#34d399' }}>Resposta Enviada!</h3>
+                <p style={{ fontSize: '0.9rem', color: '#a7f3d0', margin: '0.5rem 0 0 0' }}>Sua resposta foi computada e já está aparecendo no telão do professor.</p>
+              </>
+            )}
+          </div>
+        ) : slideType === 'hotspot' && hotspotImageUrl ? (
+          <div style={{ width: '100%', maxWidth: '420px' }}>
+            <h4 style={{ textAlign: 'center', fontSize: '1.1rem', color: '#9ca3af', marginBottom: '1rem' }}>
+              Toque no ponto certo da imagem:
+            </h4>
+            <img
+              src={hotspotImageUrl}
+              alt="Hotspot"
+              onClick={handleHotspotTap}
+              style={{ width: '100%', borderRadius: '0.75rem', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.15)' }}
+            />
           </div>
         ) : (
           <div style={{ width: '100%', maxWidth: '400px' }}>

@@ -30,7 +30,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title, slideType }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -48,8 +48,14 @@ export function setupSocketIO(httpServer) {
         presenterSocketId: socket.id,
         currentSlideIndex: 0,
         currentSlideType: slideType || null,
+        // Gabarito (resposta certa / zona certa do hotspot): só existe no servidor,
+        // NUNCA é retransmitido pro aluno via sync_slide/joined_successfully — só o
+        // necessário pra responder (ex.: a URL da imagem) é enviado pra sala.
+        currentCorrectAnswer: correctAnswer || null,
+        currentHotspotConfig: hotspotConfig || null,
+        scores: new Map(), // socketId -> { name, score }
         participants: new Map(), // socketId -> { name, joinedAt }
-        responses: {}, // slideIndex -> { answers: [], wordCloud: [], irat: [] }
+        responses: {}, // slideIndex -> { answers: [], words: [], irat: [], hotspots: [] }
         startTime: Date.now(),
         lastSlideChangeAt: Date.now(),
         slideDwellTimes: {} // slideIndex -> totalSeconds
@@ -76,7 +82,8 @@ export function setupSocketIO(httpServer) {
         pin,
         title: session.title,
         currentSlideIndex: session.currentSlideIndex,
-        slideType: session.currentSlideType
+        slideType: session.currentSlideType,
+        hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null
       });
 
       // Notifica apresentador sobre novo aluno
@@ -88,7 +95,7 @@ export function setupSocketIO(httpServer) {
       console.log(`📱 Aluno "${name}" entrou na sessão ${pin}`);
     });
 
-    // 3. Aluno envia resposta (Quiz / Wordcloud / iRAT)
+    // 3. Aluno envia resposta (Quiz / Wordcloud / iRAT / Hotspot)
     socket.on('submit_response', ({ pin, slideIndex, responseType, answer }) => {
       const session = activeSessions.get(pin);
       if (!session) return;
@@ -97,17 +104,34 @@ export function setupSocketIO(httpServer) {
       const studentName = participant ? participant.name : 'Anônimo';
 
       if (!session.responses[slideIndex]) {
-        session.responses[slideIndex] = { answers: [], words: [], irat: [] };
+        session.responses[slideIndex] = { answers: [], words: [], irat: [], hotspots: [] };
       }
 
       const slideData = session.responses[slideIndex];
+      let scoreResult = null; // { correct, points } — só existe quando a resposta é pontuável
 
       if (responseType === 'quiz') {
         slideData.answers.push({ student: studentName, answer, timestamp: Date.now() });
+        // Quiz só pontua se o apresentador marcou um gabarito — sem isso continua
+        // sendo uma enquete de opinião comum, sem certo/errado (comportamento original).
+        if (session.currentCorrectAnswer) {
+          scoreResult = scoreAndRecord(session, socket.id, studentName, answer === session.currentCorrectAnswer);
+        }
       } else if (responseType === 'wordcloud') {
         slideData.words.push({ student: studentName, word: answer.trim(), timestamp: Date.now() });
       } else if (responseType === 'tbl') {
         slideData.irat.push({ student: studentName, choice: answer, team: answer.team || 'Geral' });
+      } else if (responseType === 'hotspot') {
+        const zone = session.currentHotspotConfig;
+        const correct = !!zone && isWithinHotspot(answer, zone);
+        slideData.hotspots.push({ student: studentName, x: answer?.x, y: answer?.y, correct, timestamp: Date.now() });
+        scoreResult = scoreAndRecord(session, socket.id, studentName, correct);
+      }
+
+      if (scoreResult) {
+        // Feedback de pontuação vai só pro aluno que respondeu (não pra sala toda)
+        socket.emit('response_scored', scoreResult);
+        io.to(`session_${pin}`).emit('leaderboard_update', { leaderboard: topScores(session) });
       }
 
       // Transmite resultado agregado em tempo real para o Apresentador e Telão
@@ -120,14 +144,21 @@ export function setupSocketIO(httpServer) {
     });
 
     // 4. Apresentador altera slide
-    socket.on('slide_changed', ({ pin, newIndex, slideType }) => {
+    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig }) => {
       const session = activeSessions.get(pin);
       if (session) {
         commitDwellTime(session);
         session.currentSlideIndex = newIndex;
         session.currentSlideType = slideType || null;
-        // Transmite para todos os alunos sincronizarem o celular
-        io.to(`session_${pin}`).emit('sync_slide', { currentSlideIndex: newIndex, slideType: session.currentSlideType });
+        session.currentCorrectAnswer = correctAnswer || null;
+        session.currentHotspotConfig = hotspotConfig || null;
+        // Transmite para todos os alunos sincronizarem o celular — só o necessário
+        // pra responder (nunca o gabarito ou as coordenadas certas do hotspot).
+        io.to(`session_${pin}`).emit('sync_slide', {
+          currentSlideIndex: newIndex,
+          slideType: session.currentSlideType,
+          hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null
+        });
       }
     });
 
@@ -145,6 +176,33 @@ export function setupSocketIO(httpServer) {
   });
 
   return io;
+}
+
+// Pontua uma resposta certa/errada e acumula no placar do aluno. Quanto mais rápido
+// responder (a partir do instante em que o slide atual entrou em cena), mais pontos —
+// mesmo espírito de jogos de quiz ao vivo (Kahoot etc.), sem precisar de lib nova.
+function scoreAndRecord(session, socketId, name, correct) {
+  const elapsedSeconds = (Date.now() - session.lastSlideChangeAt) / 1000;
+  const points = correct ? Math.max(10, 100 - Math.floor(elapsedSeconds) * 3) : 0;
+  if (correct) {
+    const current = session.scores.get(socketId) || { name, score: 0 };
+    current.score += points;
+    current.name = name;
+    session.scores.set(socketId, current);
+  }
+  return { correct, points };
+}
+
+function topScores(session) {
+  return [...session.scores.values()].sort((a, b) => b.score - a.score).slice(0, 10);
+}
+
+// Distância euclidiana entre o ponto respondido e o centro da zona certa, em % da imagem
+function isWithinHotspot(answer, zone) {
+  if (!answer || typeof answer.x !== 'number' || typeof answer.y !== 'number') return false;
+  const dx = answer.x - zone.x;
+  const dy = answer.y - zone.y;
+  return Math.sqrt(dx * dx + dy * dy) <= (zone.radius ?? 10);
 }
 
 // Acumula o tempo decorrido no slide atual em slideDwellTimes antes de trocar de slide
@@ -181,8 +239,8 @@ export function getSessionReport(pin) {
 
   let totalResponses = 0;
   const perSlide = [...slideIndexes].sort((a, b) => a - b).map((slideIndex) => {
-    const data = session.responses[slideIndex] || { answers: [], words: [], irat: [] };
-    const responseCount = data.answers.length + data.words.length + data.irat.length;
+    const data = session.responses[slideIndex] || { answers: [], words: [], irat: [], hotspots: [] };
+    const responseCount = data.answers.length + data.words.length + data.irat.length + (data.hotspots?.length || 0);
     totalResponses += responseCount;
 
     return {

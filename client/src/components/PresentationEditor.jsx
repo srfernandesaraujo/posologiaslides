@@ -57,7 +57,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       newSocket.emit('create_session', {
         presentationId: presentation.id || 'p-1',
         title: presentation.title || 'Apresentação',
-        slideType: presentation.slides?.[0]?.type || null
+        slideType: presentation.slides?.[0]?.type || null,
+        correctAnswer: presentation.slides?.[0]?.correctAnswer || null,
+        hotspotConfig: presentation.slides?.[0]?.hotspotConfig || null
       });
 
       newSocket.on('session_created', ({ pin: newPin }) => {
@@ -82,7 +84,14 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const emitSlideChanged = (newIndex) => {
     setActiveIndex(newIndex);
     if (socket) {
-      socket.emit('slide_changed', { pin, newIndex, slideType: presentation.slides[newIndex]?.type || null });
+      const slide = presentation.slides[newIndex];
+      socket.emit('slide_changed', {
+        pin,
+        newIndex,
+        slideType: slide?.type || null,
+        correctAnswer: slide?.correctAnswer || null,
+        hotspotConfig: slide?.hotspotConfig || null
+      });
     }
   };
 
@@ -90,6 +99,26 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], type: type || undefined };
     setPresentation({ ...presentation, slides: updatedSlides });
+  };
+
+  const handleChangeCorrectAnswer = (answer) => {
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], correctAnswer: answer || undefined };
+    setPresentation({ ...presentation, slides: updatedSlides });
+  };
+
+  const handleChangeHotspotConfig = (patch) => {
+    const updatedSlides = [...presentation.slides];
+    const prevConfig = updatedSlides[activeIndex].hotspotConfig || { imageUrl: '', x: null, y: null, radius: 10 };
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], hotspotConfig: { ...prevConfig, ...patch } };
+    setPresentation({ ...presentation, slides: updatedSlides });
+  };
+
+  const handleMarkHotspotPoint = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    handleChangeHotspotConfig({ x, y });
   };
 
   const handleNext = () => {
@@ -336,6 +365,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <option value="quiz">Quiz ao Vivo</option>
                 <option value="wordcloud">Nuvem de Palavras</option>
                 <option value="tbl">TBL — Verificação Individual (iRAT)</option>
+                <option value="hotspot">Hotspot em Imagem</option>
               </select>
               <button className="btn-icon" onClick={() => setIsMediaDrawerOpen(!isMediaDrawerOpen)} title="Biblioteca de Mídias (Drag & Drop)">
                 <Image size={18} />
@@ -356,6 +386,80 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <Play size={16} /> Apresentar (F)
               </button>
             </div>
+          </div>
+        )}
+
+        {!isFullscreen && currentSlide.type === 'quiz' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', fontSize: '0.8rem', color: '#9ca3af' }}>
+            Resposta certa (opcional, ativa pontuação):
+            {['A', 'B', 'C', 'D'].map((opt) => (
+              <button
+                key={opt}
+                className="btn-icon"
+                onClick={() => handleChangeCorrectAnswer(currentSlide.correctAnswer === opt ? '' : opt)}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  background: currentSlide.correctAnswer === opt ? 'var(--accent-primary)' : undefined,
+                  color: currentSlide.correctAnswer === opt ? '#071019' : undefined
+                }}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!isFullscreen && currentSlide.type === 'hotspot' && (
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '0.5rem' }}>
+            <div style={{ flex: 1 }}>
+              <input
+                type="text"
+                className="chat-input"
+                placeholder="URL da imagem"
+                value={currentSlide.hotspotConfig?.imageUrl || ''}
+                onChange={(e) => handleChangeHotspotConfig({ imageUrl: e.target.value })}
+                style={{ width: '100%', marginBottom: '0.5rem', fontSize: '0.8rem', boxSizing: 'border-box' }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <label style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Raio de tolerância (%)</label>
+                <input
+                  type="number"
+                  className="chat-input"
+                  min="3"
+                  max="40"
+                  value={currentSlide.hotspotConfig?.radius ?? 10}
+                  onChange={(e) => handleChangeHotspotConfig({ radius: Number(e.target.value) })}
+                  style={{ width: '70px', fontSize: '0.8rem' }}
+                />
+              </div>
+              <p style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: '0.4rem' }}>
+                Clique na miniatura ao lado para marcar o ponto correto.
+              </p>
+            </div>
+
+            {currentSlide.hotspotConfig?.imageUrl && (
+              <div style={{ position: 'relative', width: '160px', flexShrink: 0, cursor: 'crosshair' }} onClick={handleMarkHotspotPoint}>
+                <img src={currentSlide.hotspotConfig.imageUrl} alt="Prévia do hotspot" style={{ width: '100%', borderRadius: '0.5rem', display: 'block' }} />
+                {currentSlide.hotspotConfig?.x != null && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: `${currentSlide.hotspotConfig.x}%`,
+                      top: `${currentSlide.hotspotConfig.y}%`,
+                      transform: 'translate(-50%, -50%)',
+                      width: '14px',
+                      height: '14px',
+                      borderRadius: '50%',
+                      background: 'var(--accent-primary)',
+                      border: '2px solid #fff',
+                      boxShadow: '0 0 8px rgba(34,211,238,0.8)',
+                      pointerEvents: 'none'
+                    }}
+                  />
+                )}
+              </div>
+            )}
           </div>
         )}
 

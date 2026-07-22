@@ -8,7 +8,7 @@ const router = express.Router();
 // requisição (uso avançado/pontual) e cai para a chave salva na nuvem
 // (Firestore, por usuário) — assim funciona em qualquer dispositivo, sem
 // depender de localStorage do navegador.
-async function resolveApiKey(userId, requestApiKey) {
+export async function resolveApiKey(userId, requestApiKey) {
   if (requestApiKey) return requestApiKey;
   const { geminiApiKey } = await getUserSettings(userId);
   return geminiApiKey || undefined;
