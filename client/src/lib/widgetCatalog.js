@@ -1,8 +1,4 @@
-// Gera um sufixo curto e único para escopar ids/classes do widget dentro do
-// HTML do slide — permite inserir o mesmo widget mais de uma vez sem colisão.
-function uniqueId(prefix) {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-}
+import { uniqueId } from './slideHtmlUtils.js';
 
 function formatMMSS(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);

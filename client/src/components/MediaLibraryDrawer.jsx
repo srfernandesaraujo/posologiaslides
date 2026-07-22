@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
-import { Image, Video, Music, Upload, Plus, X, Link as LinkIcon, Globe } from 'lucide-react';
+import { Image, Video, Music, Upload, Plus, X, Link as LinkIcon, Globe, Loader2 } from 'lucide-react';
+import { apiFetch } from '../lib/api';
 
-const MAX_EMBED_BYTES = 4 * 1024 * 1024; // ~4MB: a apresentação inteira é um único documento no Firestore
-
-// Converte links de compartilhamento comuns (YouTube/Vimeo) para sua forma
-// embutível; qualquer outra URL é usada como está (nem todo site permite ser
-// enquadrado em iframe — isso depende de cabeçalhos do próprio site, fora do
-// nosso controle).
+// Converte links de compartilhamento comuns para sua forma embutível; qualquer
+// outra URL é usada como está (nem todo site permite ser enquadrado em iframe
+// — isso depende de cabeçalhos do próprio site, fora do nosso controle).
 function toEmbedUrl(rawUrl) {
   try {
     const url = new URL(rawUrl);
+
     if (url.hostname.includes('youtube.com') && url.searchParams.get('v')) {
       return `https://www.youtube.com/embed/${url.searchParams.get('v')}`;
     }
@@ -20,19 +19,31 @@ function toEmbedUrl(rawUrl) {
       const id = url.pathname.split('/').filter(Boolean).pop();
       if (id) return `https://player.vimeo.com/video/${id}`;
     }
+    if (url.hostname.includes('loom.com')) {
+      const id = url.pathname.split('/').filter(Boolean).pop();
+      if (id) return `https://www.loom.com/embed/${id}`;
+    }
+    if (url.hostname.includes('wistia.com') && url.pathname.includes('/medias/')) {
+      const id = url.pathname.split('/').filter(Boolean).pop();
+      if (id) return `https://fast.wistia.net/embed/iframe/${id}`;
+    }
+    if (url.hostname.includes('tiktok.com')) {
+      const match = url.pathname.match(/\/video\/(\d+)/);
+      if (match) return `https://www.tiktok.com/embed/v2/${match[1]}`;
+    }
+    if (url.hostname.includes('open.spotify.com') && !url.pathname.startsWith('/embed/')) {
+      return `https://open.spotify.com${url.pathname.replace(/^/, '/embed')}`;
+    }
+    // Google Forms só renderiza corretamente dentro de iframe com esse parâmetro.
+    if (url.hostname === 'docs.google.com' && url.pathname.includes('/forms/') && !url.searchParams.get('embedded')) {
+      url.searchParams.set('embedded', 'true');
+      return url.toString();
+    }
+
     return rawUrl;
   } catch {
     return rawUrl;
   }
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
@@ -46,6 +57,7 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
   const [linkType, setLinkType] = useState('image');
   const [webpageUrl, setWebpageUrl] = useState('');
   const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
 
   if (!isOpen) return null;
 
@@ -54,23 +66,26 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
     e.target.value = '';
     if (!file) return;
     setError('');
+    setUploading(true);
 
-    if (file.size > MAX_EMBED_BYTES) {
-      setError(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB) para embutir diretamente no slide — o limite é ~4MB pois tudo fica salvo em um único documento. Use a aba "Link Externo" com uma URL já hospedada para arquivos maiores.`);
-      return;
+    try {
+      // Envia pro Cloud Storage e guarda só a URL — o slide referencia essa
+      // URL em vez de embutir o arquivo como data: URI dentro do documento
+      // da apresentação, que é salvo inteiro como um único documento no
+      // Firestore (limite rígido de 1 MiB).
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await apiFetch('/api/materials/upload-media', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Falha ao enviar arquivo.');
+
+      const newMedia = { id: Date.now().toString(), name: data.name, type: data.type, url: data.url };
+      setMediaList([newMedia, ...mediaList]);
+    } catch (err) {
+      setError(err.message || 'Falha ao enviar arquivo.');
+    } finally {
+      setUploading(false);
     }
-
-    let type = 'image';
-    if (file.type.startsWith('video/')) type = 'video';
-    if (file.type.startsWith('audio/')) type = 'audio';
-
-    // data: URI em vez de blob: — o slide roda num iframe sandboxed com
-    // origem opaca, e blob: URLs não atravessam essa fronteira de origem.
-    // data: é autocontido e também é literalmente "a mídia embutida no HTML".
-    const dataUrl = await readFileAsDataUrl(file);
-
-    const newMedia = { id: Date.now().toString(), name: file.name, type, url: dataUrl };
-    setMediaList([newMedia, ...mediaList]);
   };
 
   const handleAddLink = () => {
@@ -122,12 +137,13 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
 
       {tab === 'upload' && (
         <>
-          <label className="btn-primary" style={{ marginBottom: '0.5rem', justifyContent: 'center', padding: '0.6rem', fontSize: '0.85rem' }}>
-            <Upload size={16} /> Fazer Upload de Imagem/Vídeo/Áudio
-            <input type="file" accept="image/*,video/*,audio/*" style={{ display: 'none' }} onChange={handleFileUpload} />
+          <label className="btn-primary" style={{ marginBottom: '0.5rem', justifyContent: 'center', padding: '0.6rem', fontSize: '0.85rem', opacity: uploading ? 0.7 : 1, pointerEvents: uploading ? 'none' : 'auto' }}>
+            {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+            {uploading ? 'Enviando...' : 'Fazer Upload de Imagem/Vídeo/Áudio'}
+            <input type="file" accept="image/*,video/*,audio/*" style={{ display: 'none' }} onChange={handleFileUpload} disabled={uploading} />
           </label>
           <p style={{ fontSize: '0.72rem', color: '#6b7280', marginBottom: '0.75rem' }}>
-            O arquivo é embutido diretamente no HTML do slide (limite ~4MB).
+            O arquivo é enviado para o armazenamento na nuvem e referenciado por URL no slide (limite ~50MB).
           </p>
         </>
       )}
@@ -174,7 +190,7 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
             </button>
           </div>
           <p style={{ fontSize: '0.72rem', color: '#6b7280' }}>
-            Links do YouTube/Vimeo são convertidos automaticamente para o formato embutível. Se depois de inserir a área ficar em branco, é porque aquele site específico bloqueia ser exibido dentro de outra página (restrição do próprio site, ex. X-Frame-Options) — não tem como contornar isso, é preciso usar outro link/fonte.
+            Links do YouTube, Vimeo, Loom, Wistia, TikTok, Spotify e Google Forms são convertidos automaticamente para o formato embutível. Typeform, Jotform, Tally Form e Calendly já funcionam colando o link direto. Se depois de inserir a área ficar em branco, é porque aquele site específico bloqueia ser exibido dentro de outra página (restrição do próprio site, ex. X-Frame-Options) — não tem como contornar isso, é preciso usar outro link/fonte.
           </p>
         </div>
       )}

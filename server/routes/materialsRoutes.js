@@ -3,9 +3,13 @@ import multer from 'multer';
 import pdfParse from 'pdf-parse';
 import axios from 'axios';
 import { assertSafeUrl } from '../services/urlSafety.js';
+import { bucket } from '../services/firebaseAdmin.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+// Mídia embutida em slide (imagem/vídeo/áudio) vai para o Cloud Storage, não
+// para o corpo da requisição de IA — por isso aceita arquivos bem maiores.
+const uploadMedia = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const MAX_REDIRECTS = 5;
 
@@ -76,6 +80,47 @@ router.post('/upload-file', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error('Erro na rota upload-file:', error);
     res.status(500).json({ error: 'Falha ao processar arquivo enviado.' });
+  }
+});
+
+// Upload de mídia (imagem/vídeo/áudio) para embutir num slide. Vai para o
+// Cloud Storage e devolve uma URL pública — o slide referencia essa URL em
+// vez de carregar o arquivo como data: URI dentro do documento da
+// apresentação, que é salvo inteiro como um único documento no Firestore
+// (limite rígido de 1 MiB).
+router.post('/upload-media', uploadMedia.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    }
+
+    const { originalname, mimetype, buffer } = req.file;
+    const isImage = mimetype.startsWith('image/');
+    const isVideo = mimetype.startsWith('video/');
+    const isAudio = mimetype.startsWith('audio/');
+
+    if (!isImage && !isVideo && !isAudio) {
+      return res.status(400).json({ error: 'Tipo de arquivo não suportado — envie imagem, vídeo ou áudio.' });
+    }
+
+    // Escopa por usuário e sanitiza o nome pra evitar path traversal / caracteres
+    // inválidos no nome do objeto no bucket.
+    const safeName = originalname.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120);
+    const objectPath = `media/${req.user.id}/${Date.now()}-${safeName}`;
+    const file = bucket.file(objectPath);
+
+    await file.save(buffer, { metadata: { contentType: mimetype }, resumable: false });
+    await file.makePublic();
+
+    res.json({
+      success: true,
+      url: `https://storage.googleapis.com/${bucket.name}/${objectPath}`,
+      type: isImage ? 'image' : isVideo ? 'video' : 'audio',
+      name: originalname
+    });
+  } catch (error) {
+    console.error('Erro na rota upload-media:', error);
+    res.status(500).json({ error: 'Falha ao enviar arquivo para o armazenamento.' });
   }
 });
 
