@@ -48,13 +48,26 @@ export function removeElementAt(html, index) {
 
 // Substitui por completo o que ocupa a posição `index` (wrapper de
 // alinhamento/agrupamento incluído, se houver) — usada pela edição via IA
-// restrita a um elemento, onde a resposta já é o substituto completo daquele
-// slot.
+// restrita a um elemento e pela edição manual de HTML bruto (ver
+// `getElementAt`), onde a resposta/entrada já é o substituto completo daquele
+// slot. Aceita fragmentos com mais de um nó de topo (ex.: um diagrama
+// Mermaid/Chart.js é `<div>` + `<script>`) — um nó único vira o próprio
+// elemento endereçável; mais de um é embrulhado num `<div>` pra continuar
+// endereçável por esse mesmo índice.
 export function replaceElementAt(html, index, newFragmentHtml) {
   const template = parseFragment(html);
   const el = getContainer(template).children[index];
-  const newEl = parseFragment(newFragmentHtml).content.firstElementChild;
-  if (!el || !newEl) return html;
+  const newNodes = Array.from(parseFragment(newFragmentHtml).content.childNodes);
+  if (!el || !newNodes.length) return html;
+
+  let newEl;
+  if (newNodes.length === 1 && newNodes[0].nodeType === Node.ELEMENT_NODE) {
+    newEl = newNodes[0];
+  } else {
+    newEl = document.createElement('div');
+    newEl.append(...newNodes);
+  }
+
   el.replaceWith(newEl);
   return serializeFragment(template);
 }

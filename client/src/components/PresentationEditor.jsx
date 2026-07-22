@@ -19,7 +19,7 @@ import {
 import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
-  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2
+  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save
 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
@@ -53,6 +53,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [animPanelOpen, setAnimPanelOpen] = useState(false);
   const [animDuration, setAnimDuration] = useState(ANIMATION_DEFAULTS.duration);
   const [animDelay, setAnimDelay] = useState(ANIMATION_DEFAULTS.delay);
+  // Editor de HTML bruto do elemento selecionado — alternativa ao "Editar
+  // campos" pra elementos sem metadado de catálogo (títulos, texto solto,
+  // diagramas/gráficos escritos direto pela IA na geração do slide), que por
+  // não terem vindo da gaveta "Inserir Conteúdo" não têm um formulário
+  // estruturado pra reabrir. String com o HTML em edição quando aberto, null
+  // quando fechado.
+  const [elementHtmlDraft, setElementHtmlDraft] = useState(null);
 
   // Sockets & PIN para sessão ao vivo
   const [socket, setSocket] = useState(null);
@@ -199,9 +206,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       if (!data || data.source !== SLIDE_EDITOR_MESSAGE_SOURCE) return;
       if (data.type === 'select') {
         setSelectedEl({ index: data.index, scope: data.scope, rect: data.rect });
+        setElementHtmlDraft(null);
       } else if (data.type === 'deselect') {
         setSelectedEl(null);
         setAnimPanelOpen(false);
+        setElementHtmlDraft(null);
       }
     };
     window.addEventListener('message', handleMessage);
@@ -214,6 +223,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setSelectedEl(null);
     setChatScope(null);
     setAnimPanelOpen(false);
+    setElementHtmlDraft(null);
   }, [activeIndex, isFullscreen]);
 
   // Ao selecionar um elemento novo, pré-preenche os controles de duração/atraso
@@ -334,6 +344,21 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     mutateCurrentSlideHtml((html) => replaceElementInnerAt(html, index, newInnerHtml, config));
     setIsWidgetDrawerOpen(false);
     setEditingWidgetContext(null);
+  };
+
+  // Alternativa ao "Editar campos" pra elementos sem metadado de catálogo —
+  // abre o HTML bruto do elemento selecionado (título, texto, diagrama etc.
+  // gerado direto pela IA) num textarea pra edição manual.
+  const handleOpenElementHtmlEdit = () => {
+    if (!selectedEl) return;
+    setElementHtmlDraft(getElementAt(currentSlide.html, selectedEl.index) || '');
+  };
+
+  const handleSaveElementHtml = () => {
+    if (!selectedEl || elementHtmlDraft == null || !elementHtmlDraft.trim()) return;
+    const draft = elementHtmlDraft;
+    mutateCurrentSlideHtml((html) => replaceElementAt(html, selectedEl.index, draft));
+    setElementHtmlDraft(null);
   };
 
   // Aplica um preset de animação ao elemento selecionado com a duração/atraso
@@ -740,10 +765,19 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   >
                     <Wand2 size={15} />
                   </button>
-                  {elementMeta && (
+                  {elementMeta ? (
                     <>
                       {divider}
                       <button className="btn-icon" style={btnStyle} title="Editar campos" onClick={handleEditElementFields}><Pencil size={15} /></button>
+                    </>
+                  ) : (
+                    // Título, texto solto ou diagrama/gráfico escrito direto pela IA na
+                    // geração do slide — não veio da gaveta "Inserir Conteúdo", então não
+                    // tem um formulário de campos pra reabrir. Fallback: editar o HTML
+                    // bruto do elemento diretamente.
+                    <>
+                      {divider}
+                      <button className={`btn-icon ${elementHtmlDraft != null ? 'active' : ''}`} style={btnStyle} title="Editar HTML" onClick={handleOpenElementHtmlEdit}><Code size={15} /></button>
                     </>
                   )}
                   {divider}
@@ -815,6 +849,39 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                         <Trash2 size={13} /> Remover animação
                       </button>
                     )}
+                  </div>
+                )}
+
+                {elementHtmlDraft != null && (
+                  <div
+                    className="glass-panel"
+                    style={{
+                      position: 'absolute',
+                      top: `${toolbarTop + 40}px`,
+                      left: `${toolbarLeft}px`,
+                      zIndex: 41,
+                      width: '380px',
+                      maxWidth: 'calc(100vw - 2rem)',
+                      padding: '0.7rem',
+                      background: 'rgba(15, 23, 42, 0.97)'
+                    }}
+                  >
+                    <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginBottom: '0.5rem' }}>
+                      Editar HTML do elemento selecionado — título, texto ou diagrama/gráfico gerado direto pela IA (sem formulário de campos próprio):
+                    </div>
+                    <textarea
+                      className="chat-input"
+                      rows={10}
+                      style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '0.72rem', resize: 'vertical' }}
+                      value={elementHtmlDraft}
+                      onChange={(e) => setElementHtmlDraft(e.target.value)}
+                    />
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
+                      <button className="btn-icon" style={{ width: 'auto', flex: 1 }} onClick={() => setElementHtmlDraft(null)}>Cancelar</button>
+                      <button className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem' }} onClick={handleSaveElementHtml}>
+                        <Save size={15} /> Salvar
+                      </button>
+                    </div>
                   </div>
                 )}
               </>
