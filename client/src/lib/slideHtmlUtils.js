@@ -229,7 +229,11 @@ export function getElementMeta(html, index) {
 // alinhamento (`data-align-wrap`, ver `setAlignmentAt`), desembrulha primeiro:
 // aquele wrapper é `width:100%`, que em position:absolute ocuparia o slide
 // inteiro e anularia a posição livre.
-export function setPositionAt(html, index, { leftPct, topPct, widthPct }) {
+// `heightPct` só vem preenchido quando o usuário redimensionou de propósito
+// (alça de redimensionar, ver PresentationViewer.jsx) — um simples arrasto
+// pra mover não mexe na altura, deixando o valor anterior intacto (auto,
+// se nunca foi redimensionado, ou o % já fixado antes).
+export function setPositionAt(html, index, { leftPct, topPct, widthPct, heightPct }) {
   const template = parseFragment(html);
   const container = getContainer(template);
   const wrapperOrEl = container.children[index];
@@ -239,7 +243,12 @@ export function setPositionAt(html, index, { leftPct, topPct, widthPct }) {
   if (!el) return html;
   if (el !== wrapperOrEl) wrapperOrEl.replaceWith(el);
 
-  if (!container.style.position) container.style.position = 'relative';
+  // Slide sem ".slide-root" (ex. slide em branco novo, ver appendIntoRoot/
+  // getContainer) cai no fallback `template.content`, um DocumentFragment sem
+  // `.style` — sem essa checagem, o acesso abaixo lançava e a posição nunca
+  // chegava a ser salva (só existia ao vivo dentro do iframe da edição atual,
+  // sumindo no primeiro recarregamento, ex. ao entrar em tela cheia).
+  if (container.style && !container.style.position) container.style.position = 'relative';
 
   el.style.position = 'absolute';
   el.style.margin = '0';
@@ -247,6 +256,7 @@ export function setPositionAt(html, index, { leftPct, topPct, widthPct }) {
   el.style.left = `${leftPct}%`;
   el.style.top = `${topPct}%`;
   if (widthPct != null) el.style.width = `${widthPct}%`;
+  if (heightPct != null) el.style.height = `${heightPct}%`;
   el.setAttribute('data-el-positioned', 'true');
   return serializeFragment(template);
 }
@@ -263,6 +273,7 @@ export function clearPositionAt(html, index) {
   el.style.left = '';
   el.style.top = '';
   el.style.width = '';
+  el.style.height = '';
   el.removeAttribute('data-el-positioned');
   return serializeFragment(template);
 }

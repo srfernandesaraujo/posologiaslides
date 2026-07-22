@@ -41,17 +41,24 @@ function buildEditorScript() {
   .__pos-hover { outline: 2px dashed rgba(34,211,238,0.7) !important; outline-offset: 2px; cursor: pointer; }
   .__pos-selected { outline: 2px solid #22d3ee !important; outline-offset: 2px; cursor: grab; }
   .__pos-dragging { cursor: grabbing !important; opacity: 0.85; }
+  .__pos-handle { position: fixed; width: 11px; height: 11px; background: #22d3ee; border: 1.5px solid #071019; border-radius: 3px; box-sizing: border-box; z-index: 2147483647; display: none; }
 </style>
 <script>
 (function () {
   var container = document.querySelector('.slide-root') || document.body;
   var scope = container === document.body ? 'body' : 'root';
-  var selector = scope === 'root' ? '.slide-root > *' : 'body > *';
+  // :not(.__pos-handle) exclui as alças de redimensionar (ver abaixo) — sem
+  // ".slide-root" (slide em branco), elas são anexadas direto no <body>,
+  // logo entrariam no próprio "body > *" e seriam tratadas como conteúdo
+  // selecionável do slide.
+  var selector = (scope === 'root' ? '.slide-root > *' : 'body > *') + ':not(.__pos-handle)';
   var hovered = null;
   var selected = null;
   var dragState = null;
+  var resizeState = null;
   var justDragged = false;
   var DRAG_THRESHOLD = 4;
+  var MIN_SIZE_PX = 24;
 
   if (getComputedStyle(container).position === 'static') {
     container.style.position = 'relative';
@@ -80,6 +87,100 @@ function buildEditorScript() {
     }, '*');
   }
 
+  function sendReposition(el, extra) {
+    justDragged = true;
+    var containerRect = container.getBoundingClientRect();
+    var elRect = el.getBoundingClientRect();
+    var payload = {
+      source: '${SLIDE_EDITOR_MESSAGE_SOURCE}',
+      type: 'reposition',
+      index: indexOf(el),
+      scope: scope,
+      leftPct: (elRect.left - containerRect.left) / containerRect.width * 100,
+      topPct: (elRect.top - containerRect.top) / containerRect.height * 100,
+      widthPct: elRect.width / containerRect.width * 100,
+      rect: { top: elRect.top, left: elRect.left, width: elRect.width, height: elRect.height }
+    };
+    if (extra) for (var k in extra) payload[k] = extra[k];
+    window.parent.postMessage(payload, '*');
+  }
+
+  // Tira o elemento do fluxo e fixa a posição/largura atuais em % do
+  // container (ver setPositionAt) — usado tanto ao começar a arrastar quanto
+  // ao começar a redimensionar, sempre que o elemento ainda não é "livre".
+  // Elemento centralizado/à direita (ver setAlignmentAt) é embrulhado num
+  // <div style="display:flex;width:100%"> — em position:absolute esse
+  // width:100% ocuparia o slide inteiro e anularia a posição livre, então
+  // desembrulha primeiro.
+  function detach(el) {
+    if (el.getAttribute('data-align-wrap') === 'true') {
+      var inner = el.firstElementChild;
+      el.replaceWith(inner);
+      el = inner;
+    }
+    if (el.getAttribute('data-el-positioned') !== 'true') {
+      var containerRect = container.getBoundingClientRect();
+      var elRect = el.getBoundingClientRect();
+      el.style.position = 'absolute';
+      el.style.margin = '0';
+      el.style.zIndex = '10';
+      el.style.left = ((elRect.left - containerRect.left) / containerRect.width * 100) + '%';
+      el.style.top = ((elRect.top - containerRect.top) / containerRect.height * 100) + '%';
+      el.style.width = (elRect.width / containerRect.width * 100) + '%';
+      el.setAttribute('data-el-positioned', 'true');
+    }
+    return el;
+  }
+
+  // --- Alças de redimensionar: 3 quadradinhos (direita, baixo, quina) que
+  // seguem o elemento selecionado e, arrastados, mudam largura/altura.
+  var handles = {};
+  ['e', 's', 'se'].forEach(function (pos) {
+    var h = document.createElement('div');
+    h.className = '__pos-handle';
+    h.style.cursor = pos === 'e' ? 'ew-resize' : (pos === 's' ? 'ns-resize' : 'nwse-resize');
+    document.body.appendChild(h);
+    handles[pos] = h;
+  });
+
+  function positionHandles() {
+    if (!selected) {
+      for (var k in handles) handles[k].style.display = 'none';
+      return;
+    }
+    var r = selected.getBoundingClientRect();
+    var half = 5.5;
+    handles.e.style.left = (r.right - half) + 'px';
+    handles.e.style.top = (r.top + r.height / 2 - half) + 'px';
+    handles.s.style.left = (r.left + r.width / 2 - half) + 'px';
+    handles.s.style.top = (r.bottom - half) + 'px';
+    handles.se.style.left = (r.right - half) + 'px';
+    handles.se.style.top = (r.bottom - half) + 'px';
+    for (var k2 in handles) handles[k2].style.display = 'block';
+  }
+
+  Object.keys(handles).forEach(function (pos) {
+    handles[pos].addEventListener('mousedown', function (e) {
+      if (!selected) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var el = detach(selected);
+      if (el !== selected) { selected = el; selected.classList.add('__pos-selected'); }
+      var containerRect = container.getBoundingClientRect();
+      var elRect = el.getBoundingClientRect();
+      resizeState = {
+        el: el,
+        pos: pos,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startWidthPx: elRect.width,
+        startHeightPx: elRect.height,
+        containerWidth: containerRect.width,
+        containerHeight: containerRect.height
+      };
+    });
+  });
+
   document.body.addEventListener('mouseover', function (e) {
     var match = e.target.closest(selector);
     if (match === hovered) return;
@@ -99,14 +200,15 @@ function buildEditorScript() {
     var match = e.target.closest(selector);
     if (!match) return;
     var containerRect = container.getBoundingClientRect();
-    var elRect = match.getBoundingClientRect();
     dragState = {
       el: match,
       startClientX: e.clientX,
       startClientY: e.clientY,
-      startLeftPx: elRect.left - containerRect.left,
-      startTopPx: elRect.top - containerRect.top,
-      startWidthPx: elRect.width,
+      // startLeftPx/startTopPx são recalculados só quando o arrasto de fato
+      // começa (ver abaixo) — não aqui, porque desembrulhar um elemento
+      // alinhado (ver detach) troca qual elemento é rastreado, e medir agora
+      // pegaria o retângulo do WRAPPER (embrulho de alinhamento), não do
+      // conteúdo real.
       containerWidth: containerRect.width,
       containerHeight: containerRect.height,
       moved: false
@@ -114,6 +216,22 @@ function buildEditorScript() {
   });
 
   document.addEventListener('mousemove', function (e) {
+    if (resizeState) {
+      var rdx = e.clientX - resizeState.startClientX;
+      var rdy = e.clientY - resizeState.startClientY;
+      var el = resizeState.el;
+      if (resizeState.pos === 'e' || resizeState.pos === 'se') {
+        var newWidthPx = Math.max(MIN_SIZE_PX, resizeState.startWidthPx + rdx);
+        el.style.width = (newWidthPx / resizeState.containerWidth * 100) + '%';
+      }
+      if (resizeState.pos === 's' || resizeState.pos === 'se') {
+        var newHeightPx = Math.max(MIN_SIZE_PX, resizeState.startHeightPx + rdy);
+        el.style.height = (newHeightPx / resizeState.containerHeight * 100) + '%';
+      }
+      positionHandles();
+      return;
+    }
+
     if (!dragState) return;
     var dx = e.clientX - dragState.startClientX;
     var dy = e.clientY - dragState.startClientY;
@@ -121,16 +239,15 @@ function buildEditorScript() {
     if (!dragState.moved) {
       if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
       dragState.moved = true;
+      dragState.el = detach(dragState.el);
 
-      // Elemento centralizado/à direita (ver setAlignmentAt) é embrulhado num
-      // <div style="display:flex;width:100%"> — em position:absolute esse
-      // width:100% ocuparia o slide inteiro e a posição livre não teria
-      // efeito visual nenhum, então desembrulha antes de começar a arrastar.
-      if (dragState.el.getAttribute('data-align-wrap') === 'true') {
-        var inner = dragState.el.firstElementChild;
-        dragState.el.replaceWith(inner);
-        dragState.el = inner;
-      }
+      // Base do arrasto medida AGORA, depois do detach — se ele desembrulhou
+      // um elemento alinhado, dragState.el mudou pro elemento interno, cujo
+      // retângulo é diferente do wrapper medido no mousedown.
+      var containerRect0 = container.getBoundingClientRect();
+      var elRect0 = dragState.el.getBoundingClientRect();
+      dragState.startLeftPx = elRect0.left - containerRect0.left;
+      dragState.startTopPx = elRect0.top - containerRect0.top;
 
       if (selected && selected !== dragState.el) selected.classList.remove('__pos-selected');
       selected = dragState.el;
@@ -141,40 +258,35 @@ function buildEditorScript() {
 
     var leftPx = dragState.startLeftPx + dx;
     var topPx = dragState.startTopPx + dy;
-    dragState.el.style.position = 'absolute';
-    dragState.el.style.margin = '0';
-    dragState.el.style.zIndex = '10';
     dragState.el.style.left = (leftPx / dragState.containerWidth * 100) + '%';
     dragState.el.style.top = (topPx / dragState.containerHeight * 100) + '%';
-    dragState.el.style.width = (dragState.startWidthPx / dragState.containerWidth * 100) + '%';
+    positionHandles();
   });
 
   document.addEventListener('mouseup', function () {
+    if (resizeState) {
+      var el = resizeState.el;
+      resizeState = null;
+      justDragged = true;
+      var elRect = el.getBoundingClientRect();
+      var containerRect = container.getBoundingClientRect();
+      sendReposition(el, { heightPct: elRect.height / containerRect.height * 100 });
+      return;
+    }
+
     if (!dragState) return;
     var moved = dragState.moved;
-    var el = dragState.el;
+    var el2 = dragState.el;
     dragState = null;
     if (!moved) return;
 
-    el.classList.remove('__pos-dragging');
-    justDragged = true;
-    var containerRect = container.getBoundingClientRect();
-    var elRect = el.getBoundingClientRect();
-    window.parent.postMessage({
-      source: '${SLIDE_EDITOR_MESSAGE_SOURCE}',
-      type: 'reposition',
-      index: indexOf(el),
-      scope: scope,
-      leftPct: (elRect.left - containerRect.left) / containerRect.width * 100,
-      topPct: (elRect.top - containerRect.top) / containerRect.height * 100,
-      widthPct: elRect.width / containerRect.width * 100,
-      rect: { top: elRect.top, left: elRect.left, width: elRect.width, height: elRect.height }
-    }, '*');
+    el2.classList.remove('__pos-dragging');
+    sendReposition(el2);
   });
 
   // Fase de captura: intercepta o click nativo que o navegador dispara logo
-  // depois do mouseup de um arrasto de verdade, antes que ele alcance (e
-  // dispare) o onclick de um controle interno do próprio widget.
+  // depois do mouseup de um arrasto/redimensionamento de verdade, antes que
+  // ele alcance (e dispare) o onclick de um controle interno do próprio widget.
   document.addEventListener('click', function (e) {
     if (!justDragged) return;
     justDragged = false;
@@ -188,6 +300,7 @@ function buildEditorScript() {
 
     if (!match) {
       selected = null;
+      positionHandles();
       window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'deselect' }, '*');
       return;
     }
@@ -195,6 +308,7 @@ function buildEditorScript() {
     selected = match;
     selected.classList.remove('__pos-hover');
     selected.classList.add('__pos-selected');
+    positionHandles();
     sendSelect(match);
   });
 })();

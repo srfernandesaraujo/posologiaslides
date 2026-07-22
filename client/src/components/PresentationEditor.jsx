@@ -212,12 +212,14 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         setAnimPanelOpen(false);
         setElementHtmlDraft(null);
       } else if (data.type === 'reposition') {
-        // Arrasto solto no palco (ver buildEditorScript) — grava a posição livre
-        // em % e atualiza o rect da seleção pra barra de ação acompanhar o
-        // elemento na nova posição, sem perder a seleção (mesmo espírito de
-        // `updateCurrentSlideHtml`, usado pelas animações).
+        // Arrasto/redimensionamento solto no palco (ver buildEditorScript) —
+        // grava a posição livre em % e atualiza o rect da seleção pra barra de
+        // ação acompanhar o elemento na nova posição/tamanho, sem perder a
+        // seleção (mesmo espírito de `updateCurrentSlideHtml`, usado pelas
+        // animações). `heightPct` só vem preenchido quando foi um
+        // redimensionamento de verdade (ver sendReposition/resizeState).
         updateCurrentSlideHtml((html) => setPositionAt(html, data.index, {
-          leftPct: data.leftPct, topPct: data.topPct, widthPct: data.widthPct
+          leftPct: data.leftPct, topPct: data.topPct, widthPct: data.widthPct, heightPct: data.heightPct
         }));
         setSelectedEl({ index: data.index, scope: data.scope, rect: data.rect });
       }
