@@ -20,7 +20,16 @@ if (!getApps().length) {
 
 export const db = getFirestore();
 export const auth = getAuth();
+
 // Bucket do Cloud Storage — mídia enviada pelo usuário (imagem/vídeo/áudio)
 // vai aqui em vez de virar data: URI dentro do documento da apresentação no
 // Firestore, que tem limite rígido de 1 MiB por documento.
-export const bucket = getStorage().bucket();
+//
+// Chamado sob demanda (não no carregamento do módulo): se FIREBASE_STORAGE_BUCKET
+// não estiver configurado no ambiente, getStorage().bucket() lança na hora —
+// se isso rodasse no topo do arquivo, a IMPORTAÇÃO deste módulo já derrubava o
+// processo inteiro do servidor (todas as rotas, sockets, tudo), não só o upload
+// de mídia. Preguiçoso assim, só a rota que efetivamente usa o bucket falha.
+export function getBucket() {
+  return getStorage().bucket();
+}

@@ -1,5 +1,5 @@
 import express from 'express';
-import { generatePresentationOutline, generateSlideHtml, editSlideWithAi } from '../services/aiService.js';
+import { generatePresentationOutline, generateSlideHtml, editSlideWithAi, generateInfographicFragment } from '../services/aiService.js';
 import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
@@ -91,6 +91,23 @@ router.post('/edit-slide', async (req, res) => {
   } catch (error) {
     console.error('Erro na rota edit-slide:', error);
     res.status(500).json({ error: 'Falha ao editar o slide com IA.' });
+  }
+});
+
+// Rota 4: Gerar fragmento de infográfico (pra inserir dentro de um slide)
+router.post('/generate-infographic', async (req, res) => {
+  try {
+    const { topic, materials, apiKey, images } = req.body;
+    if (!topic) {
+      return res.status(400).json({ error: 'O tema do infográfico é obrigatório.' });
+    }
+
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const { html, warning } = await generateInfographicFragment({ topic, materials, apiKey: effectiveApiKey, images });
+    res.json({ success: true, html, warning: warning || null });
+  } catch (error) {
+    console.error('Erro na rota generate-infographic:', error);
+    res.status(500).json({ error: 'Falha ao gerar o infográfico com IA.' });
   }
 });
 

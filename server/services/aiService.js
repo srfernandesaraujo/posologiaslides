@@ -160,6 +160,42 @@ export async function editSlideWithAi({ currentHtml, instruction, apiKey, materi
   }
 }
 
+// Gera um fragmento de infográfico (HTML/CSS autocontido, sem <script>) pra
+// ser inserido dentro de um slide já existente — não é um slide completo.
+export async function generateInfographicFragment({ topic, materials, apiKey, images }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+
+  if (!effectiveApiKey) {
+    return { html: generateFallbackInfographic(topic), warning: 'Nenhuma chave de API do Gemini configurada. Exibindo um infográfico de exemplo — configure sua chave em Configurações para gerar com IA de verdade.' };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const prompt = `
+    Você é um designer de infográficos para slides de aula.
+
+    Gere um infográfico em HTML/CSS autocontido sobre o tema abaixo, para ser inserido DENTRO de um slide já existente (não é um slide completo, é só um trecho de conteúdo).
+
+    TEMA: "${topic}"
+    ${materialsBlock(materials)}
+
+    REGRAS OBRIGATÓRIAS:
+    - Retorne um único <div> raiz contendo de 3 a 5 "cards" lado a lado (flex ou grid), cada um com: um número/estatística OU no máximo um emoji Unicode como destaque visual, um rótulo curto em negrito, e uma frase de apoio com no máximo 12 palavras.
+    - Visual escuro e elegante: fundo translúcido (ex. rgba(15,23,42,0.5)), bordas sutis (rgba(255,255,255,0.1)), acento em ciano (#22d3ee), texto claro. Todo o CSS inline (style="...").
+    - NÃO use <script>, <img>, <svg> complexo, fontes externas ou ícones de bibliotecas externas (Font Awesome etc.).
+    - Retorne APENAS o HTML do fragmento — nada de explicação, nada de markdown, nada de \`\`\`.
+    `;
+
+    const result = await model.generateContent(buildParts(prompt, images));
+    return { html: cleanCodeBlock(result.response.text()) };
+  } catch (error) {
+    console.error('Erro na API Gemini (Infográfico):', error.message);
+    return { html: generateFallbackInfographic(topic), warning: `Falha ao usar a IA Gemini (${error.message}). Exibindo um infográfico de exemplo.` };
+  }
+}
+
 // Resume respostas abertas de alunos (ex.: nuvem de palavras) — texto puro, sem parse de JSON
 export async function summarizeOpenResponses({ responses, apiKey }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
@@ -459,6 +495,22 @@ function generateFallbackSlideHtml(slideOutline, presentationTitle, index, total
     </footer>
   </div>
   `;
+}
+
+function generateFallbackInfographic(topic) {
+  const t = topic || 'o tema';
+  const stats = [
+    { value: '3', label: 'Pontos-chave', desc: `Principais aspectos de ${t}.` },
+    { value: '85%', label: 'Retenção', desc: 'Estimativa de aprendizado com prática ativa.' },
+    { value: '24h', label: 'Janela ideal', desc: 'Tempo recomendado para revisão do conteúdo.' }
+  ];
+  const cards = stats.map((s) => `
+    <div style="flex:1;min-width:140px;background:rgba(15,23,42,0.5);border:1px solid rgba(255,255,255,0.1);border-radius:0.75rem;padding:1.2rem;text-align:center;">
+      <div style="font-size:1.8rem;font-weight:800;color:#22d3ee;">${s.value}</div>
+      <div style="font-size:0.85rem;font-weight:700;color:#fff;margin:0.3rem 0;">${s.label}</div>
+      <div style="font-size:0.75rem;color:#9ca3af;">${s.desc}</div>
+    </div>`).join('');
+  return `<div style="display:flex;gap:1rem;flex-wrap:wrap;margin:1.5rem 0;">${cards}</div>`;
 }
 
 function generateEditedFallbackHtml(currentHtml, instruction) {

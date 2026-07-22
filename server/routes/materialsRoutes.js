@@ -3,7 +3,7 @@ import multer from 'multer';
 import pdfParse from 'pdf-parse';
 import axios from 'axios';
 import { assertSafeUrl } from '../services/urlSafety.js';
-import { bucket } from '../services/firebaseAdmin.js';
+import { getBucket } from '../services/firebaseAdmin.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -107,6 +107,7 @@ router.post('/upload-media', uploadMedia.single('file'), async (req, res) => {
     // inválidos no nome do objeto no bucket.
     const safeName = originalname.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120);
     const objectPath = `media/${req.user.id}/${Date.now()}-${safeName}`;
+    const bucket = getBucket();
     const file = bucket.file(objectPath);
 
     await file.save(buffer, { metadata: { contentType: mimetype }, resumable: false });

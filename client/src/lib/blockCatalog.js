@@ -103,6 +103,16 @@ function buildQrCode(config = {}) {
 
 export const BLOCK_CATALOG = [
   {
+    id: 'ai-infographic',
+    title: 'Infográfico com IA',
+    description: 'Gera cards de estatísticas/destaques a partir de um tema, usando IA.',
+    iconName: 'Sparkles',
+    kind: 'ai-generate',
+    aiEndpoint: '/api/ai/generate-infographic',
+    aiInputLabel: 'Tema do infográfico',
+    aiInputPlaceholder: 'Ex.: Fases do ensaio clínico de um fármaco'
+  },
+  {
     id: 'title',
     title: 'Título',
     description: 'Título grande de destaque para abrir o slide.',
