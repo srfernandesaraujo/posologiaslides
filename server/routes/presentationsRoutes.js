@@ -19,12 +19,12 @@ router.get('/:id', async (req, res) => {
 
 // Cria ou atualiza (upsert) uma apresentação completa
 router.post('/', async (req, res) => {
-  const { id, title, description, slides } = req.body;
+  const { id, title, description, slides, transition } = req.body;
   if (!title || !Array.isArray(slides)) {
     return res.status(400).json({ error: 'title e slides são obrigatórios.' });
   }
 
-  const saved = await savePresentation({ id, title, description, slides }, req.user.id);
+  const saved = await savePresentation({ id, title, description, slides, transition }, req.user.id);
   res.json({ success: true, presentation: saved });
 });
 

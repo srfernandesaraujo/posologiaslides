@@ -17,13 +17,23 @@ import {
   setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
+import { TRANSITION_PRESETS, DEFAULT_TRANSITION } from '../lib/transitionCatalog';
+import { buildClosingSlideHtml } from '../lib/closingSlideTemplate';
+import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff
 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
+  const { user } = useAuth();
   const [activeIndex, setActiveIndex] = useState(0);
+  // Slide de encerramento virtual: exibido ao avançar a partir do último
+  // slide real, nunca é gravado em presentation.slides (ver handleNext /
+  // currentSlide abaixo).
+  const [atClosingSlide, setAtClosingSlide] = useState(false);
+  const [closingQuote, setClosingQuote] = useState(null);
+  const [closingQuoteLoading, setClosingQuoteLoading] = useState(false);
   const [activeTool, setActiveTool] = useState('pointer');
   const [activeColor, setActiveColor] = useState('#ef4444');
   const [clearTrigger, setClearTrigger] = useState(0);
@@ -109,16 +119,27 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     };
   }, [presentation.title]);
 
-  const currentSlide = presentation?.slides?.[activeIndex] || {
-    title: 'Slide Inicial',
-    html: '<div style="color:white; padding:2rem;">Nenhum slide gerado ainda.</div>'
-  };
+  const currentSlide = atClosingSlide
+    ? {
+        title: 'Encerramento',
+        html: buildClosingSlideHtml({
+          presentationTitle: presentation?.title,
+          userName: user?.name,
+          quote: closingQuote,
+          quoteLoading: !closingQuote
+        })
+      }
+    : presentation?.slides?.[activeIndex] || {
+        title: 'Slide Inicial',
+        html: '<div style="color:white; padding:2rem;">Nenhum slide gerado ainda.</div>'
+      };
 
   // Centraliza a troca de slide ativo: atualiza o estado local e avisa a
   // sessão ao vivo (se houver) do novo índice E do tipo de interatividade
   // do slide, pra o celular do aluno já saber o que mostrar.
   const emitSlideChanged = (newIndex) => {
     setActiveIndex(newIndex);
+    setAtClosingSlide(false);
     if (socket) {
       const slide = presentation.slides[newIndex];
       socket.emit('slide_changed', {
@@ -130,6 +151,37 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       });
     }
   };
+
+  // Gera a citação de encerramento (relacionada ao tema da aula) assim que o
+  // slide de encerramento é alcançado pela primeira vez — não refaz a busca
+  // se o apresentador voltar e avançar de novo (mesma citação durante a sessão).
+  useEffect(() => {
+    if (!atClosingSlide || closingQuote || closingQuoteLoading) return;
+    let cancelled = false;
+    setClosingQuoteLoading(true);
+    (async () => {
+      try {
+        const res = await apiFetch('/api/ai/generate-quote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ presentationTitle: presentation?.title, description: presentation?.description })
+        });
+        const data = await res.json();
+        if (!cancelled) {
+          // Mesmo se a API responder mas sem sucesso (ex.: sessão expirada,
+          // erro 500), cai pro mesmo texto de fallback — sem isso o slide
+          // ficava preso no placeholder "Preparando..." pra sempre, já que
+          // fetch só rejeita em falha de rede, não em respostas de erro HTTP.
+          setClosingQuote(data.success ? data.quote : 'Que o aprendizado de hoje ilumine decisões mais seguras amanhã.');
+        }
+      } catch {
+        if (!cancelled) setClosingQuote('Que o aprendizado de hoje ilumine decisões mais seguras amanhã.');
+      } finally {
+        if (!cancelled) setClosingQuoteLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [atClosingSlide]);
 
   const handleChangeSlideType = (type) => {
     const updatedSlides = [...presentation.slides];
@@ -158,12 +210,24 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   };
 
   const handleNext = () => {
+    if (atClosingSlide) return;
     if (activeIndex < presentation.slides.length - 1) {
       emitSlideChanged(activeIndex + 1);
+    } else {
+      // Último slide real: avança pro slide de encerramento virtual (nunca
+      // gravado em presentation.slides — ver `currentSlide` acima).
+      setAtClosingSlide(true);
+      if (socket) {
+        socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null });
+      }
     }
   };
 
   const handlePrev = () => {
+    if (atClosingSlide) {
+      setAtClosingSlide(false);
+      return;
+    }
     if (activeIndex > 0) {
       emitSlideChanged(activeIndex - 1);
     }
@@ -235,7 +299,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setChatScope(null);
     setAnimPanelOpen(false);
     setElementHtmlDraft(null);
-  }, [activeIndex, isFullscreen]);
+  }, [activeIndex, isFullscreen, atClosingSlide]);
 
   // Ao selecionar um elemento novo, pré-preenche os controles de duração/atraso
   // do painel "Animar" com a animação já aplicada a ele (se houver) — sem isso,
@@ -540,11 +604,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       <PresenterWindow
         slides={presentation.slides}
         currentIndex={activeIndex}
-        onSelectSlide={(idx) => {
-          if (idx >= 0 && idx < presentation.slides.length) {
-            emitSlideChanged(idx);
-          }
-        }}
+        atClosingSlide={atClosingSlide}
+        closingSlide={atClosingSlide ? currentSlide : null}
+        transition={presentation.transition || DEFAULT_TRANSITION}
+        onNext={handleNext}
+        onPrev={handlePrev}
         onClose={() => setShowPresenterWindow(false)}
       />
     );
@@ -576,7 +640,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           onClose={() => setMobileSlideListOpen(false)}
           onAddSlide={() => {
             const newSlide = { id: `slide-${Date.now()}`, title: `Novo Slide ${presentation.slides.length + 1}`, html: '<div style="padding:2rem; color:white;">Novo Slide Interativo</div>' };
+            const newIndex = presentation.slides.length;
             setPresentation({ ...presentation, slides: [...presentation.slides, newSlide] });
+            // Seleciona o slide recém-criado em vez de deixar o palco parado
+            // no slide que estava ativo antes de adicionar.
+            emitSlideChanged(newIndex);
           }}
           onDeleteSlide={(idxToDelete) => {
             if (presentation.slides.length <= 1) return;
@@ -607,16 +675,28 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <Menu size={18} />
               </button>
               <h1 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f3f4f6' }}>
-                {presentation.title} <span style={{ fontSize: '0.85rem', fontWeight: 400, color: '#9ca3af' }}>({activeIndex + 1}/{presentation.slides.length})</span>
+                {presentation.title} <span style={{ fontSize: '0.85rem', fontWeight: 400, color: '#9ca3af' }}>({atClosingSlide ? 'Encerramento' : `${activeIndex + 1}/${presentation.slides.length}`})</span>
               </h1>
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '0.4rem', gap: '0.4rem', alignItems: 'center' }}>
               <select
                 className="chat-input"
+                value={presentation.transition || DEFAULT_TRANSITION}
+                onChange={(e) => setPresentation({ ...presentation, transition: e.target.value })}
+                title="Transição ao trocar de slide"
+                style={{ fontSize: '0.78rem', padding: '0.4rem 0.6rem', width: 'auto' }}
+              >
+                {TRANSITION_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{preset.label}</option>
+                ))}
+              </select>
+              <select
+                className="chat-input"
                 value={currentSlide.type || ''}
                 onChange={(e) => handleChangeSlideType(e.target.value)}
                 title="Modo de Interatividade deste Slide (ativa o painel de resultados ao vivo para o apresentador)"
+                disabled={atClosingSlide}
                 style={{ fontSize: '0.78rem', padding: '0.4rem 0.6rem', width: 'auto' }}
               >
                 <option value="">Sem interatividade</option>
@@ -731,7 +811,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
         {/* Palco do Slide com Overlay de Metodologias Ativas */}
         <div ref={stageRef} className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}>
-          <PresentationViewer htmlContent={currentSlide.html} reloadKey={isFullscreen} editable={!isFullscreen} />
+          <div
+            key={`${atClosingSlide ? 'closing' : activeIndex}-${!!closingQuote}`}
+            className={`slide-transition-wrapper pos-transition-${presentation.transition || DEFAULT_TRANSITION}`}
+          >
+            <PresentationViewer htmlContent={currentSlide.html} reloadKey={isFullscreen} editable={!isFullscreen && !atClosingSlide} />
+          </div>
 
           {/* Barra de ação do elemento selecionado (clique num elemento de topo do slide) */}
           {!isFullscreen && selectedEl && (() => {
@@ -930,6 +1015,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           <PresentationControls
             currentIndex={activeIndex}
             totalSlides={presentation.slides.length}
+            atClosingSlide={atClosingSlide}
             onPrev={handlePrev}
             onNext={handleNext}
             activeTool={activeTool}

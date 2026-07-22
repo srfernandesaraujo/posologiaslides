@@ -255,6 +255,49 @@ export async function summarizeOpenResponses({ responses, apiKey }) {
   }
 }
 
+// Gera uma frase inspiradora original relacionada ao tema da aula, para o
+// slide de encerramento virtual exibido após o último slide (ver
+// PresentationEditor no cliente). Texto puro, sem parse de JSON — mesmo
+// padrão de summarizeOpenResponses.
+const FALLBACK_CLOSING_QUOTES = [
+  'O conhecimento aplicado com cuidado é o que transforma tratamento em cura.',
+  'Cada detalhe entendido hoje é uma decisão mais segura amanhã.',
+  'Aprender é o primeiro passo para cuidar melhor de quem confia em nós.'
+];
+
+export async function generateClosingQuote({ presentationTitle, description, apiKey }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+  const theme = description || presentationTitle || 'o tema desta aula';
+  const fallbackQuote = FALLBACK_CLOSING_QUOTES[Math.floor(Math.random() * FALLBACK_CLOSING_QUOTES.length)];
+
+  if (!effectiveApiKey) {
+    return { quote: fallbackQuote, warning: 'Nenhuma chave de API do Gemini configurada. Exibindo uma citação de exemplo.' };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const prompt = `
+    Crie UMA única frase inspiradora e original (aforismo), em português, relacionada ao tema abaixo — para encerrar uma aula/apresentação.
+    TEMA DA AULA: "${theme}"
+
+    Regras obrigatórias:
+    - No máximo 30 palavras.
+    - NÃO atribua a frase a nenhuma pessoa real (histórica, autor, celebridade) — é uma frase original, sem autoria, criada agora para esta aula.
+    - Não coloque aspas, não use markdown, não adicione explicações nem introdução.
+    - Retorne APENAS o texto da frase.
+    `;
+
+    const result = await model.generateContent(prompt);
+    const quote = result.response.text().trim().replace(/^["'“]+|["'”]+$/g, '');
+    return { quote: quote || fallbackQuote };
+  } catch (error) {
+    console.error('Erro na API Gemini (Closing Quote):', error.message);
+    return { quote: fallbackQuote, warning: `Falha ao gerar a citação com IA (${error.message}). Exibindo uma citação de exemplo.` };
+  }
+}
+
 // Auxiliares de parsing e fallback inteligente
 function extractJson(text) {
   const match = text.match(/\{[\s\S]*\}/);

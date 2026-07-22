@@ -238,6 +238,50 @@ button.mobile-toggle-btn {
   border: 1px solid var(--border-glass-bright);
 }
 
+/* Transição entre slides — anima a ENTRADA do container do slide novo (o
+   iframe do PresentationViewer é recriado do zero a cada troca, então uma
+   transição cruzada de verdade exigiria dois iframes sobrepostos; entrar
+   com uma animação sutil no container novo dá o efeito de transição sem
+   essa complexidade extra, no mesmo espírito das keyframes pos-* injetadas
+   pelo PresentationViewer para animação de elementos dentro do slide). */
+.slide-transition-wrapper {
+  position: absolute;
+  inset: 0;
+}
+
+.pos-transition-fade {
+  animation: pos-transition-fade 0.45s ease both;
+}
+
+.pos-transition-slide {
+  animation: pos-transition-slide 0.45s ease both;
+}
+
+.pos-transition-zoom {
+  animation: pos-transition-zoom 0.4s ease both;
+}
+
+@keyframes pos-transition-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pos-transition-slide {
+  from { opacity: 0; transform: translateX(48px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pos-transition-zoom {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide-transition-wrapper {
+    animation: none !important;
+  }
+}
+
 /* Fullscreen Mode Override */
 /* Os slides são gerados pela IA assumindo a proporção 16:9 (mesma do palco
    normal). Esticar o palco para 100vw/100vh "cru" distorce esse contrato

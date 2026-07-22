@@ -5,7 +5,11 @@ import { Clock, Eye, Sparkles, Search, ChevronRight, ChevronLeft, Lightbulb, Mes
 export default function PresenterWindow({
   slides,
   currentIndex,
-  onSelectSlide,
+  atClosingSlide = false,
+  closingSlide = null,
+  transition = 'fade',
+  onNext,
+  onPrev,
   onClose,
   speakerNotes = ''
 }) {
@@ -18,8 +22,8 @@ export default function PresenterWindow({
   // Copiloto IA: Sugestões de perguntas instigantes baseadas no slide
   const [aiSuggestions, setAiSuggestions] = useState([]);
 
-  const currentSlide = slides[currentIndex] || { title: 'Slide Atual', html: '' };
-  const nextSlide = slides[currentIndex + 1] || null;
+  const currentSlide = atClosingSlide ? closingSlide : (slides[currentIndex] || { title: 'Slide Atual', html: '' });
+  const nextSlide = atClosingSlide ? null : (slides[currentIndex + 1] || null);
 
   // Timer da Apresentação
   useEffect(() => {
@@ -82,7 +86,7 @@ export default function PresenterWindow({
             🎙️ VISÃO DO APRESENTADOR (PRESENTER VIEW)
           </span>
           <span style={{ fontSize: '0.85rem', color: '#9ca3af' }}>
-            Slide {currentIndex + 1} de {slides.length}
+            {atClosingSlide ? 'Encerramento' : `Slide ${currentIndex + 1} de ${slides.length}`}
           </span>
         </div>
 
@@ -97,10 +101,10 @@ export default function PresenterWindow({
           </div>
 
           <div style={{ display: 'flex', gap: '0.4rem' }}>
-            <button className="btn-icon" onClick={() => onSelectSlide(currentIndex - 1)} disabled={currentIndex <= 0}>
+            <button className="btn-icon" onClick={onPrev} disabled={!atClosingSlide && currentIndex <= 0}>
               <ChevronLeft size={20} />
             </button>
-            <button className="btn-icon" onClick={() => onSelectSlide(currentIndex + 1)} disabled={currentIndex >= slides.length - 1}>
+            <button className="btn-icon" onClick={onNext} disabled={atClosingSlide}>
               <ChevronRight size={20} />
             </button>
           </div>
@@ -116,7 +120,9 @@ export default function PresenterWindow({
         {/* Coluna Esquerda: Slide Atual em Grande Escala */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={{ flex: 1, aspectRatio: '16/9', borderRadius: '0.75rem', overflow: 'hidden', border: '2px solid var(--accent-primary)', position: 'relative' }}>
-            <PresentationViewer htmlContent={currentSlide.html} />
+            <div key={`${atClosingSlide ? 'closing' : currentIndex}`} className={`slide-transition-wrapper pos-transition-${transition}`}>
+              <PresentationViewer htmlContent={currentSlide.html} />
+            </div>
             <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(34,211,238,0.9)', color: '#071019', padding: '0.3rem 0.6rem', borderRadius: '0.4rem', fontSize: '0.75rem', fontWeight: 800 }}>
               EXIBIDO NO TELÃO
             </div>
@@ -138,7 +144,7 @@ export default function PresenterWindow({
           {/* Prévia do Próximo Slide */}
           <div className="glass-panel" style={{ padding: '0.8rem' }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-              Próximo Slide ({currentIndex + 2}/{slides.length})
+              {atClosingSlide ? 'Próximo Slide' : `Próximo Slide (${currentIndex + 2}/${slides.length})`}
             </div>
             {nextSlide ? (
               <div style={{ aspectRatio: '16/9', borderRadius: '0.5rem', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', opacity: 0.85 }}>

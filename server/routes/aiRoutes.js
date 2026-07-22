@@ -1,5 +1,5 @@
 import express from 'express';
-import { generatePresentationOutline, generateSlideHtml, editSlideWithAi, generateInfographicFragment } from '../services/aiService.js';
+import { generatePresentationOutline, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote } from '../services/aiService.js';
 import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
@@ -111,6 +111,19 @@ router.post('/generate-infographic', async (req, res) => {
   } catch (error) {
     console.error('Erro na rota generate-infographic:', error);
     res.status(500).json({ error: 'Falha ao gerar o infográfico com IA.' });
+  }
+});
+
+// Rota 5: Gerar citação de encerramento (slide virtual pós-último slide)
+router.post('/generate-quote', async (req, res) => {
+  try {
+    const { presentationTitle, description, apiKey } = req.body;
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const { quote, warning } = await generateClosingQuote({ presentationTitle, description, apiKey: effectiveApiKey });
+    res.json({ success: true, quote, warning: warning || null });
+  } catch (error) {
+    console.error('Erro na rota generate-quote:', error);
+    res.status(500).json({ error: 'Falha ao gerar a citação de encerramento.' });
   }
 });
 

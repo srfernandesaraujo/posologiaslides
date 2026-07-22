@@ -15,6 +15,7 @@ import {
 export default function PresentationControls({
   currentIndex,
   totalSlides,
+  atClosingSlide = false,
   onPrev,
   onNext,
   activeTool,
@@ -71,15 +72,15 @@ export default function PresentationControls({
   return (
     <div className={`floating-toolbar ${autohide ? 'autohide' : ''}`}>
       {/* Navegação de Slides */}
-      <button className="btn-icon" onClick={onPrev} disabled={currentIndex <= 0} title="Slide Anterior (Seta Esquerda)">
+      <button className="btn-icon" onClick={onPrev} disabled={!atClosingSlide && currentIndex <= 0} title="Slide Anterior (Seta Esquerda)">
         <ChevronLeft size={20} />
       </button>
 
       <span style={{ fontSize: '0.85rem', fontWeight: 700, padding: '0 0.5rem', color: '#9ca3af' }}>
-        {currentIndex + 1} / {totalSlides}
+        {atClosingSlide ? 'Encerramento' : `${currentIndex + 1} / ${totalSlides}`}
       </span>
 
-      <button className="btn-icon" onClick={onNext} disabled={currentIndex >= totalSlides - 1} title="Próximo Slide (Seta Direita / Espaço)">
+      <button className="btn-icon" onClick={onNext} disabled={atClosingSlide} title="Próximo Slide (Seta Direita / Espaço)">
         <ChevronRight size={20} />
       </button>
 
