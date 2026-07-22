@@ -18,8 +18,8 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { geminiApiKey, openaiApiKey, anthropicApiKey } = req.body;
-    const settings = await saveUserSettings(req.user.id, { geminiApiKey, openaiApiKey, anthropicApiKey });
+    const { geminiApiKey, openaiApiKey, anthropicApiKey, unsplashApiKey, pexelsApiKey, giphyApiKey } = req.body;
+    const settings = await saveUserSettings(req.user.id, { geminiApiKey, openaiApiKey, anthropicApiKey, unsplashApiKey, pexelsApiKey, giphyApiKey });
     res.json({ success: true, ...settings });
   } catch (error) {
     console.error('Erro na rota POST /settings:', error);

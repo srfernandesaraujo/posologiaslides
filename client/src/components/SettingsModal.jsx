@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Shield, Save, X, Check, Loader2 } from 'lucide-react';
+import { Key, Shield, Save, X, Check, Loader2, Image as ImageIcon } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 
 export default function SettingsModal({ isOpen, onClose }) {
   const [geminiKey, setGeminiKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
+  const [unsplashKey, setUnsplashKey] = useState('');
+  const [pexelsKey, setPexelsKey] = useState('');
+  const [giphyKey, setGiphyKey] = useState('');
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -22,6 +25,9 @@ export default function SettingsModal({ isOpen, onClose }) {
           setGeminiKey(data.geminiApiKey || '');
           setOpenaiKey(data.openaiApiKey || '');
           setAnthropicKey(data.anthropicApiKey || '');
+          setUnsplashKey(data.unsplashApiKey || '');
+          setPexelsKey(data.pexelsApiKey || '');
+          setGiphyKey(data.giphyApiKey || '');
         } else {
           setError(data.error || 'Falha ao carregar configurações.');
         }
@@ -44,7 +50,10 @@ export default function SettingsModal({ isOpen, onClose }) {
         body: JSON.stringify({
           geminiApiKey: geminiKey.trim(),
           openaiApiKey: openaiKey.trim(),
-          anthropicApiKey: anthropicKey.trim()
+          anthropicApiKey: anthropicKey.trim(),
+          unsplashApiKey: unsplashKey.trim(),
+          pexelsApiKey: pexelsKey.trim(),
+          giphyApiKey: giphyKey.trim()
         })
       });
       const data = await res.json();
@@ -71,8 +80,8 @@ export default function SettingsModal({ isOpen, onClose }) {
               <Key size={24} color="#fff" />
             </div>
             <div>
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Configuração de Chaves de API (IA)</h2>
-              <p style={{ fontSize: '0.85rem', color: '#9ca3af', margin: 0 }}>Cadastre suas chaves para usar modelos Gemini, OpenAI ou Anthropic — salvas na sua conta, disponíveis em qualquer dispositivo</p>
+              <h2 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Configuração de Chaves de API</h2>
+              <p style={{ fontSize: '0.85rem', color: '#9ca3af', margin: 0 }}>IA (Gemini, OpenAI, Anthropic) e busca de imagens/GIFs — salvas na sua conta, disponíveis em qualquer dispositivo</p>
             </div>
           </div>
           <button className="btn-icon" onClick={onClose}>
@@ -120,6 +129,53 @@ export default function SettingsModal({ isOpen, onClose }) {
               placeholder="sk-ant-..."
               value={anthropicKey}
               onChange={(e) => setAnthropicKey(e.target.value)}
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-glass)' }}>
+            <ImageIcon size={16} color="#9ca3af" />
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#e5e7eb' }}>Busca de Imagens e GIFs (opcional)</span>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 700, color: '#e5e7eb', marginBottom: '0.4rem' }}>
+              Unsplash Access Key
+            </label>
+            <input
+              type="password"
+              className="chat-input"
+              style={{ width: '100%' }}
+              placeholder="Gratuito em unsplash.com/developers"
+              value={unsplashKey}
+              onChange={(e) => setUnsplashKey(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 700, color: '#e5e7eb', marginBottom: '0.4rem' }}>
+              Pexels API Key
+            </label>
+            <input
+              type="password"
+              className="chat-input"
+              style={{ width: '100%' }}
+              placeholder="Gratuito em pexels.com/api"
+              value={pexelsKey}
+              onChange={(e) => setPexelsKey(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 700, color: '#e5e7eb', marginBottom: '0.4rem' }}>
+              GIPHY API Key
+            </label>
+            <input
+              type="password"
+              className="chat-input"
+              style={{ width: '100%' }}
+              placeholder="Gratuito em developers.giphy.com"
+              value={giphyKey}
+              onChange={(e) => setGiphyKey(e.target.value)}
             />
           </div>
 

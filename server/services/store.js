@@ -188,16 +188,22 @@ export async function getUserSettings(userId) {
   return {
     geminiApiKey: data.geminiApiKey || '',
     openaiApiKey: data.openaiApiKey || '',
-    anthropicApiKey: data.anthropicApiKey || ''
+    anthropicApiKey: data.anthropicApiKey || '',
+    unsplashApiKey: data.unsplashApiKey || '',
+    pexelsApiKey: data.pexelsApiKey || '',
+    giphyApiKey: data.giphyApiKey || ''
   };
 }
 
-export async function saveUserSettings(userId, { geminiApiKey, openaiApiKey, anthropicApiKey }) {
+export async function saveUserSettings(userId, { geminiApiKey, openaiApiKey, anthropicApiKey, unsplashApiKey, pexelsApiKey, giphyApiKey }) {
   const ref = userRef(userId);
   await ref.set({
     geminiApiKey: (geminiApiKey || '').trim(),
     openaiApiKey: (openaiApiKey || '').trim(),
-    anthropicApiKey: (anthropicApiKey || '').trim()
+    anthropicApiKey: (anthropicApiKey || '').trim(),
+    unsplashApiKey: (unsplashApiKey || '').trim(),
+    pexelsApiKey: (pexelsApiKey || '').trim(),
+    giphyApiKey: (giphyApiKey || '').trim()
   }, { merge: true });
   return getUserSettings(userId);
 }

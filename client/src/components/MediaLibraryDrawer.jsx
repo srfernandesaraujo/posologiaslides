@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Image, Video, Music, Upload, Plus, X, Link as LinkIcon, Globe, Loader2 } from 'lucide-react';
+import { Image, Video, Music, Upload, Plus, X, Link as LinkIcon, Globe, Loader2, Search } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 
 // Converte links de compartilhamento comuns para sua forma embutível; qualquer
@@ -59,6 +59,19 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
 
+  // Busca de fotos de estoque (Unsplash/Pexels) e GIFs (GIPHY) — Fase 4,
+  // depende de chaves de API configuradas em Configurações.
+  const [photoQuery, setPhotoQuery] = useState('');
+  const [photoSource, setPhotoSource] = useState('unsplash');
+  const [photoResults, setPhotoResults] = useState([]);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+
+  const [gifQuery, setGifQuery] = useState('');
+  const [gifResults, setGifResults] = useState([]);
+  const [gifLoading, setGifLoading] = useState(false);
+  const [gifError, setGifError] = useState('');
+
   if (!isOpen) return null;
 
   const handleFileUpload = async (e) => {
@@ -104,8 +117,69 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
     setWebpageUrl('');
   };
 
+  const handleSearchPhotos = async (e) => {
+    e.preventDefault();
+    if (!photoQuery.trim() || photoLoading) return;
+    setPhotoLoading(true);
+    setPhotoError('');
+    setPhotoResults([]);
+
+    try {
+      const res = await apiFetch(`/api/media-search/photos?query=${encodeURIComponent(photoQuery)}&source=${photoSource}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Falha ao buscar fotos.');
+      setPhotoResults(data.results);
+    } catch (err) {
+      setPhotoError(err.message || 'Falha ao buscar fotos.');
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
+
+  const handleInsertPhoto = (photo) => {
+    // Exigência do Unsplash: registrar o "download" só quando a foto é
+    // efetivamente usada — dispara em segundo plano, sem bloquear a inserção.
+    if (photoSource === 'unsplash' && photo.downloadLocation) {
+      apiFetch('/api/media-search/photos/unsplash-track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ downloadLocation: photo.downloadLocation })
+      }).catch(() => {});
+    }
+    onInsertMedia({
+      type: 'image-credited',
+      url: photo.fullUrl,
+      name: photo.alt,
+      credit: photo.credit,
+      source: photoSource === 'unsplash' ? 'Unsplash' : 'Pexels'
+    });
+  };
+
+  const handleSearchGifs = async (e) => {
+    e.preventDefault();
+    if (!gifQuery.trim() || gifLoading) return;
+    setGifLoading(true);
+    setGifError('');
+    setGifResults([]);
+
+    try {
+      const res = await apiFetch(`/api/media-search/gifs?query=${encodeURIComponent(gifQuery)}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Falha ao buscar GIFs.');
+      setGifResults(data.results);
+    } catch (err) {
+      setGifError(err.message || 'Falha ao buscar GIFs.');
+    } finally {
+      setGifLoading(false);
+    }
+  };
+
+  const handleInsertGif = (gif) => {
+    onInsertMedia({ type: 'image-credited', url: gif.fullUrl, name: gif.alt, credit: gif.credit, source: 'GIPHY' });
+  };
+
   return (
-    <div className="glass-panel" style={{ position: 'absolute', top: '64px', right: 0, width: '340px', height: 'calc(100vh - 64px)', zIndex: 100, borderRadius: 0, padding: '1.2rem', display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--border-glass-bright)', background: 'rgba(15, 23, 42, 0.95)' }}>
+    <div className="glass-panel" style={{ position: 'absolute', top: '64px', right: 0, width: '360px', height: 'calc(100vh - 64px)', zIndex: 100, borderRadius: 0, padding: '1.2rem', display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--border-glass-bright)', background: 'rgba(15, 23, 42, 0.95)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <Image size={18} /> Biblioteca de Mídias
@@ -115,17 +189,19 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '1rem', background: 'rgba(255,255,255,0.03)', padding: '0.25rem', borderRadius: '0.5rem' }}>
+      <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '1rem', background: 'rgba(255,255,255,0.03)', padding: '0.25rem', borderRadius: '0.5rem', flexWrap: 'wrap' }}>
         {[
           { id: 'upload', label: 'Upload' },
-          { id: 'link', label: 'Link Externo' },
-          { id: 'webpage', label: 'Embed Página' }
+          { id: 'link', label: 'Link' },
+          { id: 'webpage', label: 'Embed' },
+          { id: 'search-photos', label: 'Fotos' },
+          { id: 'gifs', label: 'GIFs' }
         ].map(t => (
           <button
             key={t.id}
             onClick={() => { setTab(t.id); setError(''); }}
             style={{
-              flex: 1, padding: '0.4rem', fontSize: '0.75rem', fontWeight: 700, borderRadius: '0.4rem', border: 'none', cursor: 'pointer',
+              flex: '1 1 30%', padding: '0.4rem', fontSize: '0.72rem', fontWeight: 700, borderRadius: '0.4rem', border: 'none', cursor: 'pointer',
               background: tab === t.id ? 'var(--accent-primary)' : 'transparent',
               color: tab === t.id ? '#071019' : '#9ca3af'
             }}
@@ -195,12 +271,101 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
         </div>
       )}
 
+      {tab === 'search-photos' && (
+        <div style={{ marginBottom: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.3rem', background: 'rgba(255,255,255,0.03)', padding: '0.2rem', borderRadius: '0.4rem' }}>
+            {[{ id: 'unsplash', label: 'Unsplash' }, { id: 'pexels', label: 'Pexels' }].map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setPhotoSource(s.id)}
+                style={{
+                  flex: 1, padding: '0.3rem', fontSize: '0.72rem', fontWeight: 700, borderRadius: '0.3rem', border: 'none', cursor: 'pointer',
+                  background: photoSource === s.id ? 'rgba(56,189,248,0.2)' : 'transparent',
+                  color: photoSource === s.id ? '#38bdf8' : '#9ca3af'
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <form onSubmit={handleSearchPhotos} style={{ display: 'flex', gap: '0.4rem' }}>
+            <input
+              type="text"
+              className="chat-input"
+              placeholder="Buscar fotos... (ex: coração, laboratório)"
+              style={{ fontSize: '0.82rem' }}
+              value={photoQuery}
+              onChange={(e) => setPhotoQuery(e.target.value)}
+            />
+            <button type="submit" className="btn-icon" disabled={photoLoading} style={{ background: 'rgba(255,255,255,0.1)' }}>
+              {photoLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+            </button>
+          </form>
+          {photoError && (
+            <p style={{ fontSize: '0.72rem', color: '#f87171', background: 'rgba(248,113,113,0.1)', padding: '0.5rem 0.6rem', borderRadius: '0.4rem' }}>{photoError}</p>
+          )}
+          {!photoError && (
+            <p style={{ fontSize: '0.72rem', color: '#6b7280' }}>
+              Requer chave de API do {photoSource === 'unsplash' ? 'Unsplash' : 'Pexels'} salva em Configurações (gratuita).
+            </p>
+          )}
+        </div>
+      )}
+
+      {tab === 'gifs' && (
+        <div style={{ marginBottom: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <form onSubmit={handleSearchGifs} style={{ display: 'flex', gap: '0.4rem' }}>
+            <input
+              type="text"
+              className="chat-input"
+              placeholder="Buscar GIFs... (ex: parabéns, aplausos)"
+              style={{ fontSize: '0.82rem' }}
+              value={gifQuery}
+              onChange={(e) => setGifQuery(e.target.value)}
+            />
+            <button type="submit" className="btn-icon" disabled={gifLoading} style={{ background: 'rgba(255,255,255,0.1)' }}>
+              {gifLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+            </button>
+          </form>
+          {gifError && (
+            <p style={{ fontSize: '0.72rem', color: '#f87171', background: 'rgba(248,113,113,0.1)', padding: '0.5rem 0.6rem', borderRadius: '0.4rem' }}>{gifError}</p>
+          )}
+          {!gifError && (
+            <p style={{ fontSize: '0.72rem', color: '#6b7280' }}>Requer chave de API do GIPHY salva em Configurações (gratuita).</p>
+          )}
+        </div>
+      )}
+
       {error && (
         <div style={{ fontSize: '0.75rem', color: '#f87171', background: 'rgba(248,113,113,0.1)', padding: '0.6rem', borderRadius: '0.4rem', marginBottom: '0.75rem' }}>
           {error}
         </div>
       )}
 
+      {(tab === 'search-photos' || tab === 'gifs') ? (
+        <>
+          <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>
+            Clique numa imagem pra inseri-la no slide atual:
+          </p>
+          <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', alignContent: 'start' }}>
+            {(tab === 'search-photos' ? photoResults : gifResults).map((item) => (
+              <button
+                key={item.id}
+                onClick={() => (tab === 'search-photos' ? handleInsertPhoto(item) : handleInsertGif(item))}
+                title={item.credit?.name ? `Foto de ${item.credit.name}` : item.alt}
+                style={{
+                  padding: 0, border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', overflow: 'hidden',
+                  cursor: 'pointer', background: 'rgba(255,255,255,0.03)', aspectRatio: '1', flexShrink: 0
+                }}
+              >
+                <img src={item.thumbUrl} alt={item.alt} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} loading="lazy" />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+      <>
       <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>
         Clique na mídia desejada para inseri-la diretamente no slide atual:
       </p>
@@ -217,7 +382,8 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              flexShrink: 0
             }}
             onClick={() => onInsertMedia(media)}
           >
@@ -237,6 +403,8 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
           </div>
         ))}
       </div>
+      </>
+      )}
     </div>
   );
 }

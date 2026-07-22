@@ -173,6 +173,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     let mediaTag = '';
     if (media.type === 'image') {
       mediaTag = `<img src="${media.url}" alt="${media.name}" style="max-width: 100%; height: auto; border-radius: 0.5rem; margin: 1rem 0;" />`;
+    } else if (media.type === 'image-credited') {
+      // Fotos/GIFs vindos de busca externa (Unsplash, Pexels, GIPHY) — os termos
+      // de uso dessas APIs pedem crédito visível ao autor/serviço de origem.
+      const creditLine = media.credit?.name
+        ? `<div style="font-size:0.7rem;color:#6b7280;margin:-0.75rem 0 1rem;">Foto: <a href="${media.credit.url || '#'}" target="_blank" rel="noopener noreferrer" style="color:#9ca3af;">${media.credit.name}</a>${media.source ? ` via ${media.source}` : ''}</div>`
+        : '';
+      mediaTag = `<img src="${media.url}" alt="${media.name}" style="max-width: 100%; height: auto; border-radius: 0.5rem; margin: 1rem 0 0;" />${creditLine}`;
     } else if (media.type === 'video') {
       mediaTag = `<video src="${media.url}" controls style="max-width: 100%; border-radius: 0.5rem; margin: 1rem 0;"></video>`;
     } else if (media.type === 'audio') {

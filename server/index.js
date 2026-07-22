@@ -13,6 +13,7 @@ import materialsRoutes from './routes/materialsRoutes.js';
 import sessionsRoutes from './routes/sessionsRoutes.js';
 import presentationsRoutes from './routes/presentationsRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
+import mediaSearchRoutes from './routes/mediaSearchRoutes.js';
 import { requireAuth } from './middleware/auth.js';
 import { setupSocketIO } from './sockets/sessionSocket.js';
 
@@ -39,6 +40,7 @@ app.use('/api/materials', requireAuth, materialsRoutes);
 app.use('/api/sessions', requireAuth, sessionsRoutes);
 app.use('/api/presentations', requireAuth, presentationsRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
+app.use('/api/media-search', requireAuth, mediaSearchRoutes);
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Servidor e WebSockets rodando em http://localhost:${PORT}`);
