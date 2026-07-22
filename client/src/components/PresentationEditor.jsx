@@ -11,7 +11,7 @@ import PresentationReportModal from './PresentationReportModal';
 import { io } from 'socket.io-client';
 import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
-import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle } from 'lucide-react';
+import { Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -24,6 +24,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [isWidgetDrawerOpen, setIsWidgetDrawerOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [showPresenterWindow, setShowPresenterWindow] = useState(false);
+  // Em telas compactas (≤1024px), a lista de slides e o chat de IA viram
+  // gavetas off-canvas em vez de colunas fixas — abertas/fechadas por aqui.
+  const [mobileSlideListOpen, setMobileSlideListOpen] = useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
 
   // Sockets & PIN para sessão ao vivo
   const [socket, setSocket] = useState(null);
@@ -327,12 +331,28 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
   return (
     <div className={`main-layout ${isFullscreen ? 'full-presentation' : ''}`}>
+      {/* Gavetas móveis (lista de slides / chat) usam a mesma sobreposição pra fechar ao tocar fora */}
+      {!isFullscreen && (mobileSlideListOpen || mobileChatOpen) && (
+        <div
+          className="mobile-drawer-backdrop below-header"
+          onClick={() => {
+            setMobileSlideListOpen(false);
+            setMobileChatOpen(false);
+          }}
+        />
+      )}
+
       {/* Sidebar Esquerda (Miniaturas de Slides) */}
       {!isFullscreen && (
         <SlideList
+          className={mobileSlideListOpen ? 'mobile-open' : ''}
           slides={presentation.slides}
           activeIndex={activeIndex}
-          onSelectSlide={emitSlideChanged}
+          onSelectSlide={(idx) => {
+            emitSlideChanged(idx);
+            setMobileSlideListOpen(false);
+          }}
+          onClose={() => setMobileSlideListOpen(false)}
           onAddSlide={() => {
             const newSlide = { id: `slide-${Date.now()}`, title: `Novo Slide ${presentation.slides.length + 1}`, html: '<div style="padding:2rem; color:white;">Novo Slide Interativo</div>' };
             setPresentation({ ...presentation, slides: [...presentation.slides, newSlide] });
@@ -355,12 +375,22 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       {/* Palco Principal de Apresentação */}
       <div className="stage-container">
         {!isFullscreen && (
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', width: '100%', maxWidth: '1100px', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f3f4f6' }}>
-              {presentation.title} <span style={{ fontSize: '0.85rem', fontWeight: 400, color: '#9ca3af' }}>({activeIndex + 1}/{presentation.slides.length})</span>
-            </h1>
+          <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '0.5rem', gap: '0.5rem', marginBottom: '1rem', width: '100%', maxWidth: '1100px', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button
+                className="btn-icon mobile-toggle-btn"
+                onClick={() => setMobileSlideListOpen(true)}
+                title="Ver Lista de Slides"
+                style={{ background: 'rgba(255,255,255,0.08)' }}
+              >
+                <Menu size={18} />
+              </button>
+              <h1 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f3f4f6' }}>
+                {presentation.title} <span style={{ fontSize: '0.85rem', fontWeight: 400, color: '#9ca3af' }}>({activeIndex + 1}/{presentation.slides.length})</span>
+              </h1>
+            </div>
 
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '0.4rem', gap: '0.4rem', alignItems: 'center' }}>
               <select
                 className="chat-input"
                 value={currentSlide.type || ''}
@@ -384,20 +414,28 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <Code size={18} />
               </button>
               <button className="btn-primary" onClick={() => setIsReportOpen(true)} style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}>
-                <BarChart3 size={16} /> Relatórios
+                <BarChart3 size={16} /> <span className="btn-label">Relatórios</span>
               </button>
               <button className="btn-primary" onClick={() => setShowPresenterWindow(true)} style={{ background: 'linear-gradient(135deg, #22d3ee, #10b981)', fontSize: '0.82rem' }}>
-                <Tv size={16} /> Visão Apresentador
+                <Tv size={16} /> <span className="btn-label">Visão Apresentador</span>
               </button>
               <button className="btn-primary" onClick={toggleFullscreen} style={{ fontSize: '0.82rem' }}>
-                <Play size={16} /> Apresentar (F)
+                <Play size={16} /> <span className="btn-label">Apresentar (F)</span>
+              </button>
+              <button
+                className="btn-icon mobile-toggle-btn"
+                onClick={() => setMobileChatOpen(true)}
+                title="Editar Slide com IA"
+                style={{ background: 'rgba(255,255,255,0.08)' }}
+              >
+                <Bot size={18} />
               </button>
             </div>
           </div>
         )}
 
         {!isFullscreen && currentSlide.type === 'quiz' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', fontSize: '0.8rem', color: '#9ca3af' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', fontSize: '0.8rem', color: '#9ca3af' }}>
             Resposta certa (opcional, ativa pontuação):
             {['A', 'B', 'C', 'D'].map((opt) => (
               <button
@@ -418,7 +456,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         )}
 
         {!isFullscreen && currentSlide.type === 'hotspot' && (
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '0.5rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '0.5rem' }}>
             <div style={{ flex: 1 }}>
               <input
                 type="text"
@@ -506,10 +544,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
       {/* Sidebar Direita (Chat de IA) */}
       {!isFullscreen && (
-        <div className="sidebar-chat">
+        <div className={`sidebar-chat ${mobileChatOpen ? 'mobile-open' : ''}`}>
           <div className="chat-header">
             <Bot size={18} color="var(--accent-primary)" />
-            <span>Editar Slide #{activeIndex + 1} com IA</span>
+            <span style={{ flex: 1 }}>Editar Slide #{activeIndex + 1} com IA</span>
+            <button className="btn-icon mobile-toggle-btn" onClick={() => setMobileChatOpen(false)} style={{ width: '28px', height: '28px' }}>
+              <X size={16} />
+            </button>
           </div>
 
           <div className="chat-messages" ref={chatMessagesRef}>

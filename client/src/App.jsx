@@ -136,7 +136,7 @@ export default function App() {
             <Settings size={18} />
           </button>
           <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
-            <Sparkles size={18} /> Nova Apresentação com IA
+            <Sparkles size={18} /> <span className="btn-label">Nova Apresentação com IA</span>
           </button>
           <button className="btn-icon" onClick={logout} title="Sair">
             <LogOut size={18} />

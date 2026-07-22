@@ -112,7 +112,7 @@ export default function PresenterWindow({
       </div>
 
       {/* Grid Principal da Visão do Apresentador */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '1.5rem', flex: 1 }}>
+      <div className="presenter-grid">
         {/* Coluna Esquerda: Slide Atual em Grande Escala */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={{ flex: 1, aspectRatio: '16/9', borderRadius: '0.75rem', overflow: 'hidden', border: '2px solid var(--accent-primary)', position: 'relative' }}>

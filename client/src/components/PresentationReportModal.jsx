@@ -68,7 +68,7 @@ export default function PresentationReportModal({ isOpen, onClose, presentationT
         {!loading && !error && report && (
           <>
             {/* Métricas Principais (Cards) — todas calculadas a partir de dados reais da sessão */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
               <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <div style={{ fontSize: '0.75rem', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                   <Clock size={14} color="#38bdf8" /> Duração da Sessão
@@ -99,7 +99,8 @@ export default function PresentationReportModal({ isOpen, onClose, presentationT
 
             {/* Tabela de Detalhamento por Slide */}
             <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: '1.5rem' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+              <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', minWidth: '480px', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.05)', color: '#9ca3af', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                     <th style={{ padding: '0.75rem 1rem' }}>Slide</th>
@@ -124,6 +125,7 @@ export default function PresentationReportModal({ isOpen, onClose, presentationT
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           </>
         )}

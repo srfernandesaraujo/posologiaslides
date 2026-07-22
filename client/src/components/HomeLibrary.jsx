@@ -3,7 +3,7 @@ import SlideThumbnail from './SlideThumbnail';
 import { apiFetch } from '../lib/api';
 import {
   Presentation, Search, Sparkles, Settings, Star, MoreHorizontal,
-  Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut
+  Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut, Menu, X
 } from 'lucide-react';
 
 function formatRelativeTime(timestamp) {
@@ -41,6 +41,8 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('todos');
   const [activeFolderId, setActiveFolderId] = useState(null);
+  // Em telas compactas (≤1024px) o rail lateral vira uma gaveta off-canvas
+  const [isRailOpen, setIsRailOpen] = useState(false);
 
   const loadTree = () => {
     setLoading(true);
@@ -122,16 +124,24 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
 
   return (
     <div className="library-page">
+      {/* Sobreposição que fecha o rail ao tocar fora dele (só existe em telas compactas) */}
+      {isRailOpen && (
+        <div className="mobile-drawer-backdrop" onClick={() => setIsRailOpen(false)} />
+      )}
+
       {/* Rail lateral */}
-      <aside className="library-rail">
+      <aside className={`library-rail ${isRailOpen ? 'mobile-open' : ''}`}>
         <div className="library-brand">
           <div className="library-brand-icon">
             <Presentation size={20} color="#fff" />
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div className="library-brand-title">Posologia Slides</div>
             <div className="library-brand-sub">Workspace local</div>
           </div>
+          <button className="btn-icon mobile-toggle-btn" onClick={() => setIsRailOpen(false)} style={{ width: '28px', height: '28px' }}>
+            <X size={16} />
+          </button>
         </div>
 
         <button className="library-btn-primary" onClick={onCreateNew}>
@@ -148,7 +158,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
           <div className="library-folders-title">Disciplinas</div>
           <div
             className={`library-folder-item ${activeFolderId === null ? 'active' : ''}`}
-            onClick={() => setActiveFolderId(null)}
+            onClick={() => { setActiveFolderId(null); setIsRailOpen(false); }}
           >
             <FolderOpen size={15} /> Todas as pastas
           </div>
@@ -156,7 +166,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
             <div
               key={folder.id}
               className={`library-folder-item ${activeFolderId === folder.id ? 'active' : ''}`}
-              onClick={() => setActiveFolderId(folder.id)}
+              onClick={() => { setActiveFolderId(folder.id); setIsRailOpen(false); }}
             >
               <Folder size={15} color={folder.color} /> {folder.name}
             </div>
@@ -189,7 +199,12 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
       {/* Conteúdo principal */}
       <main className="library-main">
         <div className="library-topbar">
-          <h1 className="library-page-title">Apresentações</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <button className="btn-icon mobile-toggle-btn" onClick={() => setIsRailOpen(true)} title="Abrir menu" style={{ background: 'rgba(255,255,255,0.06)' }}>
+              <Menu size={18} />
+            </button>
+            <h1 className="library-page-title">Apresentações</h1>
+          </div>
           <div className="library-search">
             <Search size={16} />
             <input

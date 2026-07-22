@@ -1,21 +1,33 @@
 import React from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 
-export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onDeleteSlide }) {
+export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onDeleteSlide, className = '', onClose }) {
   return (
-    <div className="sidebar-slides">
+    <div className={`sidebar-slides ${className}`.trim()}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
         <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', tracking: '0.05em' }}>
           Slides ({slides.length})
         </span>
-        <button 
-          className="btn-icon" 
-          onClick={onAddSlide}
-          title="Adicionar Novo Slide Vazio"
-          style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.08)' }}
-        >
-          <Plus size={16} />
-        </button>
+        <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <button
+            className="btn-icon"
+            onClick={onAddSlide}
+            title="Adicionar Novo Slide Vazio"
+            style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.08)' }}
+          >
+            <Plus size={16} />
+          </button>
+          {onClose && (
+            <button
+              className="btn-icon mobile-toggle-btn"
+              onClick={onClose}
+              title="Fechar"
+              style={{ width: '28px', height: '28px' }}
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {slides.map((slide, idx) => (

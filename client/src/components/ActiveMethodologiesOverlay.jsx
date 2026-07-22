@@ -121,7 +121,7 @@ export default function ActiveMethodologiesOverlay({
 
       {/* Ranking — fica visível o tempo todo que houver pontuação, independente do slide atual */}
       {leaderboard.length > 0 && (
-        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: '260px', background: 'rgba(15, 23, 42, 0.92)' }}>
+        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
             <Trophy size={15} /> Ranking da Turma
           </div>
@@ -138,7 +138,7 @@ export default function ActiveMethodologiesOverlay({
 
       {/* Widget de Quiz ao Vivo */}
       {currentSlide?.type === 'quiz' && (
-        <div className="glass-panel" style={{ padding: '1rem', width: '320px', background: 'rgba(15, 23, 42, 0.92)' }}>
+        <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
           <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
             <BarChart2 size={16} /> Respostas ao Vivo ({liveData.answers.length})
           </div>
@@ -167,7 +167,7 @@ export default function ActiveMethodologiesOverlay({
 
       {/* Widget de Nuvem de Palavras */}
       {currentSlide?.type === 'wordcloud' && (
-        <div className="glass-panel" style={{ padding: '1.1rem', width: '380px', background: 'rgba(15, 23, 42, 0.92)' }}>
+        <div className="glass-panel" style={{ padding: '1.1rem', width: 'min(380px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
           <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
             <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
           </div>
@@ -219,7 +219,7 @@ export default function ActiveMethodologiesOverlay({
 
       {/* Widget de TBL/iRAT — Verificação de Prontidão Individual */}
       {currentSlide?.type === 'tbl' && (
-        <div className="glass-panel" style={{ padding: '1rem', width: '320px', background: 'rgba(15, 23, 42, 0.92)' }}>
+        <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
           <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
             <ClipboardCheck size={16} /> Verificação Individual — iRAT ({liveData.irat.length})
           </div>
@@ -248,7 +248,7 @@ export default function ActiveMethodologiesOverlay({
 
       {/* Widget de Hotspot em Imagem */}
       {currentSlide?.type === 'hotspot' && currentSlide.hotspotConfig?.imageUrl && (
-        <div className="glass-panel" style={{ padding: '1rem', width: '320px', background: 'rgba(15, 23, 42, 0.92)' }}>
+        <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
           <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#22d3ee', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
             <Target size={16} /> Hotspot ({liveData.hotspots.length})
             {liveData.hotspots.length > 0 && (
@@ -285,7 +285,7 @@ export default function ActiveMethodologiesOverlay({
 
       {/* Widget de Trilha de Decisão (Decision Tree) */}
       {currentSlide?.branches && currentSlide.branches.length > 0 && (
-        <div className="glass-panel" style={{ padding: '1rem', width: '340px', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid #38bdf8' }}>
+        <div className="glass-panel" style={{ padding: '1rem', width: 'min(340px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid #38bdf8' }}>
           <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
             <GitBranch size={16} /> Tomada de Decisão Médica / Clínica
           </div>

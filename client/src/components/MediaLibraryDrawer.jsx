@@ -179,7 +179,7 @@ export default function MediaLibraryDrawer({ isOpen, onClose, onInsertMedia }) {
   };
 
   return (
-    <div className="glass-panel" style={{ position: 'absolute', top: '64px', right: 0, width: '360px', height: 'calc(100vh - 64px)', zIndex: 100, borderRadius: 0, padding: '1.2rem', display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--border-glass-bright)', background: 'rgba(15, 23, 42, 0.95)' }}>
+    <div className="glass-panel side-drawer-panel" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', background: 'rgba(15, 23, 42, 0.95)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <Image size={18} /> Biblioteca de Mídias
