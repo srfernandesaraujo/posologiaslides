@@ -1069,6 +1069,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     editable={!isFullscreen && !atClosingSlide}
                     spotlightEnabled={isFullscreen && spotlightOn}
                     zoomGestureEnabled={isFullscreen}
+                    selectedElement={selectedEl}
                   />
                 </div>
               </div>

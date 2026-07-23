@@ -38,7 +38,19 @@ export const SLIDE_EDITOR_MESSAGE_SOURCE = 'posologia-slide-editor';
 // continuam funcionando sem interferência — só um clique que veio depois de
 // um arrasto de verdade é bloqueado (na fase de captura, antes de chegar no
 // controle interno), pra não disparar o onclick dele sem querer ao soltar.
-function buildEditorScript() {
+// `initialSelected` (índice + escopo de quem estava selecionado antes deste
+// carregamento, ou null) — soltar um arrasto/redimensionamento grava a nova
+// posição no HTML do slide (ver handleMessage/reposition em
+// PresentationEditor), o que troca `htmlContent` e recarrega o iframe do
+// zero (novo srcdoc): sem isso, cada vez que o usuário SOLTA o mouse depois
+// de mover/redimensionar algo, o documento inteiro é recriado, apagando a
+// seleção e as alças — pareceria que resize "não funciona" (aparece durante
+// o arrasto, some ao soltar), quando na verdade o elemento nunca deixou de
+// estar selecionado do ponto de vista do app, só o DOM do iframe é que foi
+// substituído. Reaplica a seleção assim que o script novo roda.
+function buildEditorScript(initialSelected) {
+  var initialIndex = initialSelected ? initialSelected.index : null;
+  var initialScope = initialSelected ? initialSelected.scope : null;
   return `
 <style>
   .__pos-hover { outline: 2px dashed rgba(34,211,238,0.7) !important; outline-offset: 2px; cursor: pointer; }
@@ -357,6 +369,20 @@ function buildEditorScript() {
     positionHandles();
     sendSelect(match);
   });
+
+  // Ver comentário de "initialSelected" acima de buildEditorScript: restaura
+  // a seleção que existia antes deste (re)carregamento, se o elemento ainda
+  // existir no mesmo índice/escopo. Não reenvia 'select' pro pai — o rect
+  // dele já foi atualizado pela própria mensagem 'reposition' que causou
+  // este reload (ver handleMessage em PresentationEditor).
+  if (${JSON.stringify(initialScope)} === scope && ${JSON.stringify(initialIndex)} !== null) {
+    var restored = container.children[${JSON.stringify(initialIndex)}];
+    if (restored && !restored.classList.contains('__pos-handle')) {
+      selected = restored;
+      selected.classList.add('__pos-selected');
+      positionHandles();
+    }
+  }
 })();
 </script>`;
 }
@@ -471,8 +497,16 @@ function buildZoomGestureScript(zoomGestureEnabled) {
 </script>`;
 }
 
-export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false }) {
+export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, selectedElement = null }) {
   const iframeRef = useRef(null);
+  // Ref (não estado/dependência do efeito abaixo): só precisamos do valor mais
+  // recente NO MOMENTO em que o iframe recarrega por outro motivo (ver
+  // "initialSelected" em buildEditorScript) — se `selectedElement` entrasse
+  // nas dependências do efeito, todo clique de seleção (que muda o índice
+  // selecionado sem mudar `htmlContent`) recarregaria o iframe à toa, o
+  // efeito colateral que este código inteiro existe pra evitar.
+  const selectedElementRef = useRef(selectedElement);
+  selectedElementRef.current = selectedElement;
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -509,7 +543,7 @@ ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}
 ${content}
 ${buildSpotlightScript(spotlightEnabled)}
 ${buildZoomGestureScript(zoomGestureEnabled)}
-${editable ? buildEditorScript() : ''}
+${editable ? buildEditorScript(selectedElementRef.current) : ''}
 </body>
 </html>`;
 
