@@ -1,5 +1,8 @@
 import express from 'express';
-import { getFolderTree, getPresentation, savePresentation, deletePresentation, setFavorite, touchPresentation } from '../services/store.js';
+import {
+  getFolderTree, getPresentation, savePresentation, deletePresentation, setFavorite, touchPresentation,
+  createOrGetShareLink, getShareForPresentation, revokeShare
+} from '../services/store.js';
 
 const router = express.Router();
 
@@ -52,6 +55,26 @@ router.delete('/:id', async (req, res) => {
   if (!deleted) {
     return res.status(404).json({ error: 'Apresentação não encontrada.' });
   }
+  res.json({ success: true });
+});
+
+// Link público só-visualização — gerar/consultar/revogar. A URL completa não
+// é montada aqui: o cliente já sabe a própria origem (window.location.origin).
+router.post('/:id/share', async (req, res) => {
+  const share = await createOrGetShareLink(req.params.id, req.user.id);
+  if (!share) {
+    return res.status(404).json({ error: 'Apresentação não encontrada.' });
+  }
+  res.json({ success: true, shareId: share.shareId });
+});
+
+router.get('/:id/share', async (req, res) => {
+  const share = await getShareForPresentation(req.params.id, req.user.id);
+  res.json({ success: true, shareId: share?.shareId || null });
+});
+
+router.delete('/:id/share', async (req, res) => {
+  await revokeShare(req.params.id, req.user.id);
   res.json({ success: true });
 });
 

@@ -1,5 +1,5 @@
 import express from 'express';
-import { generatePresentationOutline, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote } from '../services/aiService.js';
+import { generatePresentationOutline, generateOutlineFromImport, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote } from '../services/aiService.js';
 import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
@@ -28,6 +28,25 @@ router.post('/generate-outline', async (req, res) => {
   } catch (error) {
     console.error('Erro na rota generate-outline:', error);
     res.status(500).json({ error: 'Falha ao gerar o roteiro da apresentação.' });
+  }
+});
+
+// Rota 1b: Gerar Outline a partir de uma apresentação IMPORTADA (páginas de
+// um PDF já extraídas, ver materialsRoutes.js /upload-presentation) — mesma
+// forma de resposta de /generate-outline, só a origem do outline muda.
+router.post('/import-outline', async (req, res) => {
+  try {
+    const { pages, apiKey } = req.body;
+    if (!Array.isArray(pages) || pages.length === 0) {
+      return res.status(400).json({ error: 'A lista de páginas do PDF é obrigatória.' });
+    }
+
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const { outline, warning } = await generateOutlineFromImport({ pages, apiKey: effectiveApiKey });
+    res.json({ success: true, outline, warning: warning || null });
+  } catch (error) {
+    console.error('Erro na rota import-outline:', error);
+    res.status(500).json({ error: 'Falha ao gerar o roteiro a partir da apresentação importada.' });
   }
 });
 

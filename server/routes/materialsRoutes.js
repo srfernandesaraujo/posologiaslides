@@ -10,6 +10,13 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 // Mídia embutida em slide (imagem/vídeo/áudio) vai para o Cloud Storage, não
 // para o corpo da requisição de IA — por isso aceita arquivos bem maiores.
 const uploadMedia = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+// PDF de uma apresentação existente (importação, ver /upload-presentation) —
+// maior que o limite de texto de referência porque decks em PDF costumam
+// pesar mais (imagens embutidas), mas não precisa do teto de mídia bruta.
+const uploadPresentationFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+
+const MAX_IMPORT_PAGES = 40;
+const MAX_CHARS_PER_PAGE = 3000;
 
 const MAX_REDIRECTS = 5;
 
@@ -80,6 +87,52 @@ router.post('/upload-file', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error('Erro na rota upload-file:', error);
     res.status(500).json({ error: 'Falha ao processar arquivo enviado.' });
+  }
+});
+
+// Upload de PDF pra IMPORTAR uma apresentação existente (ver AIModalGenerator,
+// modo "Importar apresentação existente") — extrai o texto POR PÁGINA (não um
+// blob só concatenado, como /upload-file acima), pra a IA conseguir reproduzir
+// um slide por página original em vez de perder a fronteira entre elas.
+router.post('/upload-presentation', uploadPresentationFile.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    }
+    if (req.file.mimetype !== 'application/pdf') {
+      return res.status(400).json({ error: 'Envie um arquivo PDF.' });
+    }
+
+    const pages = [];
+    // `pagerender` roda uma vez por página do PDF, na ordem — captura o texto
+    // de cada uma num array próprio, sem alterar a concatenação padrão da lib
+    // (que continua disponível em pdfData.text, só não é usada aqui).
+    const pagerender = async (pageData) => {
+      const textContent = await pageData.getTextContent();
+      const text = textContent.items.map((item) => item.str).join(' ');
+      pages.push(text.slice(0, MAX_CHARS_PER_PAGE));
+      return text;
+    };
+
+    const pdfData = await pdfParse(req.file.buffer, { pagerender });
+
+    if (pdfData.numpages > MAX_IMPORT_PAGES) {
+      return res.status(400).json({
+        error: `Este PDF tem ${pdfData.numpages} páginas — o limite pra importação é ${MAX_IMPORT_PAGES}. Divida o arquivo em partes menores.`
+      });
+    }
+
+    const avgCharsPerPage = pages.reduce((sum, p) => sum + p.length, 0) / (pages.length || 1);
+    if (avgCharsPerPage < 30) {
+      return res.status(400).json({
+        error: 'Não foi possível extrair texto deste PDF — parece ser um documento escaneado (só imagem). Exporte como PDF de texto (ex: direto do PowerPoint/Google Slides/Keynote) e tente de novo.'
+      });
+    }
+
+    res.json({ success: true, pages, pageCount: pages.length });
+  } catch (error) {
+    console.error('Erro na rota upload-presentation:', error);
+    res.status(500).json({ error: 'Falha ao processar o PDF enviado.' });
   }
 });
 

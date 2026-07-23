@@ -8,6 +8,7 @@ import MediaLibraryDrawer from './MediaLibraryDrawer';
 import WidgetLibraryDrawer from './WidgetLibraryDrawer';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
+import ShareLinkModal from './ShareLinkModal';
 import { io } from 'socket.io-client';
 import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
@@ -19,14 +20,22 @@ import {
 import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
 import { buildClosingSlideHtml } from '../lib/closingSlideTemplate';
+import useCanvasFit from '../lib/useCanvasFit';
+import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDIT_RANGE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
+import useUndoHistory from '../lib/useUndoHistory';
 import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
-  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight
+  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2
 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
   const { user } = useAuth();
+  // Desfazer/Refazer: `commit`/`commitDebounced` substituem `setPresentation`
+  // direto em todo handler que muda `presentation` (ver troca abaixo) — só
+  // handlers de leitura/estado de UI (seleção, painéis abertos) continuam
+  // usando os setters normais, esses não fazem parte do histórico.
+  const { commit, commitDebounced, undo, redo, canUndo, canRedo } = useUndoHistory(presentation, setPresentation);
   const [activeIndex, setActiveIndex] = useState(0);
   // Slide de encerramento virtual: exibido ao avançar a partir do último
   // slide real, nunca é gravado em presentation.slides (ver handleNext /
@@ -37,16 +46,24 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [activeTool, setActiveTool] = useState('pointer');
   const [activeColor, setActiveColor] = useState('#ef4444');
   const [clearTrigger, setClearTrigger] = useState(0);
+  // Modo destaque: liga/desliga independente das ferramentas de desenho —
+  // só tem efeito de verdade em apresentação real (ver spotlightEnabled
+  // passado a PresentationViewer abaixo), mas fica "armado" mesmo editando.
+  const [spotlightOn, setSpotlightOn] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [isMediaDrawerOpen, setIsMediaDrawerOpen] = useState(false);
   const [isWidgetDrawerOpen, setIsWidgetDrawerOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
   const [showPresenterWindow, setShowPresenterWindow] = useState(false);
   // Em telas compactas (≤1024px), a lista de slides e o chat de IA viram
   // gavetas off-canvas em vez de colunas fixas — abertas/fechadas por aqui.
   const [mobileSlideListOpen, setMobileSlideListOpen] = useState(false);
-  const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  // Chat de IA: painel flutuante que só aparece quando aberto (não é mais só
+  // uma gaveta mobile — em qualquer largura de tela ele fica escondido até
+  // ser aberto por este botão ou por "Editar este elemento com IA").
+  const [chatOpen, setChatOpen] = useState(false);
 
   // Elemento de topo selecionado no slide (clique dentro do iframe editável)
   // — { index, scope, rect } | null. `scope` distingue filhos de ".slide-root"
@@ -89,8 +106,32 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [attachLinkUrl, setAttachLinkUrl] = useState('');
   const [attachLoading, setAttachLoading] = useState(false);
 
-  const stageRef = useRef(null);
+  // Canvas nativo fixo (1280x720) escalado via CSS transform pra caber na
+  // caixa real do palco — mesma matemática de layout em edição e apresentação
+  // (só o multiplicador `scale` muda entre os dois modos). `bottomReserve`
+  // garante uma faixa inferior sempre livre pra PresentationControls nunca
+  // ficar atrás do conteúdo do slide em telas pequenas.
+  const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: STAGE_BOTTOM_RESERVE });
   const chatMessagesRef = useRef(null);
+
+  // Zoom manual (multiplicador em cima de canvasScale — ver ZOOM_EDIT_RANGE/
+  // ZOOM_PRESENT_RANGE em canvasConstants.js): estado de UI pura, nunca entra
+  // no histórico de desfazer/refazer. `scrollOffset` acompanha a rolagem do
+  // `.zoom-scrollport` (novo wrapper, ver JSX abaixo) só pra manter a barra de
+  // ação do elemento selecionado alinhada — a navegação em si (arrastar a
+  // visão) é rolagem nativa do navegador, sem nenhum código de arraste.
+  const [zoom, setZoom] = useState(1);
+  const [scrollOffset, setScrollOffset] = useState({ top: 0, left: 0 });
+  const zoomScrollportRef = useRef(null);
+  const effectiveScale = canvasScale * zoom;
+
+  const clampZoom = (z) => {
+    const [min, max] = isFullscreen ? ZOOM_PRESENT_RANGE : ZOOM_EDIT_RANGE;
+    return Math.min(max, Math.max(min, z));
+  };
+  const handleZoomIn = () => setZoom((z) => clampZoom(z + ZOOM_STEP));
+  const handleZoomOut = () => setZoom((z) => clampZoom(z - ZOOM_STEP));
+  const handleZoomReset = () => setZoom(1);
 
   useEffect(() => {
     let newSocket;
@@ -189,30 +230,34 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleChangeSlideType = (type) => {
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], type: type || undefined };
-    setPresentation({ ...presentation, slides: updatedSlides });
+    commit({ ...presentation, slides: updatedSlides });
   };
 
   // Transição de ENTRADA deste slide específico — cada slide guarda a sua
   // própria (slide.transition = { type, duration }), independente dos demais.
+  // commitDebounced porque também é chamado a cada pixel arrastado no slider
+  // de duração (ver painel de transição), não só nos botões de preset.
   const handleChangeSlideTransition = (patch) => {
     if (atClosingSlide) return;
     const updatedSlides = [...presentation.slides];
     const current = resolveTransition(updatedSlides[activeIndex].transition);
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], transition: { ...current, ...patch } };
-    setPresentation({ ...presentation, slides: updatedSlides });
+    commitDebounced({ ...presentation, slides: updatedSlides });
   };
 
   const handleChangeCorrectAnswer = (answer) => {
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], correctAnswer: answer || undefined };
-    setPresentation({ ...presentation, slides: updatedSlides });
+    commit({ ...presentation, slides: updatedSlides });
   };
 
+  // commitDebounced: cobre tanto digitação contínua (URL da imagem, raio) quanto
+  // o clique de marcar o ponto certo na miniatura — todos passam por aqui.
   const handleChangeHotspotConfig = (patch) => {
     const updatedSlides = [...presentation.slides];
     const prevConfig = updatedSlides[activeIndex].hotspotConfig || { imageUrl: '', x: null, y: null, radius: 10 };
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], hotspotConfig: { ...prevConfig, ...patch } };
-    setPresentation({ ...presentation, slides: updatedSlides });
+    commitDebounced({ ...presentation, slides: updatedSlides });
   };
 
   const handleMarkHotspotPoint = (e) => {
@@ -299,20 +344,31 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           leftPct: data.leftPct, topPct: data.topPct, widthPct: data.widthPct, heightPct: data.heightPct
         }));
         setSelectedEl({ index: data.index, scope: data.scope, rect: data.rect });
+      } else if (data.type === 'zoom-gesture') {
+        // Pinça de dois dedos ou Ctrl+roda do mouse (ver buildZoomGestureScript,
+        // só ativo em apresentação de verdade) — o script só manda o FATOR de
+        // variação; quem decide o valor final e aplica o limite é aqui.
+        setZoom((z) => clampZoom(z * data.factor));
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [presentation, activeIndex]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presentation, activeIndex, isFullscreen]);
 
   // Índices de seleção só fazem sentido pro slide/estado atual — trocar de
   // slide ou entrar/sair de tela cheia sempre recarrega o iframe do zero.
+  // Também reseta o zoom/rolagem — sem isso o próximo slide (ou a volta da
+  // tela cheia) "herdaria" o zoom/posição do slide anterior.
   useEffect(() => {
     setSelectedEl(null);
     setChatScope(null);
     setAnimPanelOpen(false);
     setElementHtmlDraft(null);
     setTransitionPanelOpen(false);
+    setZoom(1);
+    setScrollOffset({ top: 0, left: 0 });
+    zoomScrollportRef.current?.scrollTo(0, 0);
   }, [activeIndex, isFullscreen, atClosingSlide]);
 
   // Ao selecionar um elemento novo, pré-preenche os controles de duração/atraso
@@ -326,6 +382,55 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setAnimDelay(anim?.delay ?? ANIMATION_DEFAULTS.delay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEl?.index]);
+
+  // Desfazer/Refazer: além de trocar `presentation`, limpa seleção/painéis
+  // abertos (igual a qualquer outra troca estrutural de HTML, ver o efeito
+  // acima) e reajusta `activeIndex` se o slide que estava aberto deixou de
+  // existir no estado restaurado — mesmo cuidado já usado ao apagar um slide.
+  const handleUndo = () => {
+    const restored = undo();
+    if (!restored) return;
+    setSelectedEl(null);
+    setChatScope(null);
+    setAnimPanelOpen(false);
+    setElementHtmlDraft(null);
+    setTransitionPanelOpen(false);
+    setActiveIndex((i) => Math.min(i, restored.slides.length - 1));
+  };
+
+  const handleRedo = () => {
+    const restored = redo();
+    if (!restored) return;
+    setSelectedEl(null);
+    setChatScope(null);
+    setAnimPanelOpen(false);
+    setElementHtmlDraft(null);
+    setTransitionPanelOpen(false);
+    setActiveIndex((i) => Math.min(i, restored.slides.length - 1));
+  };
+
+  // Atalho de teclado Ctrl/Cmd+Z (desfazer) e Ctrl/Cmd+Shift+Z ou Ctrl/Cmd+Y
+  // (refazer) — listener dedicado (não em PresentationControls, que só cuida
+  // de navegação/tela cheia), com a mesma proteção contra digitação em campo
+  // de texto que aquele já usa.
+  useEffect(() => {
+    const handleUndoKeydown = (e) => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handleUndoKeydown);
+    return () => window.removeEventListener('keydown', handleUndoKeydown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [undo, redo]);
 
   const handleNavigateBranch = (targetSlideId) => {
     const targetIndex = presentation.slides.findIndex(s => s.id === targetSlideId || s.title.includes(targetSlideId));
@@ -360,7 +465,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       ...updatedSlides[activeIndex],
       html: appendIntoRoot(currentSlide.html, mediaTag)
     };
-    setPresentation({ ...presentation, slides: updatedSlides });
+    commit({ ...presentation, slides: updatedSlides });
     setIsMediaDrawerOpen(false);
   };
 
@@ -373,7 +478,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       ...updatedSlides[activeIndex],
       html: appendIntoRoot(currentSlide.html, widgetHtml, meta)
     };
-    setPresentation({ ...presentation, slides: updatedSlides });
+    commit({ ...presentation, slides: updatedSlides });
     setIsWidgetDrawerOpen(false);
   };
 
@@ -388,10 +493,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Igual a `mutateCurrentSlideHtml`, mas mantém a seleção — usada por ações
   // que não mudam a posição do elemento na lista (animar), pra deixar a barra
   // e o painel abertos e testar vários presets em sequência sem reclicar.
-  const updateCurrentSlideHtml = (mutator) => {
+  // `debounced` é usado só pelo slider de duração/atraso de animação
+  // (handleAnimSliderChange), que dispara a cada pixel arrastado.
+  const updateCurrentSlideHtml = (mutator, { debounced = false } = {}) => {
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], html: mutator(currentSlide.html) };
-    setPresentation({ ...presentation, slides: updatedSlides });
+    const next = { ...presentation, slides: updatedSlides };
+    if (debounced) commitDebounced(next); else commit(next);
   };
 
   const handleAlignElement = (align) => {
@@ -475,7 +583,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       loop: preset.loop,
       duration: field === 'duration' ? value : animDuration,
       delay: field === 'delay' ? value : animDelay
-    }));
+    }), { debounced: true });
   };
 
   const handleClearAnimation = () => {
@@ -496,7 +604,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleScopeChatToSelection = () => {
     if (!selectedEl) return;
     setChatScope({ index: selectedEl.index });
-    setMobileChatOpen(true);
+    setChatOpen(true);
   };
 
   const handleAttachFile = async (e) => {
@@ -595,7 +703,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           ...updatedSlides[activeIndex],
           html: updatedHtml
         };
-        setPresentation({ ...presentation, slides: updatedSlides });
+        commit({ ...presentation, slides: updatedSlides });
         const successText = scopeAtSend
           ? `✨ Elemento selecionado atualizado com sucesso!`
           : `✨ Slide #${activeIndex + 1} atualizado com sucesso!`;
@@ -629,14 +737,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
   return (
     <div className={`main-layout ${isFullscreen ? 'full-presentation' : ''}`}>
-      {/* Gavetas móveis (lista de slides / chat) usam a mesma sobreposição pra fechar ao tocar fora */}
-      {!isFullscreen && (mobileSlideListOpen || mobileChatOpen) && (
+      {/* Gaveta móvel da lista de slides usa uma sobreposição pra fechar ao tocar
+          fora — o chat flutuante não (fecha só pelo próprio X, como os
+          painéis de transição/animação). */}
+      {!isFullscreen && mobileSlideListOpen && (
         <div
           className="mobile-drawer-backdrop below-header"
-          onClick={() => {
-            setMobileSlideListOpen(false);
-            setMobileChatOpen(false);
-          }}
+          onClick={() => setMobileSlideListOpen(false)}
         />
       )}
 
@@ -654,7 +761,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           onAddSlide={() => {
             const newSlide = { id: `slide-${Date.now()}`, title: `Novo Slide ${presentation.slides.length + 1}`, html: '<div style="padding:2rem; color:white;">Novo Slide Interativo</div>' };
             const newIndex = presentation.slides.length;
-            setPresentation({ ...presentation, slides: [...presentation.slides, newSlide] });
+            commit({ ...presentation, slides: [...presentation.slides, newSlide] });
             // Seleciona o slide recém-criado em vez de deixar o palco parado
             // no slide que estava ativo antes de adicionar.
             emitSlideChanged(newIndex);
@@ -662,13 +769,27 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           onDeleteSlide={(idxToDelete) => {
             if (presentation.slides.length <= 1) return;
             const newSlides = presentation.slides.filter((_, i) => i !== idxToDelete);
-            setPresentation({ ...presentation, slides: newSlides });
+            commit({ ...presentation, slides: newSlides });
             // Sem isto, apagar o slide ativo (ou qualquer um antes dele) deixava
             // activeIndex apontando para fora do novo array — o palco caía no
             // placeholder "Nenhum slide gerado" e parecia que nada tinha acontecido.
             setActiveIndex((prev) => {
               const shifted = idxToDelete < prev ? prev - 1 : prev;
               return Math.min(shifted, newSlides.length - 1);
+            });
+          }}
+          onReorderSlides={(fromIndex, toIndex) => {
+            const newSlides = [...presentation.slides];
+            const [moved] = newSlides.splice(fromIndex, 1);
+            newSlides.splice(toIndex, 0, moved);
+            commit({ ...presentation, slides: newSlides });
+            // Reordenar não deve trocar QUAL slide está selecionado — só
+            // recalcula onde esse mesmo slide foi parar no array novo.
+            setActiveIndex((prevActive) => {
+              if (prevActive === fromIndex) return toIndex;
+              if (fromIndex < prevActive && toIndex >= prevActive) return prevActive - 1;
+              if (fromIndex > prevActive && toIndex <= prevActive) return prevActive + 1;
+              return prevActive;
             });
           }}
         />
@@ -779,6 +900,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <option value="tbl">TBL — Verificação Individual (iRAT)</option>
                 <option value="hotspot">Hotspot em Imagem</option>
               </select>
+              <button className="btn-icon" onClick={handleUndo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
+                <Undo2 size={18} />
+              </button>
+              <button className="btn-icon" onClick={handleRedo} disabled={!canRedo} title="Refazer (Ctrl+Shift+Z)">
+                <Redo2 size={18} />
+              </button>
               <button className="btn-icon" onClick={() => setIsMediaDrawerOpen(!isMediaDrawerOpen)} title="Biblioteca de Mídias (Drag & Drop)">
                 <Image size={18} />
               </button>
@@ -787,6 +914,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               </button>
               <button className="btn-icon" onClick={() => setShowCodeEditor(!showCodeEditor)} title="Ver / Editar HTML do Slide">
                 <Code size={18} />
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => setIsShareOpen(true)}
+                disabled={!presentation.id}
+                title={presentation.id ? 'Gerar link público só-visualização' : 'Salve a apresentação antes de compartilhar'}
+                style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}
+              >
+                <Share2 size={16} /> <span className="btn-label">Compartilhar</span>
               </button>
               <button className="btn-primary" onClick={() => setIsReportOpen(true)} style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}>
                 <BarChart3 size={16} /> <span className="btn-label">Relatórios</span>
@@ -798,8 +934,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <Play size={16} /> <span className="btn-label">Apresentar (F)</span>
               </button>
               <button
-                className="btn-icon mobile-toggle-btn"
-                onClick={() => setMobileChatOpen(true)}
+                className={`btn-icon ${chatOpen ? 'active' : ''}`}
+                onClick={() => setChatOpen((v) => !v)}
                 title="Editar Slide com IA"
                 style={{ background: 'rgba(255,255,255,0.08)' }}
               >
@@ -885,12 +1021,58 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
         {/* Palco do Slide com Overlay de Metodologias Ativas */}
         <div ref={stageRef} className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}>
+          {/* Viewport de rolagem nativa pro zoom manual — só este elemento
+              rola (mouse/trackpad/toque/barra de rolagem, tudo de graça do
+              navegador); a barra de ação/overlay/barra flutuante abaixo ficam
+              FORA daqui, então continuam fixas na tela mesmo com a visão
+              rolada. overflow só vira "auto" quando o zoom não é 100% (com
+              tolerância de arredondamento), pra nunca aparecer uma barra de
+              rolagem de 1px por erro de ponto flutuante em zoom normal. */}
           <div
-            key={`${atClosingSlide ? 'closing' : activeIndex}-${!!closingQuote}`}
-            className={`slide-transition-wrapper pos-transition-${atClosingSlide ? TRANSITION_DEFAULTS.type : resolveTransition(currentSlide.transition).type}`}
-            style={{ '--pos-transition-duration': `${atClosingSlide ? TRANSITION_DEFAULTS.duration : resolveTransition(currentSlide.transition).duration}s` }}
+            ref={zoomScrollportRef}
+            className="zoom-scrollport"
+            onScroll={(e) => setScrollOffset({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft })}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              overflow: Math.abs(zoom - 1) < 0.01 ? 'hidden' : 'auto',
+              scrollbarGutter: 'stable both-edges'
+            }}
           >
-            <PresentationViewer htmlContent={currentSlide.html} reloadKey={isFullscreen} editable={!isFullscreen && !atClosingSlide} />
+            <div
+              className="zoom-sizer"
+              style={{
+                position: 'relative',
+                width: `${SLIDE_NATIVE_WIDTH * effectiveScale}px`,
+                height: `${SLIDE_NATIVE_HEIGHT * effectiveScale}px`
+              }}
+            >
+              <div
+                className="canvas-native-layer"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: `${SLIDE_NATIVE_WIDTH}px`,
+                  height: `${SLIDE_NATIVE_HEIGHT}px`,
+                  transform: `scale(${effectiveScale})`,
+                  transformOrigin: 'top left'
+                }}
+              >
+                <div
+                  key={`${atClosingSlide ? 'closing' : activeIndex}-${!!closingQuote}`}
+                  className={`slide-transition-wrapper pos-transition-${atClosingSlide ? TRANSITION_DEFAULTS.type : resolveTransition(currentSlide.transition).type}`}
+                  style={{ '--pos-transition-duration': `${atClosingSlide ? TRANSITION_DEFAULTS.duration : resolveTransition(currentSlide.transition).duration}s` }}
+                >
+                  <PresentationViewer
+                    htmlContent={currentSlide.html}
+                    editable={!isFullscreen && !atClosingSlide}
+                    spotlightEnabled={isFullscreen && spotlightOn}
+                    zoomGestureEnabled={isFullscreen}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Barra de ação do elemento selecionado (clique num elemento de topo do slide) */}
@@ -901,8 +1083,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             const positioned = isPositionedAt(currentSlide.html, selectedEl.index);
             const btnStyle = { width: '30px', height: '30px' };
             const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
-            const toolbarTop = Math.max(4, selectedEl.rect.top - 46);
-            const toolbarLeft = Math.max(4, selectedEl.rect.left);
+            // `selectedEl.rect` vem em coordenadas do canvas nativo (medidas
+            // dentro do iframe, que sempre resolve contra o 1280x720 fixo —
+            // ver PresentationViewer.jsx/buildEditorScript). Esta barra, por
+            // sua vez, fica fora da camada escalada (canvas-native-layer) E
+            // fora do .zoom-scrollport (que agora pode estar rolado, se o
+            // usuário deu zoom) — por isso a conversão por `effectiveScale`
+            // (canvasScale * zoom) E a subtração da rolagem atual, pra barra
+            // continuar alinhada com o elemento mesmo depois de rolar a visão.
+            const toolbarTop = Math.max(4, selectedEl.rect.top * effectiveScale - 46 - scrollOffset.top);
+            const toolbarLeft = Math.max(4, selectedEl.rect.left * effectiveScale - scrollOffset.left);
 
             return (
               <>
@@ -1100,17 +1290,23 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             onClearDrawing={() => setClearTrigger(prev => prev + 1)}
             isFullscreen={isFullscreen}
             toggleFullscreen={toggleFullscreen}
+            spotlightOn={spotlightOn}
+            onToggleSpotlight={() => setSpotlightOn((v) => !v)}
+            zoom={zoom}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onZoomReset={handleZoomReset}
           />
         </div>
       </div>
 
       {/* Sidebar Direita (Chat de IA) */}
       {!isFullscreen && (
-        <div className={`sidebar-chat ${mobileChatOpen ? 'mobile-open' : ''}`}>
+        <div className={`chat-panel ${chatOpen ? 'open' : ''}`}>
           <div className="chat-header">
             <Bot size={18} color="var(--accent-primary)" />
             <span style={{ flex: 1 }}>Editar Slide #{activeIndex + 1} com IA</span>
-            <button className="btn-icon mobile-toggle-btn" onClick={() => setMobileChatOpen(false)} style={{ width: '28px', height: '28px' }}>
+            <button className="btn-icon" onClick={() => setChatOpen(false)} style={{ width: '28px', height: '28px' }}>
               <X size={16} />
             </button>
           </div>
@@ -1216,6 +1412,14 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         onInsertWidget={handleInsertWidget}
         editingContext={editingWidgetContext}
         onUpdateElement={handleUpdateWidgetElement}
+      />
+
+      {/* Modal de Link Público (Compartilhar) */}
+      <ShareLinkModal
+        isOpen={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+        presentationId={presentation.id}
+        presentationTitle={presentation.title}
       />
 
       {/* Modal de Relatório Pós-Aula */}

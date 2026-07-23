@@ -128,7 +128,9 @@ body {
 /* Main Layout Grid */
 .main-layout {
   display: grid;
-  grid-template-columns: 240px 1fr 340px;
+  /* Só a lista de slides é coluna fixa — o chat de IA é um painel flutuante
+     (ver .chat-panel), não ocupa mais espaço na grade em nenhuma largura. */
+  grid-template-columns: 240px 1fr;
   height: calc(100vh - 64px);
   overflow: hidden;
 }
@@ -213,6 +215,56 @@ button.mobile-toggle-btn {
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+/* Alça de arrastar pra reordenar slides — canto oposto ao número (top: 6px,
+   left ocupado). touch-action:none pra um arrasto por toque não rolar a
+   lista em vez de mover o slide. */
+.slide-thumb-handle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.55);
+  color: #9ca3af;
+  cursor: grab;
+  touch-action: none;
+  z-index: 2;
+}
+
+.slide-thumb-handle:hover {
+  color: #e5e7eb;
+}
+
+.slide-thumbnail.dragging {
+  opacity: 0.5;
+}
+
+/* Linha indicadora de onde o slide arrastado vai cair */
+.slide-thumbnail.drop-before::before,
+.slide-thumbnail.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent-primary);
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--accent-primary-glow);
+}
+
+.slide-thumbnail.drop-before::before {
+  top: -0.45rem;
+}
+
+.slide-thumbnail.drop-after::after {
+  bottom: -0.45rem;
 }
 
 /* Presentation Canvas Stage */
@@ -444,12 +496,36 @@ button.mobile-toggle-btn {
   display: inline;
 }
 
-/* AI Sidebar Chat */
-.sidebar-chat {
-  background: rgba(13, 17, 23, 0.85);
-  border-left: 1px solid var(--border-glass);
+/* Chat de IA — painel flutuante (não é mais coluna fixa da grade), mesma
+   linguagem visual dos painéis de transição/animação (glass-panel + fundo
+   escuro quase opaco). Abre/fecha via opacidade+transform (não display:none)
+   pra não perder o rascunho de mensagem/scroll ao fechar — mesmo princípio
+   já usado pela gaveta mobile antiga. */
+.chat-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 96px;
+  width: min(360px, calc(100vw - 48px));
+  height: min(520px, calc(100vh - 180px));
+  background: rgba(15, 23, 42, 0.97);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
   display: flex;
   flex-direction: column;
+  z-index: 190;
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.chat-panel.open {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
 }
 
 .chat-header {
@@ -952,30 +1028,28 @@ button.mobile-toggle-btn {
     display: block;
   }
 
-  .sidebar-slides,
-  .sidebar-chat {
+  .sidebar-slides {
     position: fixed;
     top: 64px;
     bottom: 0;
+    left: 0;
     width: min(300px, 85vw);
     z-index: 200;
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .sidebar-slides {
-    left: 0;
     transform: translateX(-100%);
   }
 
-  .sidebar-chat {
-    right: 0;
-    transform: translateX(100%);
+  .sidebar-slides.mobile-open {
+    transform: translateX(0);
   }
 
-  .sidebar-slides.mobile-open,
-  .sidebar-chat.mobile-open {
-    transform: translateX(0);
+  /* O chat flutuante (.chat-panel) não faz parte deste sistema de gavetas em
+     nenhuma largura — só se ajusta pra caber (ver regra .chat-panel acima,
+     que já usa min()/calc() contra o viewport). */
+  .chat-panel {
+    right: 12px;
+    bottom: 88px;
   }
 
   button.mobile-toggle-btn {

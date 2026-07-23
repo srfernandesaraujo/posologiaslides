@@ -5,6 +5,7 @@ import HomeLibrary from './components/HomeLibrary';
 import SettingsModal from './components/SettingsModal';
 import Login from './components/Login';
 import StudentJoin from './mobile/StudentJoin';
+import PublicPresentationView from './pages/PublicPresentationView';
 import { useAuth } from './context/AuthContext';
 import { apiFetch } from './lib/api';
 import { Sparkles, Presentation, Settings, ArrowLeft, LogOut } from 'lucide-react';
@@ -17,6 +18,13 @@ export default function App() {
 
   if (isStudentRoute) {
     return <StudentJoin />;
+  }
+
+  // Link público só-visualização (ver server/routes/publicRoutes.js) — fica
+  // fora da parede de login do Firebase, mesmo espírito da rota /join acima.
+  const shareViewMatch = window.location.pathname.match(/^\/view\/([^/]+)$/);
+  if (shareViewMatch) {
+    return <PublicPresentationView shareId={shareViewMatch[1]} />;
   }
 
   const { user, loading, logout } = useAuth();

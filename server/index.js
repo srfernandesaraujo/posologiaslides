@@ -14,6 +14,7 @@ import sessionsRoutes from './routes/sessionsRoutes.js';
 import presentationsRoutes from './routes/presentationsRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import mediaSearchRoutes from './routes/mediaSearchRoutes.js';
+import publicRoutes from './routes/publicRoutes.js';
 import { requireAuth } from './middleware/auth.js';
 import { setupSocketIO } from './sockets/sessionSocket.js';
 
@@ -41,6 +42,9 @@ app.use('/api/sessions', requireAuth, sessionsRoutes);
 app.use('/api/presentations', requireAuth, presentationsRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 app.use('/api/media-search', requireAuth, mediaSearchRoutes);
+// Pública, de propósito (sem requireAuth) — serve apresentações via link de
+// compartilhamento só-visualização, sem exigir login (ver publicRoutes.js).
+app.use('/api/public/presentations', publicRoutes);
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Servidor e WebSockets rodando em http://localhost:${PORT}`);

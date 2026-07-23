@@ -84,6 +84,73 @@ export async function generatePresentationOutline({ prompt, materials, numSlides
   }
 }
 
+// Importação de apresentação existente (ver AIModalGenerator, modo "Importar"
+// + materialsRoutes.js /upload-presentation): em vez de inventar uma
+// estrutura nova a partir de um tema livre, o outline é DERIVADO do texto de
+// cada página do PDF original — um slide de outline por página, na mesma
+// ordem, reproduzindo o conteúdo em vez de reinventá-lo. A segunda etapa
+// (gerar o HTML de cada slide) reaproveita generateSlideHtml/o endpoint
+// /api/ai/generate-slides sem nenhuma mudança, já que ambos só recebem um
+// "outline" genérico e não se importam com a origem dele.
+export async function generateOutlineFromImport({ pages, apiKey }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+
+  if (!effectiveApiKey) {
+    return { outline: generateFallbackImportOutline(pages), warning: 'Nenhuma chave de API do Gemini configurada. Exibindo conteúdo de exemplo — configure sua chave em Configurações para gerar conteúdo real.' };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const pagesBlock = pages.map((text, i) => `--- Página ${i + 1} ---\n${text}`).join('\n\n');
+
+    const fullPrompt = `
+    O usuário está IMPORTANDO uma apresentação existente pra este sistema. Abaixo está o texto extraído de cada página/slide do arquivo original (PDF), na ordem original.
+
+    REPRODUZA a mesma sequência e conteúdo — NÃO invente slides novos, NÃO pule nenhuma página, mantenha a mesma ordem e a essência de cada uma, apenas adaptando pro formato deste sistema.
+
+    CONTEÚDO ORIGINAL (uma página por slide):
+    """
+    ${pagesBlock}
+    """
+
+    Responda EXCLUSIVAMENTE em formato JSON VÁLIDO, com EXATAMENTE ${pages.length} itens em "slides" (um por página, na mesma ordem do original), no seguinte esquema:
+    {
+      "title": "Título da Apresentação",
+      "description": "Descrição curta do tema",
+      "slides": [
+        {
+          "index": 1,
+          "title": "Título do Slide 1 (baseado na página 1)",
+          "subtitle": "Subtítulo do Slide 1",
+          "type": "intro|chart|dashboard|simulator|comparison|conclusion",
+          "keyPoints": ["Ponto 1", "Ponto 2", "Ponto 3"],
+          "interactiveElement": "Descrição do elemento interativo que melhor representa o conteúdo original desta página"
+        }
+      ]
+    }
+    `;
+
+    const result = await model.generateContent(fullPrompt);
+    const responseText = result.response.text();
+    const cleanJson = extractJson(responseText);
+    const outline = JSON.parse(cleanJson);
+
+    // Instrução forte no prompt, não garantia rígida — só loga se a IA não
+    // seguir à risca, sem cortar/completar slides artificialmente (poderia
+    // perder conteúdo real ou inventar um slide falso).
+    if (!Array.isArray(outline.slides) || outline.slides.length !== pages.length) {
+      console.warn(`generateOutlineFromImport: esperava ${pages.length} slides, recebeu ${outline.slides?.length ?? 0}.`);
+    }
+
+    return { outline };
+  } catch (error) {
+    console.error('Erro na API Gemini (Import Outline), usando gerador fallback:', error.message);
+    return { outline: generateFallbackImportOutline(pages), warning: `Falha ao usar a IA Gemini (${error.message}). Exibindo conteúdo de exemplo.` };
+  }
+}
+
 export async function generateSlideHtml({ slideOutline, presentationTitle, index, totalSlides, apiKey, images }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
 
@@ -356,6 +423,37 @@ function generateFallbackOutline(prompt, numSlides) {
         interactiveElement: 'Timeline de etapas interativa com progresso acumulado.'
       }
     ]
+  };
+}
+
+// Fallback sem chave de API pra importação — um slide de outline por página,
+// usando a primeira linha do texto extraído como título e o resto como
+// pontos-chave, garantindo sempre `pages.length` slides mesmo sem IA de verdade.
+function generateFallbackImportOutline(pages) {
+  const slides = pages.map((pageText, i) => {
+    const trimmed = (pageText || '').trim();
+    const firstLine = trimmed.split('\n')[0].slice(0, 80) || `Página ${i + 1}`;
+    const rest = trimmed.slice(firstLine.length).trim();
+    const keyPoints = rest
+      .split(/[.\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+
+    return {
+      index: i + 1,
+      title: firstLine || `Página ${i + 1}`,
+      subtitle: `Conteúdo importado (página ${i + 1} de ${pages.length})`,
+      type: i === 0 ? 'intro' : i === pages.length - 1 ? 'conclusion' : 'dashboard',
+      keyPoints: keyPoints.length ? keyPoints : ['Conteúdo original preservado desta página.'],
+      interactiveElement: 'Cards com o conteúdo original da página, em destaque.'
+    };
+  });
+
+  return {
+    title: 'APRESENTAÇÃO IMPORTADA',
+    description: `Apresentação reproduzida a partir de um PDF de ${pages.length} página(s).`,
+    slides
   };
 }
 

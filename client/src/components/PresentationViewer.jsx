@@ -13,13 +13,13 @@ import React, { useEffect, useRef } from 'react';
  * embutida via <iframe> no slide abra uma aba nova, ex. "assistir no YouTube") sem
  * reintroduzir allow-same-origin, que quebraria o isolamento acima.
  *
- * reloadKey: entrar/sair do modo tela cheia NÃO muda htmlContent (é o mesmo slide),
- * então o efeito abaixo não recarregava o iframe nessa transição — o Chart.js e
- * outros scripts sensíveis a tamanho do slide já tinham medido o container ANTES
- * do palco redimensionar para o novo tamanho da tela cheia, e não recalculavam
- * corretamente depois. Passar isFullscreen como reloadKey força um recarregamento
- * completo (documento novo) toda vez que essa transição acontece, para que o
- * script do slide meça o tamanho final já estabilizado.
+ * reloadKey: o palco (edição e apresentação) renderiza o slide sempre no mesmo
+ * canvas nativo fixo (1280x720, ver lib/canvasConstants.js + lib/useCanvasFit.js)
+ * e só ajusta a escala visual via CSS transform — como transform numa ancestral
+ * nunca muda o tamanho de layout resolvido de um iframe (só como ele é pintado),
+ * o documento interno do iframe sempre mede o mesmo tamanho de container em
+ * qualquer modo/escala, então Chart.js e outros scripts sensíveis a tamanho não
+ * precisam de um recarregamento forçado ao entrar/sair da tela cheia.
  */
 // Identificador usado nas mensagens postMessage entre o script de seleção
 // injetado no iframe e o listener no app principal (ver PresentationEditor).
@@ -28,20 +28,25 @@ export const SLIDE_EDITOR_MESSAGE_SOURCE = 'posologia-slide-editor';
 // Script injetado apenas quando `editable` é true: permite passar o mouse,
 // clicar nos elementos de topo do slide (filhos diretos de ".slide-root", ou
 // do <body> quando não há ".slide-root") pra selecioná-los no editor, e
-// ARRASTAR pra qualquer posição livre (mousedown + mover além de um pequeno
-// limiar vira drag; um clique simples, sem mover, continua só selecionando/
-// desselecionando como antes). Cliques normais em controles do próprio
-// widget (slider, botão) continuam funcionando sem interferência — só um
-// clique que veio depois de um arrasto de verdade é bloqueado (na fase de
-// captura, antes de chegar no controle interno), pra não disparar o onclick
-// dele sem querer ao soltar o mouse.
+// ARRASTAR pra qualquer posição livre (pointerdown + mover além de um pequeno
+// limiar vira drag; um toque/clique simples, sem mover, continua só
+// selecionando/desselecionando como antes). Usa Pointer Events (não Mouse
+// Events) em todo o arrasto/redimensionamento — mouse events nunca disparam a
+// partir de toque/caneta em touchscreens (mesmo raciocínio do DrawingCanvas),
+// então isso também funciona com dedo/Apple Pencil num iPad, não só com
+// mouse. Cliques normais em controles do próprio widget (slider, botão)
+// continuam funcionando sem interferência — só um clique que veio depois de
+// um arrasto de verdade é bloqueado (na fase de captura, antes de chegar no
+// controle interno), pra não disparar o onclick dele sem querer ao soltar.
 function buildEditorScript() {
   return `
 <style>
   .__pos-hover { outline: 2px dashed rgba(34,211,238,0.7) !important; outline-offset: 2px; cursor: pointer; }
-  .__pos-selected { outline: 2px solid #22d3ee !important; outline-offset: 2px; cursor: grab; }
+  /* touch-action:none nos dois — sem isso, um arrasto por toque também rola/dá
+     zoom no documento do iframe em vez de (ou além de) mover o elemento. */
+  .__pos-selected { outline: 2px solid #22d3ee !important; outline-offset: 2px; cursor: grab; touch-action: none; }
   .__pos-dragging { cursor: grabbing !important; opacity: 0.85; }
-  .__pos-handle { position: fixed; width: 11px; height: 11px; background: #22d3ee; border: 1.5px solid #071019; border-radius: 3px; box-sizing: border-box; z-index: 2147483647; display: none; }
+  .__pos-handle { position: fixed; width: 11px; height: 11px; background: #22d3ee; border: 1.5px solid #071019; border-radius: 3px; box-sizing: border-box; z-index: 2147483647; display: none; touch-action: none; }
 </style>
 <script>
 (function () {
@@ -127,6 +132,17 @@ function buildEditorScript() {
       el.style.left = ((elRect.left - containerRect.left) / containerRect.width * 100) + '%';
       el.style.top = ((elRect.top - containerRect.top) / containerRect.height * 100) + '%';
       el.style.width = (elRect.width / containerRect.width * 100) + '%';
+      // Imagem/vídeo recém-inserido usa "height:auto" (ver PresentationEditor
+      // handleInsertMedia) — sem fixar a altura aqui também, redimensionar só
+      // pela alça de largura ('e') deixa a altura em auto, e o navegador
+      // recalcula ela pela proporção intrínseca do arquivo, fazendo parecer
+      // um redimensionamento uniforme mesmo a alça sendo só de largura.
+      // Outros elementos (texto, widgets) não têm essa proporção intrínseca,
+      // então não precisam da altura fixada aqui — continuam em "auto" até
+      // que a alça de altura/quina seja usada de propósito.
+      if (el.tagName === 'IMG' || el.tagName === 'VIDEO') {
+        el.style.height = (elRect.height / containerRect.height * 100) + '%';
+      }
       el.setAttribute('data-el-positioned', 'true');
     }
     return el;
@@ -160,10 +176,11 @@ function buildEditorScript() {
   }
 
   Object.keys(handles).forEach(function (pos) {
-    handles[pos].addEventListener('mousedown', function (e) {
+    handles[pos].addEventListener('pointerdown', function (e) {
       if (!selected) return;
       e.preventDefault();
       e.stopPropagation();
+      handles[pos].setPointerCapture(e.pointerId);
       var el = detach(selected);
       if (el !== selected) { selected = el; selected.classList.add('__pos-selected'); }
       var containerRect = container.getBoundingClientRect();
@@ -194,11 +211,12 @@ function buildEditorScript() {
     hovered = null;
   });
 
-  document.body.addEventListener('mousedown', function (e) {
+  document.body.addEventListener('pointerdown', function (e) {
     if (e.button !== 0) return;
     if (isInteractiveTarget(e.target)) return;
     var match = e.target.closest(selector);
     if (!match) return;
+    document.body.setPointerCapture(e.pointerId);
     var containerRect = container.getBoundingClientRect();
     dragState = {
       el: match,
@@ -215,7 +233,7 @@ function buildEditorScript() {
     };
   });
 
-  document.addEventListener('mousemove', function (e) {
+  document.addEventListener('pointermove', function (e) {
     if (resizeState) {
       var rdx = e.clientX - resizeState.startClientX;
       var rdy = e.clientY - resizeState.startClientY;
@@ -243,7 +261,7 @@ function buildEditorScript() {
 
       // Base do arrasto medida AGORA, depois do detach — se ele desembrulhou
       // um elemento alinhado, dragState.el mudou pro elemento interno, cujo
-      // retângulo é diferente do wrapper medido no mousedown.
+      // retângulo é diferente do wrapper medido no pointerdown.
       var containerRect0 = container.getBoundingClientRect();
       var elRect0 = dragState.el.getBoundingClientRect();
       dragState.startLeftPx = elRect0.left - containerRect0.left;
@@ -263,7 +281,7 @@ function buildEditorScript() {
     positionHandles();
   });
 
-  document.addEventListener('mouseup', function () {
+  document.addEventListener('pointerup', function () {
     if (resizeState) {
       var el = resizeState.el;
       resizeState = null;
@@ -285,7 +303,7 @@ function buildEditorScript() {
   });
 
   // Fase de captura: intercepta o click nativo que o navegador dispara logo
-  // depois do mouseup de um arrasto/redimensionamento de verdade, antes que
+  // depois do pointerup de um arrasto/redimensionamento de verdade, antes que
   // ele alcance (e dispare) o onclick de um controle interno do próprio widget.
   document.addEventListener('click', function (e) {
     if (!justDragged) return;
@@ -315,7 +333,117 @@ function buildEditorScript() {
 </script>`;
 }
 
-export default function PresentationViewer({ htmlContent, reloadKey, editable = false }) {
+// Script injetado SEMPRE (editável ou não) — ao contrário de buildEditorScript,
+// precisa funcionar durante a apresentação de verdade (tela cheia, editable
+// false), não só editando. Ao tocar num elemento de topo do slide, escurece
+// todos os irmãos (mesma convenção ".slide-root > *"/"body > *" já usada pra
+// seleção), pra o apresentador focar a atenção da turma nele; tocar de novo
+// no mesmo elemento remove o destaque. Não manda nada pro app pai — tudo
+// local ao próprio documento do iframe. Recebe `spotlightEnabled` já
+// resolvido pelo chamador (ver PresentationEditor: só true em apresentação
+// de verdade, nunca ao mesmo tempo que o script de edição acima, senão os
+// dois listeners de clique no body competiriam entre si).
+function buildSpotlightScript(spotlightEnabled) {
+  if (!spotlightEnabled) return '';
+  return `
+<style>
+  .__spot-dim { opacity: 0.15; filter: grayscale(0.3); transition: opacity 0.25s ease, filter 0.25s ease; }
+</style>
+<script>
+(function () {
+  var container = document.querySelector('.slide-root') || document.body;
+  var selector = (container === document.body ? 'body > *' : '.slide-root > *') + ':not(.__pos-handle)';
+  var spotlighted = null;
+
+  function clearDim() {
+    Array.prototype.forEach.call(container.children, function (child) {
+      child.classList.remove('__spot-dim');
+    });
+  }
+
+  document.body.addEventListener('click', function (e) {
+    var match = e.target.closest(selector);
+    if (!match) return;
+
+    if (spotlighted === match) {
+      clearDim();
+      spotlighted = null;
+      return;
+    }
+
+    spotlighted = match;
+    Array.prototype.forEach.call(container.children, function (child) {
+      if (child === match) child.classList.remove('__spot-dim');
+      else child.classList.add('__spot-dim');
+    });
+  });
+})();
+</script>`;
+}
+
+// Script injetado SEMPRE, mas só ativo (`zoomGestureEnabled`) durante a
+// apresentação de verdade (isFullscreen) — nunca junto com buildEditorScript
+// (editable), pra não competir com o rastreio de ponteiro único do
+// arrasto/redimensionamento de elemento. Detecta pinça de dois dedos (toque)
+// e Ctrl+roda do mouse (sinal padrão de pinça de trackpad), e só avisa o app
+// pai o FATOR de variação — quem decide o zoom final e aplica o clamp é
+// PresentationEditor.jsx (ver `zoom-gesture` no listener de mensagens). A
+// NAVEGAÇÃO (arrastar a visão já com zoom) não passa por aqui — é rolagem
+// nativa do navegador em cima de .zoom-scrollport, por isso roda "solta"
+// (sem Ctrl) é deliberadamente ignorada aqui, pra não competir com ela.
+function buildZoomGestureScript(zoomGestureEnabled) {
+  if (!zoomGestureEnabled) return '';
+  return `
+<script>
+(function () {
+  var pointers = {};
+  var pinchStartDist = null;
+
+  function dist(p1, p2) {
+    var dx = p1.x - p2.x, dy = p1.y - p2.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function sendZoom(factor) {
+    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'zoom-gesture', factor: factor }, '*');
+  }
+
+  document.addEventListener('pointerdown', function (e) {
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    var ids = Object.keys(pointers);
+    if (ids.length === 2) {
+      pinchStartDist = dist(pointers[ids[0]], pointers[ids[1]]);
+    }
+  });
+
+  document.addEventListener('pointermove', function (e) {
+    if (!(e.pointerId in pointers)) return;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    var ids = Object.keys(pointers);
+    if (ids.length !== 2 || pinchStartDist === null || pinchStartDist === 0) return;
+    e.preventDefault();
+    var newDist = dist(pointers[ids[0]], pointers[ids[1]]);
+    sendZoom(newDist / pinchStartDist);
+    pinchStartDist = newDist;
+  }, { passive: false });
+
+  function clearPointer(e) {
+    delete pointers[e.pointerId];
+    pinchStartDist = null;
+  }
+  document.addEventListener('pointerup', clearPointer);
+  document.addEventListener('pointercancel', clearPointer);
+
+  document.addEventListener('wheel', function (e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    sendZoom(e.deltaY < 0 ? 1.08 : 0.93);
+  }, { passive: false });
+})();
+</script>`;
+}
+
+export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false }) {
   const iframeRef = useRef(null);
 
   useEffect(() => {
@@ -351,6 +479,8 @@ ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}
 </head>
 <body>
 ${content}
+${buildSpotlightScript(spotlightEnabled)}
+${buildZoomGestureScript(zoomGestureEnabled)}
 ${editable ? buildEditorScript() : ''}
 </body>
 </html>`;
@@ -370,7 +500,7 @@ ${editable ? buildEditorScript() : ''}
       cancelAnimationFrame(frame1);
       if (frame2) cancelAnimationFrame(frame2);
     };
-  }, [htmlContent, reloadKey, editable]);
+  }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled]);
 
   return (
     <iframe

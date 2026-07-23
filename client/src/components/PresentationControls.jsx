@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  MousePointer, 
-  PenTool, 
-  Highlighter, 
-  Eraser, 
-  Zap, 
-  Trash2, 
-  Maximize, 
-  Minimize 
+import {
+  ChevronLeft,
+  ChevronRight,
+  MousePointer,
+  PenTool,
+  Highlighter,
+  Eraser,
+  Zap,
+  Trash2,
+  Maximize,
+  Minimize,
+  Lightbulb,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 
 export default function PresentationControls({
@@ -24,7 +27,13 @@ export default function PresentationControls({
   setActiveColor,
   onClearDrawing,
   isFullscreen,
-  toggleFullscreen
+  toggleFullscreen,
+  spotlightOn,
+  onToggleSpotlight,
+  zoom,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset
 }) {
   const [autohide, setAutohide] = useState(false);
 
@@ -60,12 +69,24 @@ export default function PresentationControls({
       } else if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
         toggleFullscreen();
+      } else if (e.key === '+' || e.key === '=') {
+        // Sem Ctrl (o navegador reserva Ctrl+/Ctrl- pro próprio zoom da
+        // página e pode nem deixar o JS interceptar) — mesma convenção sem
+        // modificador já usada pelos outros atalhos desta barra.
+        e.preventDefault();
+        onZoomIn();
+      } else if (e.key === '-') {
+        e.preventDefault();
+        onZoomOut();
+      } else if (e.key === '0') {
+        e.preventDefault();
+        onZoomReset();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onPrev, onNext, toggleFullscreen]);
+  }, [onPrev, onNext, toggleFullscreen, onZoomIn, onZoomOut, onZoomReset]);
 
   const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ffffff'];
 
@@ -155,6 +176,33 @@ export default function PresentationControls({
           ))}
         </div>
       )}
+
+      {/* Modo Destaque: escurece os demais elementos do slide ao tocar num —
+          botão independente (não é um "activeTool"), pra poder ficar ligado
+          ao mesmo tempo que o laser/caneta em vez de competir com eles. */}
+      <button
+        className={`btn-icon ${spotlightOn ? 'active' : ''}`}
+        onClick={onToggleSpotlight}
+        title="Modo Destaque (escurece os demais elementos ao tocar um)"
+      >
+        <Lightbulb size={18} />
+      </button>
+
+      {/* Zoom manual — funciona nos dois modos (esta barra já é a mesma nos
+          dois). "-"/"+" mudam o nível; clicar na porcentagem reseta pra 100%. */}
+      <button className="btn-icon" onClick={onZoomOut} title="Reduzir Zoom (Atalho -)">
+        <ZoomOut size={18} />
+      </button>
+      <button
+        onClick={onZoomReset}
+        title="Redefinir Zoom para 100% (Atalho 0)"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700, color: '#9ca3af', padding: '0 0.3rem', minWidth: '3rem' }}
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      <button className="btn-icon" onClick={onZoomIn} title="Aumentar Zoom (Atalho +)">
+        <ZoomIn size={18} />
+      </button>
 
       <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.15)', margin: '0 0.4rem' }} />
 

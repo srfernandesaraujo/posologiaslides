@@ -20,7 +20,11 @@ export default function DrawingCanvas({
   const laserPosRef = useRef(null);
   const [laserPos, setLaserPos] = useState(null);
 
-  // Ajusta o tamanho do Canvas para o tamanho exato da tela/container
+  // Ajusta o tamanho do Canvas para o tamanho exato da tela/container.
+  // ResizeObserver (em vez de só 'resize' da janela) porque a caixa do palco
+  // também muda de tamanho sem um resize real da janela — ex. a escala do
+  // canvas nativo do slide se ajustando (ver useCanvasFit.js) ou uma gaveta
+  // lateral abrindo/fechando.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -32,8 +36,9 @@ export default function DrawingCanvas({
     };
 
     resize();
-    window.addEventListener('resize', resize);
-    return () => window.removeEventListener('resize', resize);
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, []);
 
   // Limpar Canvas quando acionado pelo trigger
