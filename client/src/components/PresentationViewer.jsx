@@ -60,6 +60,18 @@ const PARENT_TO_SLIDE_MESSAGE_SOURCE = 'posologia-slide-editor-control';
 // uma alça de recorte TAMBÉM dispara um reload (grava no HTML, igual
 // reposition) — sem isto, o modo voltaria sempre pra "redimensionar" depois
 // da primeira alça solta.
+// ARMADILHA: tudo daqui até o fechamento da template string (</script> no
+// fim da função) é TEXTO — vira o script que roda dentro do iframe, num
+// escopo JS totalmente separado do resto deste arquivo. Uma variável local
+// desta função (initialSelected, initialIndex...) só existe ali dentro se
+// for explicitamente interpolada com dólar-chaves (ex.: JSON.stringify(initialIndex)
+// entre dólar-chaves) — escrevê-la "solta" no meio do texto (ex.: "var x =
+// initialCropMode;") compila sem erro nenhum (npm run build só valida a
+// STRING, não o JS que ela contém) e só quebra em runtime, no console do
+// navegador, como um ReferenceError logo no topo do IIFE — o suficiente pra
+// travar TODOS os listeners abaixo dele, inclusive clique/seleção que nada
+// tem a ver com o que causou o erro (foi exatamente assim que a seleção
+// quebrou por inteiro depois da feature de recorte).
 function buildEditorScript(initialSelected, initialCropMode) {
   var initialIndex = initialSelected ? initialSelected.index : null;
   var initialScope = initialSelected ? initialSelected.scope : null;
