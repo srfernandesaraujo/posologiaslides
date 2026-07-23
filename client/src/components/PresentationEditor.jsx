@@ -951,7 +951,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 onChange={(e) => handleChangeSlideType(e.target.value)}
                 title="Modo de Interatividade deste Slide (ativa o painel de resultados ao vivo para o apresentador)"
                 disabled={atClosingSlide}
-                style={{ fontSize: '0.78rem', padding: '0.4rem 0.6rem', width: 'auto' }}
+                style={{ fontSize: '0.72rem', padding: '0.35rem 0.45rem', width: 'auto' }}
               >
                 <option value="">Sem interatividade</option>
                 <option value="quiz">Quiz ao Vivo</option>
@@ -1021,8 +1021,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             <ToolbarDivider />
 
             <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-              <button className="btn-primary" onClick={() => setShowPresenterWindow(true)} style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}>
-                <Tv size={16} /> <span className="btn-label">Visão Apresentador</span>
+              <button className="btn-primary" onClick={() => setShowPresenterWindow(true)} title="Visão Apresentador (janela separada com notas e controles)" style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}>
+                <Tv size={16} /> <span className="btn-label">Exibição</span>
               </button>
               <button className="btn-primary" onClick={toggleFullscreen} style={{ fontSize: '0.82rem' }}>
                 <Play size={16} /> <span className="btn-label">Apresentar (F)</span>
