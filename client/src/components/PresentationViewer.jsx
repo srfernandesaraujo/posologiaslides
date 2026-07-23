@@ -109,7 +109,7 @@ function buildEditorScript(initialSelected, initialCropMode) {
   var dragState = null;
   var resizeState = null;
   var cropState = null;
-  var cropMode = !!initialCropMode;
+  var cropMode = !!${JSON.stringify(!!initialCropMode)};
   var justDragged = false;
   var DRAG_THRESHOLD = 4;
   var MIN_SIZE_PX = 24;
