@@ -256,6 +256,12 @@ function buildEditorScript(initialSelected) {
     if (isInteractiveTarget(e.target)) return;
     var match = e.target.closest(selector);
     if (!match) return;
+    // Sem isto, apertar/arrastar em cima de texto (título, parágrafo) inicia
+    // a SELEÇÃO NATIVA de texto do navegador em paralelo ao nosso arrasto —
+    // e depois de uma seleção de texto, o navegador costuma nem disparar o
+    // 'click' no soltar, então o clique nunca chegava a selecionar o
+    // elemento (nem editar campos/HTML), só destacava o texto em cinza.
+    e.preventDefault();
     document.body.setPointerCapture(e.pointerId);
     var containerRect = container.getBoundingClientRect();
     dragState = {
