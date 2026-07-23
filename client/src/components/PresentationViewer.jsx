@@ -46,7 +46,12 @@ function buildEditorScript() {
      zoom no documento do iframe em vez de (ou além de) mover o elemento. */
   .__pos-selected { outline: 2px solid #22d3ee !important; outline-offset: 2px; cursor: grab; touch-action: none; }
   .__pos-dragging { cursor: grabbing !important; opacity: 0.85; }
-  .__pos-handle { position: fixed; width: 11px; height: 11px; background: #22d3ee; border: 1.5px solid #071019; border-radius: 3px; box-sizing: border-box; z-index: 2147483647; display: none; touch-action: none; }
+  /* Área de toque (28px) bem maior que o quadradinho visual (11px, no
+     ::after) — 11px é inatingível com o dedo num iPad; ver positionHandles()
+     abaixo, que centraliza essa caixa de 28px no mesmo ponto onde o
+     quadradinho ficava antes, então nada muda visualmente. */
+  .__pos-handle { position: fixed; width: 28px; height: 28px; box-sizing: border-box; z-index: 2147483647; display: none; touch-action: none; }
+  .__pos-handle::after { content: ''; position: absolute; top: 50%; left: 50%; width: 11px; height: 11px; transform: translate(-50%, -50%); background: #22d3ee; border: 1.5px solid #071019; border-radius: 3px; }
 </style>
 <script>
 (function () {
@@ -165,7 +170,10 @@ function buildEditorScript() {
       return;
     }
     var r = selected.getBoundingClientRect();
-    var half = 5.5;
+    // Metade da caixa de TOQUE (28px, ver .__pos-handle), não do quadradinho
+    // visual (11px, ::after) — centraliza a caixa maior no mesmo ponto onde o
+    // quadradinho ficava antes, então o visual não muda, só a área tocável.
+    var half = 14;
     handles.e.style.left = (r.right - half) + 'px';
     handles.e.style.top = (r.top + r.height / 2 - half) + 'px';
     handles.s.style.left = (r.left + r.width / 2 - half) + 'px';

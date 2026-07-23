@@ -106,7 +106,7 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
             onPointerCancel={endDrag}
             title="Arrastar para reordenar"
           >
-            <GripVertical size={14} />
+            <GripVertical size={18} />
           </button>
 
           <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#e5e7eb', marginTop: '1.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

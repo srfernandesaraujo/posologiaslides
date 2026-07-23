@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- user-scalable=no: o app tem seu próprio zoom (botões + pinça, ver
+         PresentationViewer.jsx/buildZoomGestureScript) — sem isso, o gesto de
+         pinça é disputado entre o zoom nativo da página do Safari/iPadOS e o
+         handler customizado, e o Safari costuma cancelar o toque no meio do
+         gesto quando reconhece a pinça nativa, quebrando o gesto (mais
+         perceptível reduzindo o zoom). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Posologia Slides</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
