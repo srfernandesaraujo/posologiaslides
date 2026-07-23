@@ -284,6 +284,41 @@ export function isPositionedAt(html, index) {
   return !!el && el.getAttribute('data-el-positioned') === 'true';
 }
 
+// Recorte ("aparar bordas") do elemento em `index` — em vez de um wrapper
+// novo, usa `clip-path: inset()` direto no próprio elemento: funciona igual
+// pra qualquer tipo (imagem, texto, gráfico, grupo), e como os 4 valores são
+// em PORCENTAGEM da própria caixa, um redimensionamento posterior (alças de
+// resize) mantém o recorte proporcional sem nenhuma reconciliação extra.
+// Só faz sentido com o elemento "livre" (ver setPositionAt) — quem chama
+// (arrasto da alça de recorte, ver PresentationViewer.jsx) já garante isso
+// via `detach()` antes de mandar a posição/o recorte pro pai.
+export function setCropAt(html, index, { topPct, rightPct, bottomPct, leftPct }) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return html;
+
+  const inset = { top: topPct, right: rightPct, bottom: bottomPct, left: leftPct };
+  el.style.clipPath = `inset(${inset.top}% ${inset.right}% ${inset.bottom}% ${inset.left}%)`;
+  el.setAttribute('data-el-crop', JSON.stringify(inset));
+  return serializeFragment(template);
+}
+
+export function clearCropAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return html;
+
+  el.style.clipPath = '';
+  el.removeAttribute('data-el-crop');
+  return serializeFragment(template);
+}
+
+export function isCroppedAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  return !!el && el.hasAttribute('data-el-crop');
+}
+
 // Aplica uma animação CSS (ver client/src/lib/animationCatalog.js) ao elemento
 // de topo em `index` — anima o mesmo "slot" endereçável usado por todas as
 // outras mutações (align/move/group/delete), sem tratamento especial se ele

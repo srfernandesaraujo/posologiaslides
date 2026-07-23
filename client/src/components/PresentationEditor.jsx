@@ -15,7 +15,8 @@ import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
   moveElementAt, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
-  setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt
+  setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt,
+  setCropAt, clearCropAt, isCroppedAt
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
@@ -26,7 +27,7 @@ import useUndoHistory from '../lib/useUndoHistory';
 import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
-  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2
+  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop
 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
@@ -78,6 +79,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Painel "Animar" do elemento selecionado — aberto/fechado + duração/atraso
   // configurados no momento (pré-preenchidos com a animação já aplicada, se houver).
   const [animPanelOpen, setAnimPanelOpen] = useState(false);
+  // Modo de recorte (aparar bordas) do elemento selecionado — troca as alças
+  // de redimensionar por 4 alças de borda no palco (ver PresentationViewer/
+  // buildEditorScript). Mesmo espírito do animPanelOpen: persiste ao trocar
+  // de elemento selecionado dentro do mesmo slide, reseta ao desselecionar
+  // ou trocar de slide (ver handleMessage/'deselect' e o efeito de troca de
+  // slide mais abaixo).
+  const [cropMode, setCropMode] = useState(false);
   const [animDuration, setAnimDuration] = useState(ANIMATION_DEFAULTS.duration);
   const [animDelay, setAnimDelay] = useState(ANIMATION_DEFAULTS.delay);
   // Painel "Transição" do slide atual (como este slide entra em cena) —
@@ -332,6 +340,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       } else if (data.type === 'deselect') {
         setSelectedEl(null);
         setAnimPanelOpen(false);
+        setCropMode(false);
         setElementHtmlDraft(null);
       } else if (data.type === 'reposition') {
         // Arrasto/redimensionamento solto no palco (ver buildEditorScript) —
@@ -344,6 +353,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           leftPct: data.leftPct, topPct: data.topPct, widthPct: data.widthPct, heightPct: data.heightPct
         }));
         setSelectedEl({ index: data.index, scope: data.scope, rect: data.rect });
+      } else if (data.type === 'crop') {
+        // Alça de recorte solta (ver buildEditorScript/sendCrop) — clip-path
+        // não muda a caixa do elemento, só grava o recorte; sem precisar
+        // atualizar `selectedEl` (rect intacto).
+        updateCurrentSlideHtml((html) => setCropAt(html, data.index, {
+          topPct: data.topPct, rightPct: data.rightPct, bottomPct: data.bottomPct, leftPct: data.leftPct
+        }));
       } else if (data.type === 'zoom-gesture') {
         // Pinça de dois dedos ou Ctrl+roda do mouse (ver buildZoomGestureScript,
         // só ativo em apresentação de verdade) — o script só manda o FATOR de
@@ -364,6 +380,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setSelectedEl(null);
     setChatScope(null);
     setAnimPanelOpen(false);
+    setCropMode(false);
     setElementHtmlDraft(null);
     setTransitionPanelOpen(false);
     setZoom(1);
@@ -596,6 +613,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleClearPosition = () => {
     if (!selectedEl) return;
     mutateCurrentSlideHtml((html) => clearPositionAt(html, selectedEl.index));
+  };
+
+  const handleClearCrop = () => {
+    if (!selectedEl) return;
+    mutateCurrentSlideHtml((html) => clearCropAt(html, selectedEl.index));
   };
 
   // Restringe a próxima mensagem da IA a editar só o elemento selecionado —
@@ -1070,6 +1092,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     spotlightEnabled={isFullscreen && spotlightOn}
                     zoomGestureEnabled={isFullscreen}
                     selectedElement={selectedEl}
+                    cropMode={cropMode}
                   />
                 </div>
               </div>
@@ -1082,6 +1105,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             const grouped = isGroupedAt(currentSlide.html, selectedEl.index);
             const currentAnim = getAnimationAt(currentSlide.html, selectedEl.index);
             const positioned = isPositionedAt(currentSlide.html, selectedEl.index);
+            const cropped = isCroppedAt(currentSlide.html, selectedEl.index);
             const btnStyle = { width: '30px', height: '30px' };
             const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
             // `selectedEl.rect` vem em coordenadas do canvas nativo (medidas
@@ -1125,6 +1149,18 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                       <button className="btn-icon" style={btnStyle} title="Colocar ao lado do anterior" onClick={() => handleGroupElement('prev')}><Columns2 size={15} /></button>
                       <button className="btn-icon" style={btnStyle} title="Colocar ao lado do próximo" onClick={() => handleGroupElement('next')}><Columns2 size={15} style={{ transform: 'scaleX(-1)' }} /></button>
                     </>
+                  )}
+                  {divider}
+                  <button
+                    className={`btn-icon ${cropMode ? 'active' : ''}`}
+                    style={btnStyle}
+                    title="Recortar (aparar bordas)"
+                    onClick={() => setCropMode((v) => !v)}
+                  >
+                    <Crop size={15} />
+                  </button>
+                  {cropped && (
+                    <button className="btn-icon" style={btnStyle} title="Remover recorte" onClick={handleClearCrop}><X size={15} /></button>
                   )}
                   {divider}
                   <button

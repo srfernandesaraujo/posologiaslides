@@ -25,6 +25,12 @@ import React, { useEffect, useRef } from 'react';
 // injetado no iframe e o listener no app principal (ver PresentationEditor).
 export const SLIDE_EDITOR_MESSAGE_SOURCE = 'posologia-slide-editor';
 
+// Identificador do sentido OPOSTO (pai → iframe) — hoje só usado pra ligar/
+// desligar o modo de recorte ao vivo (ver useEffect de cropMode abaixo e o
+// listener 'set-crop-mode' dentro de buildEditorScript), sem precisar
+// recarregar o iframe inteiro a cada toggle.
+const PARENT_TO_SLIDE_MESSAGE_SOURCE = 'posologia-slide-editor-control';
+
 // Script injetado apenas quando `editable` é true: permite passar o mouse,
 // clicar nos elementos de topo do slide (filhos diretos de ".slide-root", ou
 // do <body> quando não há ".slide-root") pra selecioná-los no editor, e
@@ -48,7 +54,13 @@ export const SLIDE_EDITOR_MESSAGE_SOURCE = 'posologia-slide-editor';
 // o arrasto, some ao soltar), quando na verdade o elemento nunca deixou de
 // estar selecionado do ponto de vista do app, só o DOM do iframe é que foi
 // substituído. Reaplica a seleção assim que o script novo roda.
-function buildEditorScript(initialSelected) {
+// `initialCropMode` — mesma lógica de `initialSelected`: o modo de recorte
+// liga/desliga via postMessage ao vivo (ver PARENT_TO_SLIDE_MESSAGE_SOURCE
+// abaixo, pra não precisar recarregar o iframe a cada toggle), mas soltar
+// uma alça de recorte TAMBÉM dispara um reload (grava no HTML, igual
+// reposition) — sem isto, o modo voltaria sempre pra "redimensionar" depois
+// da primeira alça solta.
+function buildEditorScript(initialSelected, initialCropMode) {
   var initialIndex = initialSelected ? initialSelected.index : null;
   var initialScope = initialSelected ? initialSelected.scope : null;
   return `
@@ -75,23 +87,43 @@ function buildEditorScript(initialSelected) {
      as alças na posição inicial (0,0). */
   .__pos-handle { position: fixed !important; display: none !important; width: 28px !important; height: 28px !important; margin: 0 !important; padding: 0 !important; border: none !important; background: transparent !important; box-sizing: border-box !important; z-index: 2147483647 !important; touch-action: none !important; }
   .__pos-handle::after { content: '' !important; position: absolute !important; top: 50% !important; left: 50% !important; width: 11px !important; height: 11px !important; transform: translate(-50%, -50%) !important; background: #22d3ee !important; border: 1.5px solid #071019 !important; border-radius: 3px !important; box-sizing: border-box !important; }
+  /* Alças de recorte (aparar bordas) — mesmo tratamento !important acima
+     (mesma razão) e mesma caixa de toque, só num tom diferente (rosa) pra
+     distinguir visualmente "modo recorte" de "modo redimensionar", já que
+     nunca aparecem os dois ao mesmo tempo (ver positionHandles/
+     positionCropHandles). */
+  .__crop-handle { position: fixed !important; display: none !important; width: 28px !important; height: 28px !important; margin: 0 !important; padding: 0 !important; border: none !important; background: transparent !important; box-sizing: border-box !important; z-index: 2147483647 !important; touch-action: none !important; }
+  .__crop-handle::after { content: '' !important; position: absolute !important; top: 50% !important; left: 50% !important; width: 11px !important; height: 11px !important; transform: translate(-50%, -50%) !important; background: #f472b6 !important; border: 1.5px solid #071019 !important; border-radius: 3px !important; box-sizing: border-box !important; }
 </style>
 <script>
 (function () {
   var container = document.querySelector('.slide-root') || document.body;
   var scope = container === document.body ? 'body' : 'root';
-  // :not(.__pos-handle) exclui as alças de redimensionar (ver abaixo) — sem
-  // ".slide-root" (slide em branco), elas são anexadas direto no <body>,
+  // :not(.__pos-handle):not(.__crop-handle) exclui as alças (ver abaixo) —
+  // sem ".slide-root" (slide em branco), elas são anexadas direto no <body>,
   // logo entrariam no próprio "body > *" e seriam tratadas como conteúdo
   // selecionável do slide.
-  var selector = (scope === 'root' ? '.slide-root > *' : 'body > *') + ':not(.__pos-handle)';
+  var selector = (scope === 'root' ? '.slide-root > *' : 'body > *') + ':not(.__pos-handle):not(.__crop-handle)';
   var hovered = null;
   var selected = null;
   var dragState = null;
   var resizeState = null;
+  var cropState = null;
+  var cropMode = !!initialCropMode;
   var justDragged = false;
   var DRAG_THRESHOLD = 4;
   var MIN_SIZE_PX = 24;
+
+  // Lê o recorte já aplicado ao elemento (ver setCropAt em slideHtmlUtils.js)
+  // ou o padrão "sem recorte" — usada tanto pra desenhar as alças de recorte
+  // em repouso quanto como ponto de partida ao começar a arrastar uma delas.
+  function readCropInsets(el) {
+    try {
+      return JSON.parse(el.getAttribute('data-el-crop') || 'null') || { top: 0, right: 0, bottom: 0, left: 0 };
+    } catch (err) {
+      return { top: 0, right: 0, bottom: 0, left: 0 };
+    }
+  }
 
   if (getComputedStyle(container).position === 'static') {
     container.style.position = 'relative';
@@ -136,6 +168,23 @@ function buildEditorScript(initialSelected) {
     };
     if (extra) for (var k in extra) payload[k] = extra[k];
     window.parent.postMessage(payload, '*');
+  }
+
+  // clip-path não muda getBoundingClientRect() do elemento (só afeta
+  // pintura/hit-test) — ao contrário de sendReposition, não precisa mandar
+  // o retângulo de volta: a caixa do elemento não mudou, só o que é visível dela.
+  function sendCrop(el, insets) {
+    justDragged = true;
+    window.parent.postMessage({
+      source: '${SLIDE_EDITOR_MESSAGE_SOURCE}',
+      type: 'crop',
+      index: indexOf(el),
+      scope: scope,
+      topPct: insets.top,
+      rightPct: insets.right,
+      bottomPct: insets.bottom,
+      leftPct: insets.left
+    }, '*');
   }
 
   // Tira o elemento do fluxo e fixa a posição/largura atuais em % do
@@ -187,17 +236,29 @@ function buildEditorScript(initialSelected) {
     handles[pos] = h;
   });
 
-  // display via setProperty(..., 'important'): a regra base de .__pos-handle
-  // é !important (ver <style> acima) pra sobreviver a CSS arbitrário do
-  // slide — um style.display comum perderia pra ela (important de stylesheet
-  // bate normal inline), então também precisa ser important pra alternar
-  // mostrar/esconder de verdade.
+  // --- Alças de recorte: 4 quadradinhos (cima/baixo/esquerda/direita), um
+  // por borda — só aparecem em modo de recorte (ver cropMode), no lugar das
+  // de redimensionar (nunca os dois conjuntos ao mesmo tempo).
+  var cropHandles = {};
+  ['n', 'e', 's', 'w'].forEach(function (edge) {
+    var ch = document.createElement('div');
+    ch.className = '__crop-handle';
+    ch.style.cursor = (edge === 'n' || edge === 's') ? 'ns-resize' : 'ew-resize';
+    document.body.appendChild(ch);
+    cropHandles[edge] = ch;
+  });
+
+  // display via setProperty(..., 'important'): a regra base de .__pos-handle/
+  // .__crop-handle é !important (ver <style> acima) pra sobreviver a CSS
+  // arbitrário do slide — um style.display comum perderia pra ela (important
+  // de stylesheet bate normal inline), então também precisa ser important
+  // pra alternar mostrar/esconder de verdade.
   function setHandleDisplay(handle, value) {
     handle.style.setProperty('display', value, 'important');
   }
 
   function positionHandles() {
-    if (!selected) {
+    if (!selected || cropMode) {
       for (var k in handles) setHandleDisplay(handles[k], 'none');
       return;
     }
@@ -213,6 +274,39 @@ function buildEditorScript(initialSelected) {
     handles.se.style.left = (r.right - half) + 'px';
     handles.se.style.top = (r.bottom - half) + 'px';
     for (var k2 in handles) setHandleDisplay(handles[k2], 'block');
+  }
+
+  // clip-path não muda getBoundingClientRect() (só afeta pintura/hit-test),
+  // então a caixa CHEIA do elemento selecionado continua confiável aqui — os
+  // insets (ver cropState/readCropInsets) é que dizem quanto dela está visível.
+  function positionCropHandles() {
+    if (!selected || !cropMode) {
+      for (var k in cropHandles) setHandleDisplay(cropHandles[k], 'none');
+      return;
+    }
+    var r = selected.getBoundingClientRect();
+    var insets = cropState ? cropState.current : readCropInsets(selected);
+    var half = 14;
+    var vTop = r.top + r.height * insets.top / 100;
+    var vBottom = r.bottom - r.height * insets.bottom / 100;
+    var vLeft = r.left + r.width * insets.left / 100;
+    var vRight = r.right - r.width * insets.right / 100;
+    cropHandles.n.style.left = ((vLeft + vRight) / 2 - half) + 'px';
+    cropHandles.n.style.top = (vTop - half) + 'px';
+    cropHandles.s.style.left = ((vLeft + vRight) / 2 - half) + 'px';
+    cropHandles.s.style.top = (vBottom - half) + 'px';
+    cropHandles.w.style.left = (vLeft - half) + 'px';
+    cropHandles.w.style.top = ((vTop + vBottom) / 2 - half) + 'px';
+    cropHandles.e.style.left = (vRight - half) + 'px';
+    cropHandles.e.style.top = ((vTop + vBottom) / 2 - half) + 'px';
+    for (var k2 in cropHandles) setHandleDisplay(cropHandles[k2], 'block');
+  }
+
+  // Único ponto usado por seleção/arrasto pra atualizar as alças — decide
+  // sozinha (via cropMode) qual dos dois conjuntos mostrar.
+  function refreshHandles() {
+    positionHandles();
+    positionCropHandles();
   }
 
   Object.keys(handles).forEach(function (pos) {
@@ -234,6 +328,32 @@ function buildEditorScript(initialSelected) {
         startHeightPx: elRect.height,
         containerWidth: containerRect.width,
         containerHeight: containerRect.height
+      };
+    });
+  });
+
+  Object.keys(cropHandles).forEach(function (edge) {
+    cropHandles[edge].addEventListener('pointerdown', function (e) {
+      if (!selected || !cropMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cropHandles[edge].setPointerCapture(e.pointerId);
+      var el = detach(selected);
+      if (el !== selected) { selected = el; selected.classList.add('__pos-selected'); }
+      var r = el.getBoundingClientRect();
+      var insets = readCropInsets(el);
+      cropState = {
+        el: el,
+        edge: edge,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        fullWidth: r.width,
+        fullHeight: r.height,
+        // "start" fica fixo (referência dos outros 3 lados, que não mudam
+        // nesta alça); "current" é o que muda a cada pointermove e o que
+        // acaba sendo mandado pro pai ao soltar.
+        start: insets,
+        current: { top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left }
       };
     });
   });
@@ -296,6 +416,27 @@ function buildEditorScript(initialSelected) {
       return;
     }
 
+    if (cropState) {
+      var cdx = e.clientX - cropState.startClientX;
+      var cdy = e.clientY - cropState.startClientY;
+      var s = cropState.start;
+      var c = cropState.current;
+      var minPctW = MIN_SIZE_PX / cropState.fullWidth * 100;
+      var minPctH = MIN_SIZE_PX / cropState.fullHeight * 100;
+      if (cropState.edge === 'n') {
+        c.top = Math.max(0, Math.min(100 - s.bottom - minPctH, s.top + cdy / cropState.fullHeight * 100));
+      } else if (cropState.edge === 's') {
+        c.bottom = Math.max(0, Math.min(100 - s.top - minPctH, s.bottom - cdy / cropState.fullHeight * 100));
+      } else if (cropState.edge === 'w') {
+        c.left = Math.max(0, Math.min(100 - s.right - minPctW, s.left + cdx / cropState.fullWidth * 100));
+      } else if (cropState.edge === 'e') {
+        c.right = Math.max(0, Math.min(100 - s.left - minPctW, s.right - cdx / cropState.fullWidth * 100));
+      }
+      cropState.el.style.clipPath = 'inset(' + c.top + '% ' + c.right + '% ' + c.bottom + '% ' + c.left + '%)';
+      positionCropHandles();
+      return;
+    }
+
     if (!dragState) return;
     var dx = e.clientX - dragState.startClientX;
     var dy = e.clientY - dragState.startClientY;
@@ -324,7 +465,7 @@ function buildEditorScript(initialSelected) {
     var topPx = dragState.startTopPx + dy;
     dragState.el.style.left = (leftPx / dragState.containerWidth * 100) + '%';
     dragState.el.style.top = (topPx / dragState.containerHeight * 100) + '%';
-    positionHandles();
+    refreshHandles();
   });
 
   document.addEventListener('pointerup', function () {
@@ -335,6 +476,14 @@ function buildEditorScript(initialSelected) {
       var elRect = el.getBoundingClientRect();
       var containerRect = container.getBoundingClientRect();
       sendReposition(el, { heightPct: elRect.height / containerRect.height * 100 });
+      return;
+    }
+
+    if (cropState) {
+      var elCrop = cropState.el;
+      var finalInsets = cropState.current;
+      cropState = null;
+      sendCrop(elCrop, finalInsets);
       return;
     }
 
@@ -358,7 +507,7 @@ function buildEditorScript(initialSelected) {
       selected = el2;
       selected.classList.remove('__pos-hover');
       selected.classList.add('__pos-selected');
-      positionHandles();
+      refreshHandles();
       sendSelect(selected);
       return;
     }
@@ -383,7 +532,7 @@ function buildEditorScript(initialSelected) {
 
     if (!match) {
       selected = null;
-      positionHandles();
+      refreshHandles();
       window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'deselect' }, '*');
       return;
     }
@@ -391,21 +540,35 @@ function buildEditorScript(initialSelected) {
     selected = match;
     selected.classList.remove('__pos-hover');
     selected.classList.add('__pos-selected');
-    positionHandles();
+    refreshHandles();
     sendSelect(match);
+  });
+
+  // Ver comentário de "initialCropMode" acima de buildEditorScript: liga/
+  // desliga o modo de recorte ao vivo, sem recarregar o iframe (ver
+  // PresentationViewer/useEffect que manda esta mensagem sempre que a prop
+  // cropMode muda). Cancela qualquer arrasto em andamento pra não deixar
+  // um handle "fantasma" de um modo que acabou de deixar de existir.
+  window.addEventListener('message', function (e) {
+    var data = e.data;
+    if (!data || data.source !== '${PARENT_TO_SLIDE_MESSAGE_SOURCE}' || data.type !== 'set-crop-mode') return;
+    cropMode = !!data.enabled;
+    resizeState = null;
+    cropState = null;
+    refreshHandles();
   });
 
   // Ver comentário de "initialSelected" acima de buildEditorScript: restaura
   // a seleção que existia antes deste (re)carregamento, se o elemento ainda
   // existir no mesmo índice/escopo. Não reenvia 'select' pro pai — o rect
-  // dele já foi atualizado pela própria mensagem 'reposition' que causou
-  // este reload (ver handleMessage em PresentationEditor).
+  // dele já foi atualizado pela própria mensagem 'reposition'/'crop' que
+  // causou este reload (ver handleMessage em PresentationEditor).
   if (${JSON.stringify(initialScope)} === scope && ${JSON.stringify(initialIndex)} !== null) {
     var restored = container.children[${JSON.stringify(initialIndex)}];
-    if (restored && !restored.classList.contains('__pos-handle')) {
+    if (restored && !restored.classList.contains('__pos-handle') && !restored.classList.contains('__crop-handle')) {
       selected = restored;
       selected.classList.add('__pos-selected');
-      positionHandles();
+      refreshHandles();
     }
   }
 })();
@@ -522,7 +685,7 @@ function buildZoomGestureScript(zoomGestureEnabled) {
 </script>`;
 }
 
-export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, selectedElement = null }) {
+export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, selectedElement = null, cropMode = false }) {
   const iframeRef = useRef(null);
   // Ref (não estado/dependência do efeito abaixo): só precisamos do valor mais
   // recente NO MOMENTO em que o iframe recarrega por outro motivo (ver
@@ -532,6 +695,25 @@ export default function PresentationViewer({ htmlContent, editable = false, spot
   // efeito colateral que este código inteiro existe pra evitar.
   const selectedElementRef = useRef(selectedElement);
   selectedElementRef.current = selectedElement;
+  // Mesma lógica pro modo de recorte (ver "initialCropMode" em
+  // buildEditorScript) — o VALOR INICIAL de cada carregamento do iframe vem
+  // desta ref; TOGGLES ao vivo (iframe já carregado) vão pelo useEffect
+  // separado logo abaixo, via postMessage, sem recarregar nada.
+  const cropModeRef = useRef(cropMode);
+  cropModeRef.current = cropMode;
+
+  // Liga/desliga o modo de recorte no script já rodando dentro do iframe,
+  // sem recriar o srcdoc — só precisamos de um reload completo quando o
+  // CONTEÚDO muda (ver efeito principal abaixo); alternar o modo é só uma
+  // troca de qual conjunto de alças aparece.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !iframe.contentWindow) return;
+    iframe.contentWindow.postMessage(
+      { source: PARENT_TO_SLIDE_MESSAGE_SOURCE, type: 'set-crop-mode', enabled: !!cropMode },
+      '*'
+    );
+  }, [cropMode]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -568,7 +750,7 @@ ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}
 ${content}
 ${buildSpotlightScript(spotlightEnabled)}
 ${buildZoomGestureScript(zoomGestureEnabled)}
-${editable ? buildEditorScript(selectedElementRef.current) : ''}
+${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) : ''}
 </body>
 </html>`;
 
