@@ -787,6 +787,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     );
   }
 
+  // Traço fino entre grupos da toolbar do editor — mesma linguagem visual do
+  // separador já usado em PublicViewerControls.jsx, só reaproveitado aqui.
+  const ToolbarDivider = () => (
+    <div style={{ width: '1px', height: '22px', background: 'rgba(255,255,255,0.12)', flexShrink: 0, margin: '0 0.1rem' }} />
+  );
+
   return (
     <div className={`main-layout ${isFullscreen ? 'full-presentation' : ''}`}>
       {/* Gaveta móvel da lista de slides usa uma sobreposição pra fechar ao tocar
@@ -865,7 +871,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               </h1>
             </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '0.4rem', gap: '0.4rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '0.5rem', columnGap: '0.6rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
               {!atClosingSlide && (() => {
                 const currentTransition = resolveTransition(currentSlide.transition);
                 const currentPreset = TRANSITION_PRESETS.find((p) => p.id === currentTransition.type) || TRANSITION_PRESETS[0];
@@ -952,12 +959,22 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <option value="tbl">TBL — Verificação Individual (iRAT)</option>
                 <option value="hotspot">Hotspot em Imagem</option>
               </select>
+            </div>
+
+            <ToolbarDivider />
+
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
               <button className="btn-icon" onClick={handleUndo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
                 <Undo2 size={18} />
               </button>
               <button className="btn-icon" onClick={handleRedo} disabled={!canRedo} title="Refazer (Ctrl+Shift+Z)">
                 <Redo2 size={18} />
               </button>
+            </div>
+
+            <ToolbarDivider />
+
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
               <button className="btn-icon" onClick={() => setIsMediaDrawerOpen(!isMediaDrawerOpen)} title="Biblioteca de Mídias (Drag & Drop)">
                 <Image size={18} />
               </button>
@@ -976,32 +993,41 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               <button className="btn-icon" onClick={() => setShowCodeEditor(!showCodeEditor)} title="Ver / Editar HTML do Slide">
                 <Code size={18} />
               </button>
+            </div>
+
+            <ToolbarDivider />
+
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
               <button
-                className="btn-primary"
+                className="btn-icon"
                 onClick={() => setIsShareOpen(true)}
                 disabled={!presentation.id}
                 title={presentation.id ? 'Gerar link público só-visualização' : 'Salve a apresentação antes de compartilhar'}
-                style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}
               >
-                <Share2 size={16} /> <span className="btn-label">Compartilhar</span>
+                <Share2 size={18} />
               </button>
-              <button className="btn-primary" onClick={() => setIsReportOpen(true)} style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}>
-                <BarChart3 size={16} /> <span className="btn-label">Relatórios</span>
-              </button>
-              <button className="btn-primary" onClick={() => setShowPresenterWindow(true)} style={{ background: 'linear-gradient(135deg, #22d3ee, #10b981)', fontSize: '0.82rem' }}>
-                <Tv size={16} /> <span className="btn-label">Visão Apresentador</span>
-              </button>
-              <button className="btn-primary" onClick={toggleFullscreen} style={{ fontSize: '0.82rem' }}>
-                <Play size={16} /> <span className="btn-label">Apresentar (F)</span>
+              <button className="btn-icon" onClick={() => setIsReportOpen(true)} title="Relatórios da sessão">
+                <BarChart3 size={18} />
               </button>
               <button
                 className={`btn-icon ${chatOpen ? 'active' : ''}`}
                 onClick={() => setChatOpen((v) => !v)}
                 title="Editar Slide com IA"
-                style={{ background: 'rgba(255,255,255,0.08)' }}
               >
                 <Bot size={18} />
               </button>
+            </div>
+
+            <ToolbarDivider />
+
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+              <button className="btn-primary" onClick={() => setShowPresenterWindow(true)} style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}>
+                <Tv size={16} /> <span className="btn-label">Visão Apresentador</span>
+              </button>
+              <button className="btn-primary" onClick={toggleFullscreen} style={{ fontSize: '0.82rem' }}>
+                <Play size={16} /> <span className="btn-label">Apresentar (F)</span>
+              </button>
+            </div>
             </div>
           </div>
         )}
