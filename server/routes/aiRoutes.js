@@ -1,5 +1,5 @@
 import express from 'express';
-import { generatePresentationOutline, generateOutlineFromImport, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote } from '../services/aiService.js';
+import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote } from '../services/aiService.js';
 import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
@@ -17,13 +17,18 @@ export async function resolveApiKey(userId, requestApiKey) {
 // Rota 1: Gerar Outline da Apresentação
 router.post('/generate-outline', async (req, res) => {
   try {
-    const { prompt, materials, numSlides, apiKey, images } = req.body;
+    const { prompt, materials, numSlides, apiKey, images, slidesConfig } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: 'O prompt principal é obrigatório.' });
     }
 
     const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
-    const { outline, warning } = await generatePresentationOutline({ prompt, materials, numSlides, apiKey: effectiveApiKey, images });
+    // Se o usuário preencheu instrução/material pra pelo menos um slide
+    // individual, ancora o outline nessas instruções em vez do tema genérico.
+    const hasPerSlideConfig = Array.isArray(slidesConfig) && slidesConfig.some((s) => (s?.prompt || '').trim() || (s?.materialText || '').trim());
+    const { outline, warning } = hasPerSlideConfig
+      ? await generateOutlineFromSlidePrompts({ theme: prompt, materials, numSlides, slidesConfig, apiKey: effectiveApiKey })
+      : await generatePresentationOutline({ prompt, materials, numSlides, apiKey: effectiveApiKey, images });
     res.json({ success: true, outline, warning: warning || null });
   } catch (error) {
     console.error('Erro na rota generate-outline:', error);
@@ -53,7 +58,7 @@ router.post('/import-outline', async (req, res) => {
 // Rota 2: Gerar Slides HTML a partir do Outline
 router.post('/generate-slides', async (req, res) => {
   try {
-    const { outline, apiKey, images } = req.body;
+    const { outline, apiKey, images, slidesConfig } = req.body;
     if (!outline || !outline.slides) {
       return res.status(400).json({ error: 'O outline com lista de slides é obrigatório.' });
     }
@@ -67,13 +72,18 @@ router.post('/generate-slides', async (req, res) => {
     let previousLayoutTag = null;
     for (let i = 0; i < outline.slides.length; i++) {
       const slideInfo = outline.slides[i];
+      // Imagem anexada especificamente a este slide (ver AIModalGenerator,
+      // "Prompt e Material por Slide") tem prioridade sobre as imagens gerais
+      // da apresentação inteira — só cai pra elas se este slide não tiver a sua.
+      const perSlideImages = slidesConfig?.[i]?.images;
+      const effectiveImages = (perSlideImages && perSlideImages.length) ? perSlideImages : images;
       const { html, warning, layoutTag } = await generateSlideHtml({
         slideOutline: slideInfo,
         presentationTitle: outline.title,
         index: i + 1,
         totalSlides: outline.slides.length,
         apiKey: effectiveApiKey,
-        images,
+        images: effectiveImages,
         previousLayoutTag
       });
       if (layoutTag) previousLayoutTag = layoutTag;

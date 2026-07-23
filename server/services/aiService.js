@@ -94,6 +94,75 @@ export async function generatePresentationOutline({ prompt, materials, numSlides
   }
 }
 
+// Geração "do zero" quando o usuário preencheu prompt/material POR SLIDE (ver
+// AIModalGenerator, seção "Prompt e Material por Slide") — em vez de deixar a
+// IA inventar os ${numSlides} slides só a partir de um tema geral vago, cada
+// slide do outline é ancorado na instrução/material específico que o usuário
+// deu pra aquele slide, usando o tema geral só como pano de fundo de tom/coesão.
+export async function generateOutlineFromSlidePrompts({ theme, materials, numSlides, slidesConfig, apiKey }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+  const count = slidesConfig.length || numSlides;
+
+  if (!effectiveApiKey) {
+    return { outline: generateFallbackOutline(theme, count), warning: 'Nenhuma chave de API do Gemini configurada. Exibindo conteúdo de exemplo — configure sua chave em Configurações para gerar conteúdo real.' };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const slidesBlock = slidesConfig.map((s, i) => {
+      const instruction = (s.prompt || '').trim() || '(nenhuma instrução específica — use o tema geral e bom senso para este slide)';
+      const material = (s.materialText || '').trim();
+      return `--- Slide ${i + 1} ---\nInstrução do usuário para este slide: ${instruction}${material ? `\nMaterial de apoio deste slide:\n"""\n${material}\n"""` : ''}`;
+    }).join('\n\n');
+
+    const fullPrompt = `
+    Baseado no tema geral abaixo, gere um roteiro (outline) de apresentação com EXATAMENTE ${count} slides.
+
+    IMPORTANTE: o usuário forneceu uma instrução e/ou material de apoio ESPECÍFICO para cada slide individualmente (ver abaixo, na ordem final da apresentação). Cada slide do outline deve ser fiel PRIMEIRO à instrução/material daquele slide específico — o tema geral serve só de pano de fundo pra manter tom e coesão entre os slides, NUNCA para substituir o que o usuário pediu pontualmente para um slide.
+
+    TEMA GERAL: "${theme}"
+    ${materialsBlock(materials)}
+
+    INSTRUÇÕES POR SLIDE (na ordem final da apresentação):
+    """
+    ${slidesBlock}
+    """
+
+    Responda EXCLUSIVAMENTE em formato JSON VÁLIDO, com EXATAMENTE ${count} itens em "slides" (um por instrução acima, na mesma ordem), no seguinte esquema:
+    {
+      "title": "Título da Apresentação",
+      "description": "Descrição curta do tema",
+      "slides": [
+        {
+          "index": 1,
+          "title": "Título do Slide 1 (baseado na instrução do slide 1)",
+          "subtitle": "Subtítulo do Slide 1",
+          "type": "intro|chart|dashboard|simulator|comparison|conclusion",
+          "keyPoints": ["Ponto 1", "Ponto 2", "Ponto 3"],
+          "interactiveElement": "Descrição do elemento interativo que melhor representa o conteúdo pedido para este slide"
+        }
+      ]
+    }
+    `;
+
+    const result = await model.generateContent(fullPrompt);
+    const responseText = result.response.text();
+    const cleanJson = extractJson(responseText);
+    const outline = JSON.parse(cleanJson);
+
+    if (!Array.isArray(outline.slides) || outline.slides.length !== count) {
+      console.warn(`generateOutlineFromSlidePrompts: esperava ${count} slides, recebeu ${outline.slides?.length ?? 0}.`);
+    }
+
+    return { outline };
+  } catch (error) {
+    console.error('Erro na API Gemini (Outline por slide), usando gerador fallback:', error.message);
+    return { outline: generateFallbackOutline(theme, count), warning: `Falha ao usar a IA Gemini (${error.message}). Exibindo conteúdo de exemplo.` };
+  }
+}
+
 // Importação de apresentação existente (ver AIModalGenerator, modo "Importar"
 // + materialsRoutes.js /upload-presentation): em vez de inventar uma
 // estrutura nova a partir de um tema livre, o outline é DERIVADO do texto de
