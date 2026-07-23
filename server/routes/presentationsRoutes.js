@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   getFolderTree, getPresentation, savePresentation, deletePresentation, setFavorite, touchPresentation,
-  createOrGetShareLink, getShareForPresentation, revokeShare
+  createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder
 } from '../services/store.js';
 
 const router = express.Router();
@@ -39,6 +39,19 @@ router.patch('/:id/favorite', async (req, res) => {
     return res.status(404).json({ error: 'Apresentação não encontrada.' });
   }
   res.json({ success: true, presentation: updated });
+});
+
+// Move a apresentação para outra pasta/disciplina
+router.patch('/:id/folder', async (req, res) => {
+  const { folderId } = req.body;
+  if (!folderId) {
+    return res.status(400).json({ error: 'folderId é obrigatório.' });
+  }
+  const result = await movePresentationToFolder(req.user.id, req.params.id, folderId);
+  if (!result) {
+    return res.status(404).json({ error: 'Apresentação ou pasta não encontrada.' });
+  }
+  res.json({ success: true });
 });
 
 // Registra que a apresentação foi aberta agora (para a aba "Recentes" da biblioteca)

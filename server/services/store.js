@@ -71,12 +71,83 @@ export async function ensureUserProfile(userId, { email, name, avatarUrl }) {
   return profile;
 }
 
+// Cria uma pasta "simples": 1 doc em folders + 1 subpasta interna (nunca
+// exposta na UI) — mesmo modelo de dados de duas camadas que já existe pra
+// pasta padrão/exemplo (ver ensureUserProfile), só que sem o usuário nunca
+// precisar pensar em subpastas.
+export async function createFolder(userId, name, color) {
+  const now = Date.now();
+  const folder = foldersRef(userId).doc();
+  const subfolder = subfoldersRef(userId).doc();
+
+  const batch = db.batch();
+  batch.set(folder, { name, color: color || '#38bdf8', createdAt: now });
+  batch.set(subfolder, { folderId: folder.id, name: 'Geral' });
+  await batch.commit();
+
+  return { id: folder.id, name, color: color || '#38bdf8', subfolders: [] };
+}
+
+export async function renameFolder(userId, folderId, name) {
+  const ref = foldersRef(userId).doc(folderId);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ name });
+  return { id: folderId, ...snap.data(), name };
+}
+
+// Exclui a pasta inteira (e sua(s) subpasta(s) internas), reatribuindo antes
+// qualquer apresentação nelas pra subpasta padrão do usuário — nunca deixa
+// apresentação órfã. Bloqueia a exclusão da própria pasta padrão (não há pra
+// onde reatribuir o conteúdo dela).
+export async function deleteFolder(userId, folderId) {
+  const profileSnap = await userRef(userId).get();
+  const defaultSubfolderId = profileSnap.data()?.defaultSubfolderId || null;
+
+  const subfoldersSnap = await subfoldersRef(userId).where('folderId', '==', folderId).get();
+  const subfolderIds = subfoldersSnap.docs.map((doc) => doc.id);
+
+  if (defaultSubfolderId && subfolderIds.includes(defaultSubfolderId)) {
+    return { error: 'default' };
+  }
+
+  const batch = db.batch();
+
+  if (subfolderIds.length > 0 && defaultSubfolderId) {
+    const presentationsSnap = await presentationsRef(userId).where('subfolderId', 'in', subfolderIds).get();
+    presentationsSnap.forEach((doc) => batch.update(doc.ref, { subfolderId: defaultSubfolderId }));
+  }
+
+  subfoldersSnap.forEach((doc) => batch.delete(doc.ref));
+  batch.delete(foldersRef(userId).doc(folderId));
+  await batch.commit();
+
+  return { success: true };
+}
+
+// Move uma apresentação pra outra pasta, resolvendo a subpasta interna única
+// daquela pasta (modelo "pasta simples" — ver createFolder).
+export async function movePresentationToFolder(userId, presentationId, folderId) {
+  const subfoldersSnap = await subfoldersRef(userId).where('folderId', '==', folderId).limit(1).get();
+  if (subfoldersSnap.empty) return null;
+  const subfolderId = subfoldersSnap.docs[0].id;
+
+  const ref = presentationsRef(userId).doc(presentationId);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+
+  await ref.update({ subfolderId });
+  return { subfolderId };
+}
+
 export async function getFolderTree(userId) {
-  const [foldersSnap, subfoldersSnap, presentationsSnap] = await Promise.all([
+  const [foldersSnap, subfoldersSnap, presentationsSnap, profileSnap] = await Promise.all([
     foldersRef(userId).orderBy('createdAt', 'asc').get(),
     subfoldersRef(userId).get(),
-    presentationsRef(userId).get()
+    presentationsRef(userId).get(),
+    userRef(userId).get()
   ]);
+  const defaultSubfolderId = profileSnap.data()?.defaultSubfolderId || null;
 
   const presentationsBySubfolder = new Map();
   presentationsSnap.forEach((doc) => {
@@ -107,11 +178,13 @@ export async function getFolderTree(userId) {
 
   return foldersSnap.docs.map((doc) => {
     const folder = doc.data();
+    const subfolders = subfoldersByFolder.get(doc.id) || [];
     return {
       id: doc.id,
       name: folder.name,
       color: folder.color,
-      subfolders: subfoldersByFolder.get(doc.id) || []
+      subfolders,
+      isDefault: subfolders.some((sub) => sub.id === defaultSubfolderId)
     };
   });
 }

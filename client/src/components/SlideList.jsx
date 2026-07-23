@@ -1,5 +1,34 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Plus, Trash2, X, GripVertical } from 'lucide-react';
+import SlideThumbnail from './SlideThumbnail';
+
+// Só monta a prévia real (iframe sandboxed com fontes/Chart.js, ver
+// PresentationViewer.jsx) quando o cartão entra na viewport, e mantém montada
+// depois disso (a flag nunca volta a false) — com dezenas de slides, renderizar
+// todas as prévias de uma vez seria pesado; carregar sob demanda enquanto o
+// professor rola a lista resolve isso sem precisar desmontar/remontar à toa.
+function LazySlidePreview({ html }) {
+  const ref = useRef(null);
+  const [hasBeenVisible, setHasBeenVisible] = useState(false);
+
+  useEffect(() => {
+    if (hasBeenVisible || !ref.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setHasBeenVisible(true);
+      },
+      { rootMargin: '400px' }
+    );
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [hasBeenVisible]);
+
+  return (
+    <div ref={ref} style={{ width: '100%', height: '100%' }}>
+      {hasBeenVisible && <SlideThumbnail html={html} />}
+    </div>
+  );
+}
 
 export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onDeleteSlide, onReorderSlides, className = '', onClose }) {
   const listRef = useRef(null);
@@ -94,49 +123,49 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
           ].filter(Boolean).join(' ')}
           onClick={() => onSelectSlide(idx)}
         >
-          <span className="slide-thumb-num">#{idx + 1}</span>
+          <div className="slide-thumb-preview">
+            <LazySlidePreview html={slide.html} />
 
-          <button
-            type="button"
-            className="slide-thumb-handle"
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => handleGripPointerDown(e, idx)}
-            onPointerMove={handleGripPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
-            title="Arrastar para reordenar"
-          >
-            <GripVertical size={18} />
-          </button>
+            <span className="slide-thumb-num">#{idx + 1}</span>
 
-          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#e5e7eb', marginTop: '1.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <button
+              type="button"
+              className="slide-thumb-handle"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => handleGripPointerDown(e, idx)}
+              onPointerMove={handleGripPointerMove}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+              title="Arrastar para reordenar"
+            >
+              <GripVertical size={18} />
+            </button>
+
+            {slides.length > 1 && (
+              <button
+                className="btn-icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteSlide(idx);
+                }}
+                style={{
+                  position: 'absolute',
+                  bottom: '4px',
+                  right: '4px',
+                  width: '22px',
+                  height: '22px',
+                  opacity: 0.6
+                }}
+                title="Excluir Slide"
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
+          </div>
+
+          <div className="slide-thumb-caption">
             {slide.title || `Slide ${idx + 1}`}
           </div>
-
-          <div style={{ fontSize: '0.65rem', color: '#6b7280', marginTop: '0.2rem' }}>
-            Página HTML Interativa
-          </div>
-
-          {slides.length > 1 && (
-            <button
-              className="btn-icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteSlide(idx);
-              }}
-              style={{
-                position: 'absolute',
-                bottom: '4px',
-                right: '4px',
-                width: '22px',
-                height: '22px',
-                opacity: 0.6
-              }}
-              title="Excluir Slide"
-            >
-              <Trash2 size={12} />
-            </button>
-          )}
         </div>
       ))}
     </div>

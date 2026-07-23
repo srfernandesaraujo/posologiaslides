@@ -30,7 +30,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, branches }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -53,6 +53,10 @@ export function setupSocketIO(httpServer) {
         // necessário pra responder (ex.: a URL da imagem) é enviado pra sala.
         currentCorrectAnswer: correctAnswer || null,
         currentHotspotConfig: hotspotConfig || null,
+        // Opções da Trilha de Decisão do slide atual — { optionText, targetSlideId }[]
+        // (ver PresentationEditor.jsx). targetSlideId nunca é retransmitido pro
+        // aluno (ver sync_slide/joined_successfully abaixo), só o texto da opção.
+        currentBranches: branches || null,
         scores: new Map(), // socketId -> { name, score }
         participants: new Map(), // socketId -> { name, joinedAt }
         responses: {}, // slideIndex -> { answers: [], words: [], irat: [], hotspots: [] }
@@ -83,7 +87,8 @@ export function setupSocketIO(httpServer) {
         title: session.title,
         currentSlideIndex: session.currentSlideIndex,
         slideType: session.currentSlideType,
-        hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null
+        hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null,
+        branches: publicBranches(session.currentBranches)
       });
 
       // Notifica apresentador sobre novo aluno
@@ -104,7 +109,7 @@ export function setupSocketIO(httpServer) {
       const studentName = participant ? participant.name : 'Anônimo';
 
       if (!session.responses[slideIndex]) {
-        session.responses[slideIndex] = { answers: [], words: [], irat: [], hotspots: [] };
+        session.responses[slideIndex] = { answers: [], words: [], irat: [], hotspots: [], branchVotes: [] };
       }
 
       const slideData = session.responses[slideIndex];
@@ -126,6 +131,10 @@ export function setupSocketIO(httpServer) {
         const correct = !!zone && isWithinHotspot(answer, zone);
         slideData.hotspots.push({ student: studentName, x: answer?.x, y: answer?.y, correct, timestamp: Date.now() });
         scoreResult = scoreAndRecord(session, socket.id, studentName, correct);
+      } else if (responseType === 'branch') {
+        // Votação da turma na Trilha de Decisão — raciocínio clínico em grupo,
+        // sem certo/errado, então sem pontuação (mesmo espírito do wordcloud).
+        slideData.branchVotes.push({ student: studentName, answer, timestamp: Date.now() });
       }
 
       if (scoreResult) {
@@ -144,7 +153,7 @@ export function setupSocketIO(httpServer) {
     });
 
     // 4. Apresentador altera slide
-    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig }) => {
+    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, branches }) => {
       const session = activeSessions.get(pin);
       if (session) {
         commitDwellTime(session);
@@ -152,12 +161,15 @@ export function setupSocketIO(httpServer) {
         session.currentSlideType = slideType || null;
         session.currentCorrectAnswer = correctAnswer || null;
         session.currentHotspotConfig = hotspotConfig || null;
+        session.currentBranches = branches || null;
         // Transmite para todos os alunos sincronizarem o celular — só o necessário
-        // pra responder (nunca o gabarito ou as coordenadas certas do hotspot).
+        // pra responder (nunca o gabarito, as coordenadas certas do hotspot, ou
+        // pra onde cada trilha de decisão leva).
         io.to(`session_${pin}`).emit('sync_slide', {
           currentSlideIndex: newIndex,
           slideType: session.currentSlideType,
-          hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null
+          hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null,
+          branches: publicBranches(session.currentBranches)
         });
       }
     });
@@ -195,6 +207,13 @@ function scoreAndRecord(session, socketId, name, correct) {
 
 function topScores(session) {
   return [...session.scores.values()].sort((a, b) => b.score - a.score).slice(0, 10);
+}
+
+// Versão da Trilha de Decisão exposta ao aluno: só o texto de cada opção,
+// nunca `targetSlideId` — não faz sentido o celular do aluno saber pra onde
+// cada botão leva antes da turma votar.
+function publicBranches(branches) {
+  return branches?.map((b) => ({ optionText: b.optionText })) || null;
 }
 
 // Distância euclidiana entre o ponto respondido e o centro da zona certa, em % da imagem

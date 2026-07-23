@@ -3,8 +3,13 @@ import SlideThumbnail from './SlideThumbnail';
 import { apiFetch } from '../lib/api';
 import {
   Presentation, Search, Sparkles, Settings, Star, MoreHorizontal,
-  Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut, Menu, X
+  Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut, Menu, X,
+  Plus, Check, FolderInput
 } from 'lucide-react';
+
+// Mesmas cores já usadas em outros pontos do app (quiz, trilha de decisão) —
+// nada de paleta nova, só reaproveitar a linguagem visual existente.
+const FOLDER_COLORS = ['#38bdf8', '#a855f7', '#10b981', '#f59e0b', '#f472b6', '#ef4444'];
 
 function formatRelativeTime(timestamp) {
   if (!timestamp) return null;
@@ -20,6 +25,44 @@ function formatRelativeTime(timestamp) {
   if (diffMonths < 12) return `há ${diffMonths} mês${diffMonths > 1 ? 'es' : ''}`;
   const diffYears = Math.round(diffMonths / 12);
   return `há ${diffYears} ano${diffYears > 1 ? 's' : ''}`;
+}
+
+// Linha inline compartilhada por "Nova pasta" e "Renomear pasta" — nome +
+// (só na criação) bolinhas de cor + confirmar/cancelar.
+function FolderFormRow({ form, setForm, onSubmit, onCancel }) {
+  return (
+    <form className="library-folder-form" onSubmit={onSubmit}>
+      <input
+        type="text"
+        autoFocus
+        placeholder="Nome da disciplina"
+        value={form.name}
+        onChange={(e) => setForm({ ...form, name: e.target.value })}
+        onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
+      />
+      {form.mode === 'create' && (
+        <div className="library-folder-form-colors">
+          {FOLDER_COLORS.map((color) => (
+            <button
+              type="button"
+              key={color}
+              className={`library-folder-color-dot ${form.color === color ? 'active' : ''}`}
+              style={{ background: color }}
+              onClick={() => setForm({ ...form, color })}
+            />
+          ))}
+        </div>
+      )}
+      <div className="library-folder-form-actions">
+        <button type="submit" className="btn-icon" title="Salvar" style={{ width: '24px', height: '24px' }}>
+          <Check size={14} />
+        </button>
+        <button type="button" className="btn-icon" onClick={onCancel} title="Cancelar" style={{ width: '24px', height: '24px' }}>
+          <X size={14} />
+        </button>
+      </div>
+    </form>
+  );
 }
 
 // Achata a árvore de pastas em uma lista única de apresentações, mantendo a trilha (breadcrumb)
@@ -43,6 +86,13 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
   const [activeFolderId, setActiveFolderId] = useState(null);
   // Em telas compactas (≤1024px) o rail lateral vira uma gaveta off-canvas
   const [isRailOpen, setIsRailOpen] = useState(false);
+
+  // Linha inline de criar/renomear pasta: { mode: 'create'|'rename', id, name, color } ou null
+  const [folderForm, setFolderForm] = useState(null);
+  // Id da pasta cujo menu "..." (renomear/excluir) está aberto, ou null
+  const [folderMenuFor, setFolderMenuFor] = useState(null);
+  // Id da apresentação cujo popover "Mover para..." está aberto, ou null
+  const [moveMenuFor, setMoveMenuFor] = useState(null);
 
   const loadTree = () => {
     setLoading(true);
@@ -116,6 +166,72 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
     }
   };
 
+  const openCreateFolder = () => {
+    setFolderForm({ mode: 'create', id: null, name: '', color: FOLDER_COLORS[0] });
+    setFolderMenuFor(null);
+  };
+
+  const openRenameFolder = (folder) => {
+    setFolderForm({ mode: 'rename', id: folder.id, name: folder.name, color: folder.color });
+    setFolderMenuFor(null);
+  };
+
+  const handleSubmitFolderForm = async (e) => {
+    e.preventDefault();
+    if (!folderForm || !folderForm.name.trim()) return;
+    try {
+      if (folderForm.mode === 'create') {
+        await apiFetch('/api/folders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: folderForm.name.trim(), color: folderForm.color })
+        });
+      } else {
+        await apiFetch(`/api/folders/${folderForm.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: folderForm.name.trim() })
+        });
+      }
+      setFolderForm(null);
+      loadTree();
+    } catch {
+      alert('Não foi possível salvar a pasta.');
+    }
+  };
+
+  const handleDeleteFolder = async (folder) => {
+    setFolderMenuFor(null);
+    if (!window.confirm(`Excluir a pasta "${folder.name}"? As apresentações dentro dela vão para "Minhas Apresentações".`)) return;
+    try {
+      const res = await apiFetch(`/api/folders/${folder.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || 'Não foi possível excluir a pasta.');
+        return;
+      }
+      if (activeFolderId === folder.id) setActiveFolderId(null);
+      loadTree();
+    } catch {
+      alert('Não foi possível excluir a pasta.');
+    }
+  };
+
+  const handleMoveToFolder = async (e, presentationId, folderId) => {
+    e.stopPropagation();
+    setMoveMenuFor(null);
+    try {
+      await apiFetch(`/api/presentations/${presentationId}/folder`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId })
+      });
+      loadTree();
+    } catch {
+      alert('Não foi possível mover a apresentação.');
+    }
+  };
+
   const tabs = [
     { id: 'todos', label: 'Todos', icon: Layers },
     { id: 'recentes', label: 'Recentes', icon: Clock },
@@ -155,7 +271,17 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
         </nav>
 
         <div className="library-folders">
-          <div className="library-folders-title">Disciplinas</div>
+          <div className="library-folders-title-row">
+            <span className="library-folders-title">Disciplinas</span>
+            <button className="btn-icon" onClick={openCreateFolder} title="Nova pasta" style={{ width: '22px', height: '22px' }}>
+              <Plus size={14} />
+            </button>
+          </div>
+
+          {folderForm?.mode === 'create' && (
+            <FolderFormRow form={folderForm} setForm={setFolderForm} onSubmit={handleSubmitFolderForm} onCancel={() => setFolderForm(null)} />
+          )}
+
           <div
             className={`library-folder-item ${activeFolderId === null ? 'active' : ''}`}
             onClick={() => { setActiveFolderId(null); setIsRailOpen(false); }}
@@ -163,13 +289,36 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
             <FolderOpen size={15} /> Todas as pastas
           </div>
           {folders.map((folder) => (
-            <div
-              key={folder.id}
-              className={`library-folder-item ${activeFolderId === folder.id ? 'active' : ''}`}
-              onClick={() => { setActiveFolderId(folder.id); setIsRailOpen(false); }}
-            >
-              <Folder size={15} color={folder.color} /> {folder.name}
-            </div>
+            folderForm?.mode === 'rename' && folderForm.id === folder.id ? (
+              <FolderFormRow key={folder.id} form={folderForm} setForm={setFolderForm} onSubmit={handleSubmitFolderForm} onCancel={() => setFolderForm(null)} />
+            ) : (
+              <div
+                key={folder.id}
+                className={`library-folder-item ${activeFolderId === folder.id ? 'active' : ''}`}
+                onClick={() => { setActiveFolderId(folder.id); setIsRailOpen(false); }}
+              >
+                <Folder size={15} color={folder.color} />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folder.name}</span>
+                <button
+                  className="library-folder-menu-btn"
+                  onClick={(e) => { e.stopPropagation(); setFolderMenuFor(folderMenuFor === folder.id ? null : folder.id); }}
+                  title="Mais opções"
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+                {folderMenuFor === folder.id && (
+                  <>
+                    <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setFolderMenuFor(null); }} />
+                    <div className="library-folder-menu" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => openRenameFolder(folder)}>Renomear</button>
+                      {!folder.isDefault && (
+                        <button onClick={() => handleDeleteFolder(folder)} className="danger">Excluir</button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )
           ))}
         </div>
 
@@ -259,14 +408,36 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
 
               <div className="library-card-body">
                 <div className="library-card-title">{p.title}</div>
-                <div className="library-card-meta">
-                  {p.folderName} · {p.subfolderName}
-                </div>
+                <div className="library-card-meta">{p.folderName}</div>
                 <div className="library-card-footer">
                   <span>{formatRelativeTime(p.updatedAt) ? `Editado ${formatRelativeTime(p.updatedAt)}` : ''}</span>
-                  <button className="library-card-delete" onClick={(e) => handleDelete(e, p)} title="Excluir">
-                    <Trash2 size={13} />
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.2rem' }}>
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        className="library-card-delete"
+                        onClick={(e) => { e.stopPropagation(); setMoveMenuFor(moveMenuFor === p.id ? null : p.id); }}
+                        title="Mover para pasta"
+                      >
+                        <FolderInput size={13} />
+                      </button>
+                      {moveMenuFor === p.id && (
+                        <>
+                          <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setMoveMenuFor(null); }} />
+                          <div className="library-folder-menu" onClick={(e) => e.stopPropagation()} style={{ bottom: '100%', right: 0, top: 'auto', marginBottom: '0.3rem' }}>
+                            {folders.filter((f) => f.id !== p.folderId).map((f) => (
+                              <button key={f.id} onClick={(e) => handleMoveToFolder(e, p.id, f.id)}>
+                                <Folder size={12} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
+                                {f.name}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <button className="library-card-delete" onClick={(e) => handleDelete(e, p)} title="Excluir">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

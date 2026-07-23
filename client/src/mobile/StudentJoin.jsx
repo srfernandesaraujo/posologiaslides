@@ -12,6 +12,7 @@ export default function StudentJoin() {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [slideType, setSlideType] = useState(null);
   const [hotspotImageUrl, setHotspotImageUrl] = useState(null);
+  const [branches, setBranches] = useState(null);
   const [scoreFeedback, setScoreFeedback] = useState(null);
 
   // Estados de resposta do aluno
@@ -28,18 +29,20 @@ export default function StudentJoin() {
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
 
-    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl }) => {
+    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, branches }) => {
       setJoined(true);
       setSessionTitle(title);
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
       setHotspotImageUrl(hotspotImageUrl || null);
+      setBranches(branches || null);
     });
 
-    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl }) => {
+    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl, branches }) => {
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
       setHotspotImageUrl(hotspotImageUrl || null);
+      setBranches(branches || null);
       setSubmitted(false); // Reseta estado de envio para o novo slide
       setScoreFeedback(null);
     });
@@ -75,6 +78,18 @@ export default function StudentJoin() {
         slideIndex: currentSlideIndex,
         responseType: slideType === 'tbl' ? 'tbl' : 'quiz',
         answer: choice
+      });
+    }
+  };
+
+  const handleSendBranchVote = (idx) => {
+    setSubmitted(true);
+    if (socket) {
+      socket.emit('submit_response', {
+        pin,
+        slideIndex: currentSlideIndex,
+        responseType: 'branch',
+        answer: idx
       });
     }
   };
@@ -179,6 +194,37 @@ export default function StudentJoin() {
                 <p style={{ fontSize: '0.9rem', color: '#a7f3d0', margin: '0.5rem 0 0 0' }}>Sua resposta foi computada e já está aparecendo no telão do professor.</p>
               </>
             )}
+          </div>
+        ) : branches && branches.length > 0 ? (
+          <div style={{ width: '100%', maxWidth: '420px' }}>
+            <h4 style={{ textAlign: 'center', fontSize: '1.1rem', color: '#9ca3af', marginBottom: '0.4rem' }}>
+              Tomada de Decisão Clínica
+            </h4>
+            <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#6b7280', marginBottom: '1.25rem' }}>
+              Vote na conduta que você seguiria:
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {branches.map((b, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleSendBranchVote(idx)}
+                  style={{
+                    background: idx === 0 ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '1rem 1.1rem',
+                    borderRadius: '0.75rem',
+                    fontSize: '1rem',
+                    fontWeight: 700,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    boxShadow: '0 8px 20px rgba(0,0,0,0.4)'
+                  }}
+                >
+                  {b.optionText || `Opção ${idx + 1}`}
+                </button>
+              ))}
+            </div>
           </div>
         ) : slideType === 'hotspot' && hotspotImageUrl ? (
           <div style={{ width: '100%', maxWidth: '420px' }}>

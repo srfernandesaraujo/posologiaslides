@@ -27,7 +27,8 @@ import useUndoHistory from '../lib/useUndoHistory';
 import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
-  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop
+  AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
+  GitBranch, Plus
 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
@@ -55,6 +56,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [isMediaDrawerOpen, setIsMediaDrawerOpen] = useState(false);
   const [isWidgetDrawerOpen, setIsWidgetDrawerOpen] = useState(false);
+  const [showBranchPanel, setShowBranchPanel] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [showPresenterWindow, setShowPresenterWindow] = useState(false);
@@ -157,7 +159,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         title: presentation.title || 'Apresentação',
         slideType: presentation.slides?.[0]?.type || null,
         correctAnswer: presentation.slides?.[0]?.correctAnswer || null,
-        hotspotConfig: presentation.slides?.[0]?.hotspotConfig || null
+        hotspotConfig: presentation.slides?.[0]?.hotspotConfig || null,
+        branches: presentation.slides?.[0]?.branches || null
       });
 
       newSocket.on('session_created', ({ pin: newPin }) => {
@@ -199,7 +202,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         newIndex,
         slideType: slide?.type || null,
         correctAnswer: slide?.correctAnswer || null,
-        hotspotConfig: slide?.hotspotConfig || null
+        hotspotConfig: slide?.hotspotConfig || null,
+        branches: slide?.branches || null
       });
     }
   };
@@ -268,6 +272,32 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     commitDebounced({ ...presentation, slides: updatedSlides });
   };
 
+  // Trilha de Decisão: cada branch é { optionText, targetSlideId } — ver
+  // ActiveMethodologiesOverlay (painel "Tomada de Decisão") e StudentJoin
+  // (votação da turma). Independente de `currentSlide.type` (pode coexistir
+  // com quiz/wordcloud/etc.), por isso fica num botão/painel à parte.
+  const handleChangeBranches = (branches) => {
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], branches };
+    commit({ ...presentation, slides: updatedSlides });
+  };
+
+  const handleAddBranch = () => {
+    const others = presentation.slides.filter((s) => s.id !== currentSlide.id);
+    const nextBranches = [...(currentSlide.branches || []), { optionText: '', targetSlideId: others[0]?.id || '' }];
+    handleChangeBranches(nextBranches);
+  };
+
+  const handleUpdateBranch = (idx, patch) => {
+    const nextBranches = (currentSlide.branches || []).map((b, i) => (i === idx ? { ...b, ...patch } : b));
+    handleChangeBranches(nextBranches);
+  };
+
+  const handleRemoveBranch = (idx) => {
+    const nextBranches = (currentSlide.branches || []).filter((_, i) => i !== idx);
+    handleChangeBranches(nextBranches);
+  };
+
   const handleMarkHotspotPoint = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
@@ -284,7 +314,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       // gravado em presentation.slides — ver `currentSlide` acima).
       setAtClosingSlide(true);
       if (socket) {
-        socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null });
+        socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, branches: null });
       }
     }
   };
@@ -934,6 +964,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               <button className="btn-icon" onClick={() => setIsWidgetDrawerOpen(!isWidgetDrawerOpen)} title="Inserir Blocos, Layouts e Widgets Interativos">
                 <Puzzle size={18} />
               </button>
+              <button
+                className={`btn-icon ${showBranchPanel ? 'active' : ''}`}
+                onClick={() => setShowBranchPanel(!showBranchPanel)}
+                title="Configurar Trilha de Decisão (votação da turma ao vivo)"
+                disabled={atClosingSlide}
+                style={currentSlide.branches?.length > 0 ? { background: 'rgba(56, 189, 248, 0.18)', color: '#38bdf8' } : undefined}
+              >
+                <GitBranch size={18} />
+              </button>
               <button className="btn-icon" onClick={() => setShowCodeEditor(!showCodeEditor)} title="Ver / Editar HTML do Slide">
                 <Code size={18} />
               </button>
@@ -1037,6 +1076,49 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   />
                 )}
               </div>
+            )}
+          </div>
+        )}
+
+        {!isFullscreen && showBranchPanel && !atClosingSlide && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '0.5rem', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+            <div style={{ fontSize: '0.78rem', color: '#9ca3af' }}>
+              Cada opção leva a turma pra um slide diferente. Ao apresentar, os alunos votam pelo celular em qual conduta seguir antes de você revelar o caminho e avançar.
+            </div>
+
+            {(currentSlide.branches || []).map((branch, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  className="chat-input"
+                  placeholder={`Texto da opção ${idx + 1} (ex.: Iniciar Antimicrobiano de Largo Espectro)`}
+                  value={branch.optionText}
+                  onChange={(e) => handleUpdateBranch(idx, { optionText: e.target.value })}
+                  style={{ flex: 1, fontSize: '0.8rem' }}
+                />
+                <select
+                  className="chat-input"
+                  value={branch.targetSlideId}
+                  onChange={(e) => handleUpdateBranch(idx, { targetSlideId: e.target.value })}
+                  style={{ fontSize: '0.8rem', width: 'auto', maxWidth: '220px' }}
+                >
+                  <option value="">Ir para...</option>
+                  {presentation.slides.map((s, sIdx) => (
+                    s.id === currentSlide.id ? null : (
+                      <option key={s.id} value={s.id}>#{sIdx + 1} — {s.title || `Slide ${sIdx + 1}`}</option>
+                    )
+                  ))}
+                </select>
+                <button className="btn-icon" onClick={() => handleRemoveBranch(idx)} title="Remover trilha" style={{ width: '28px', height: '28px' }}>
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+
+            {(currentSlide.branches || []).length < 4 && (
+              <button className="btn-primary" onClick={handleAddBranch} style={{ alignSelf: 'flex-start', background: 'rgba(255,255,255,0.08)', fontSize: '0.78rem', padding: '0.45rem 0.8rem' }}>
+                <Plus size={14} /> Adicionar trilha
+              </button>
             )}
           </div>
         )}

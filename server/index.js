@@ -12,6 +12,7 @@ import aiRoutes from './routes/aiRoutes.js';
 import materialsRoutes from './routes/materialsRoutes.js';
 import sessionsRoutes from './routes/sessionsRoutes.js';
 import presentationsRoutes from './routes/presentationsRoutes.js';
+import foldersRoutes from './routes/foldersRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import mediaSearchRoutes from './routes/mediaSearchRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
@@ -41,6 +42,7 @@ app.use('/api/ai', requireAuth, aiRoutes);
 app.use('/api/materials', requireAuth, materialsRoutes);
 app.use('/api/sessions', requireAuth, sessionsRoutes);
 app.use('/api/presentations', requireAuth, presentationsRoutes);
+app.use('/api/folders', requireAuth, foldersRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 app.use('/api/media-search', requireAuth, mediaSearchRoutes);
 // Pública, de propósito (sem requireAuth) — serve apresentações via link de

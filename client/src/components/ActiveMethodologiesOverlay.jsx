@@ -10,7 +10,7 @@ export default function ActiveMethodologiesOverlay({
   slideIndex,
   onNavigateBranch
 }) {
-  const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [] });
+  const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [] });
   const [participantCount, setParticipantCount] = useState(0);
   const [leaderboard, setLeaderboard] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -21,7 +21,7 @@ export default function ActiveMethodologiesOverlay({
 
     const handleUpdate = ({ slideIndex: updatedSlideIndex, responses, totalParticipants }) => {
       if (updatedSlideIndex === slideIndex) {
-        setLiveData(responses || { answers: [], words: [], irat: [], hotspots: [] });
+        setLiveData(responses || { answers: [], words: [], irat: [], hotspots: [], branchVotes: [] });
       }
       setParticipantCount(totalParticipants || 0);
     };
@@ -289,25 +289,37 @@ export default function ActiveMethodologiesOverlay({
           <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
             <GitBranch size={16} /> Tomada de Decisão Médica / Clínica
           </div>
-          <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '0 0 0.75rem 0' }}>Escolha a conduta a seguir na apresentação:</p>
+          <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '0 0 0.75rem 0' }}>A turma vota no celular — clique na conduta pra revelar o resultado e navegar:</p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {currentSlide.branches.map((b, idx) => (
-              <button
-                key={idx}
-                className="btn-primary"
-                onClick={() => onNavigateBranch(b.targetSlideId)}
-                style={{
-                  background: idx === 0 ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                  fontSize: '0.82rem',
-                  justifyContent: 'flex-start',
-                  padding: '0.6rem 0.8rem'
-                }}
-              >
-                ➔ {b.optionText}
-              </button>
-            ))}
+            {currentSlide.branches.map((b, idx) => {
+              const voteCount = liveData.branchVotes.filter((v) => v.answer === idx).length;
+              const totalVotes = liveData.branchVotes.length;
+              const pct = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
+              return (
+                <button
+                  key={idx}
+                  className="btn-primary"
+                  onClick={() => onNavigateBranch(b.targetSlideId)}
+                  style={{
+                    position: 'relative',
+                    overflow: 'hidden',
+                    background: idx === 0 ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    fontSize: '0.82rem',
+                    justifyContent: 'space-between',
+                    padding: '0.6rem 0.8rem'
+                  }}
+                >
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.18)', width: `${pct}%`, transition: 'width 0.3s ease' }} />
+                  <span style={{ position: 'relative' }}>➔ {b.optionText}</span>
+                  <span style={{ position: 'relative', fontSize: '0.75rem', fontWeight: 800, whiteSpace: 'nowrap', marginLeft: '0.5rem' }}>{voteCount} voto{voteCount === 1 ? '' : 's'}</span>
+                </button>
+              );
+            })}
           </div>
+          <p style={{ fontSize: '0.7rem', color: '#6b7280', margin: '0.6rem 0 0 0', textAlign: 'right' }}>
+            {liveData.branchVotes.length} de {participantCount} aluno{participantCount === 1 ? '' : 's'} votaram
+          </p>
         </div>
       )}
     </div>
