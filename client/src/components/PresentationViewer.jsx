@@ -49,9 +49,20 @@ function buildEditorScript() {
   /* Área de toque (28px) bem maior que o quadradinho visual (11px, no
      ::after) — 11px é inatingível com o dedo num iPad; ver positionHandles()
      abaixo, que centraliza essa caixa de 28px no mesmo ponto onde o
-     quadradinho ficava antes, então nada muda visualmente. */
-  .__pos-handle { position: fixed; width: 28px; height: 28px; box-sizing: border-box; z-index: 2147483647; display: none; touch-action: none; }
-  .__pos-handle::after { content: ''; position: absolute; top: 50%; left: 50%; width: 11px; height: 11px; transform: translate(-50%, -50%); background: #22d3ee; border: 1.5px solid #071019; border-radius: 3px; }
+     quadradinho ficava antes, então nada muda visualmente.
+     TUDO em !important (ao contrário de .__pos-hover/.__pos-selected acima,
+     que só protegem outline/cursor): o slide é HTML gerado por IA com CSS
+     arbitrário, e uma regra ampla dele (ex. "div { position: relative }" ou
+     "div { display: flex }", comuns em templates de layout) sobrescrevia
+     position/display/z-index dessas alças sem !important — a alça existia no
+     DOM mas nunca aparecia nem recebia toque, então só o arrasto (protegido
+     por !important em .__pos-selected) parecia funcionar. left/top ficam DE
+     FORA do !important de propósito — são definidos via JS inline em
+     positionHandles() sem !important, e um !important aqui bateria a
+     inline (prioridade de "important" sempre vence especificidade), travando
+     as alças na posição inicial (0,0). */
+  .__pos-handle { position: fixed !important; display: none !important; width: 28px !important; height: 28px !important; margin: 0 !important; padding: 0 !important; border: none !important; background: transparent !important; box-sizing: border-box !important; z-index: 2147483647 !important; touch-action: none !important; }
+  .__pos-handle::after { content: '' !important; position: absolute !important; top: 50% !important; left: 50% !important; width: 11px !important; height: 11px !important; transform: translate(-50%, -50%) !important; background: #22d3ee !important; border: 1.5px solid #071019 !important; border-radius: 3px !important; box-sizing: border-box !important; }
 </style>
 <script>
 (function () {
@@ -164,9 +175,18 @@ function buildEditorScript() {
     handles[pos] = h;
   });
 
+  // display via setProperty(..., 'important'): a regra base de .__pos-handle
+  // é !important (ver <style> acima) pra sobreviver a CSS arbitrário do
+  // slide — um style.display comum perderia pra ela (important de stylesheet
+  // bate normal inline), então também precisa ser important pra alternar
+  // mostrar/esconder de verdade.
+  function setHandleDisplay(handle, value) {
+    handle.style.setProperty('display', value, 'important');
+  }
+
   function positionHandles() {
     if (!selected) {
-      for (var k in handles) handles[k].style.display = 'none';
+      for (var k in handles) setHandleDisplay(handles[k], 'none');
       return;
     }
     var r = selected.getBoundingClientRect();
@@ -180,7 +200,7 @@ function buildEditorScript() {
     handles.s.style.top = (r.bottom - half) + 'px';
     handles.se.style.left = (r.right - half) + 'px';
     handles.se.style.top = (r.bottom - half) + 'px';
-    for (var k2 in handles) handles[k2].style.display = 'block';
+    for (var k2 in handles) setHandleDisplay(handles[k2], 'block');
   }
 
   Object.keys(handles).forEach(function (pos) {
