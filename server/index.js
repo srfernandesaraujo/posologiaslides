@@ -15,6 +15,7 @@ import presentationsRoutes from './routes/presentationsRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import mediaSearchRoutes from './routes/mediaSearchRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
+import multer from 'multer';
 import { requireAuth } from './middleware/auth.js';
 import { setupSocketIO } from './sockets/sessionSocket.js';
 
@@ -45,6 +46,21 @@ app.use('/api/media-search', requireAuth, mediaSearchRoutes);
 // Pública, de propósito (sem requireAuth) — serve apresentações via link de
 // compartilhamento só-visualização, sem exigir login (ver publicRoutes.js).
 app.use('/api/public/presentations', publicRoutes);
+
+// Tratador de erro genérico — SEM isto, qualquer erro que escape de uma rota
+// (ex.: multer rejeitando um arquivo grande demais, antes mesmo do handler da
+// rota rodar) cai no tratador padrão do Express, que devolve uma página HTML
+// de erro. O cliente sempre espera JSON (`res.json()`), então essa página
+// HTML quebra com "Unexpected token '<' ... is not valid JSON" — um erro real
+// de arquivo vira uma mensagem sem sentido pro usuário. Precisa ser o último
+// `app.use`, depois de todas as rotas.
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'Arquivo muito grande para o limite permitido.' });
+  }
+  console.error('Erro não tratado:', err);
+  res.status(500).json({ error: 'Erro interno do servidor.' });
+});
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Servidor e WebSockets rodando em http://localhost:${PORT}`);

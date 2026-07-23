@@ -39,6 +39,8 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
         } else {
           setUploadedMaterial(`[Arquivo: ${data.filename}]\n${data.text}`);
         }
+      } else {
+        alert(data.error || 'Erro ao processar arquivo.');
       }
     } catch (err) {
       alert('Erro ao carregar arquivo: ' + err.message);

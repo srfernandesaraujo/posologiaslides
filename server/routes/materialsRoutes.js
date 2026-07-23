@@ -12,8 +12,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 const uploadMedia = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 // PDF de uma apresentação existente (importação, ver /upload-presentation) —
 // maior que o limite de texto de referência porque decks em PDF costumam
-// pesar mais (imagens embutidas), mas não precisa do teto de mídia bruta.
-const uploadPresentationFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+// pesar mais (imagens embutidas) — mesmo teto do upload de mídia bruta.
+const uploadPresentationFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const MAX_IMPORT_PAGES = 40;
 const MAX_CHARS_PER_PAGE = 3000;
