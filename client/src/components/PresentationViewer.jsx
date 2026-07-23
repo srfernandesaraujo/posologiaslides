@@ -342,7 +342,26 @@ function buildEditorScript(initialSelected) {
     var moved = dragState.moved;
     var el2 = dragState.el;
     dragState = null;
-    if (!moved) return;
+
+    if (!moved) {
+      // O pointerdown que iniciou este gesto chamou preventDefault() (ver
+      // acima, pra travar a seleção nativa de texto) — e isso suprime o
+      // 'click' de compatibilidade do navegador pro elemento inteiro, não só
+      // quando havia texto. Sem um 'click' de verdade, o listener de 'click'
+      // abaixo (que trata seleção) nunca dispararia pra este elemento, então
+      // fazemos a seleção aqui mesmo. O listener de 'click' continua
+      // necessário à parte pra: cliques em ÁREA VAZIA (fora de qualquer
+      // elemento, que nunca passam pelo pointerdown acima) e cliques em
+      // CONTROLES INTERNOS do próprio widget (isInteractiveTarget também os
+      // pula no pointerdown, então o click nativo deles chega intacto).
+      if (selected && selected !== el2) selected.classList.remove('__pos-selected');
+      selected = el2;
+      selected.classList.remove('__pos-hover');
+      selected.classList.add('__pos-selected');
+      positionHandles();
+      sendSelect(selected);
+      return;
+    }
 
     el2.classList.remove('__pos-dragging');
     sendReposition(el2);
