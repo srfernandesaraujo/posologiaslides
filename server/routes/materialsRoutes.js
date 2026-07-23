@@ -15,7 +15,7 @@ const uploadMedia = multer({ storage: multer.memoryStorage(), limits: { fileSize
 // pesar mais (imagens embutidas) — mesmo teto do upload de mídia bruta.
 const uploadPresentationFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-const MAX_IMPORT_PAGES = 40;
+const MAX_IMPORT_PAGES = 60;
 const MAX_CHARS_PER_PAGE = 3000;
 
 const MAX_REDIRECTS = 5;
