@@ -61,16 +61,22 @@ router.post('/generate-slides', async (req, res) => {
     const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
     const generatedSlides = [];
     let firstWarning = null;
+    // Rastreia o tratamento visual dominante do slide anterior (ver
+    // generateSlideHtml/layoutTag) só pra pedir variedade ao próximo — nenhum
+    // outro dado do slide anterior é reaproveitado, mantém o custo baixo.
+    let previousLayoutTag = null;
     for (let i = 0; i < outline.slides.length; i++) {
       const slideInfo = outline.slides[i];
-      const { html, warning } = await generateSlideHtml({
+      const { html, warning, layoutTag } = await generateSlideHtml({
         slideOutline: slideInfo,
         presentationTitle: outline.title,
         index: i + 1,
         totalSlides: outline.slides.length,
         apiKey: effectiveApiKey,
-        images
+        images,
+        previousLayoutTag
       });
+      if (layoutTag) previousLayoutTag = layoutTag;
       if (warning && !firstWarning) firstWarning = warning;
 
       generatedSlides.push({

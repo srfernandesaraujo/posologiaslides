@@ -19,11 +19,21 @@ REGRAS DE DESIGN E CONTEÚDO:
 4. ESTRUTURA DO SLIDE:
    - Container principal com id="slide-container" (100% largura e altura do viewport de slide).
    - Header com título impactante e tag da categoria.
-   - Área central com layout responsivo em colunas (ex: texto explicativo na esquerda + dashboard/gráfico/simulador na direita).
+   - Área central responsiva — o layout de colunas (texto à esquerda + gráfico/simulador à direita) é APENAS UMA das opções possíveis, ver regra 8; não é o padrão a repetir em todo slide.
    - Footer com indicação sutil do tópico.
 5. SEM DEPENDÊNCIAS EXTERNAS COMPLEXAS além de Chart.js e Fontes. Todo a interatividade JS deve ser limpa e sem erros.
 6. ANIMAÇÕES DE ENTRADA: os elementos principais do slide (header, cards, itens de lista, gráfico) devem aparecer com uma animação sutil de entrada (fade-in combinado com leve translateY, via @keyframes + animation-fill-mode: both), escalonada por elemento com animation-delay curto (ex: 0.06s a 0.1s entre um item e o próximo). Use durações curtas (300–500ms) e easing suave (ease-out); nunca anime propriedades que quebrem o layout (evite animar width/height de containers).
 7. COMPATIBILIDADE COM TOQUE E CANETA (o slide roda em tablets, incl. iPad com Apple Pencil): SEMPRE que precisar de interatividade além de <input type="range">/<button> nativos (ex: um elemento arrastável, um "canvas" de desenho customizado, drag-and-drop), use Pointer Events (pointerdown/pointermove/pointerup/pointercancel) e NUNCA apenas mousedown/mousemove/mouseup — mouse events não disparam a partir de toque/caneta e o elemento simplesmente não responderá em um tablet. Elementos nativos (<input type="range">, <button>, links) já funcionam com toque sem nenhum cuidado extra.
+8. VARIEDADE E ANTI-GENERICIDADE (regra crítica): o maior erro possível é fazer o slide seguir o esqueleto raso "cabeçalho + lista de bullets à esquerda + gráfico/card à direita" ou "grade de cartõezinhos idênticos com ícone+número+frase" — isso é o clichê que qualquer IA genérica produz e deve ser EVITADO como estrutura padrão. Para CADA slide, escolha o tratamento visual dominante que melhor serve o CONTEÚDO ESPECÍFICO dele, entre estes (e outros equivalentes) — não se limite a card-grid:
+   - Hero de dado: um único número/estatística gigante como protagonista visual, resto do slide é contexto mínimo.
+   - Diagrama ou fluxo de processo anotado (setas, etapas numeradas) para mecanismos, vias de administração ou sequências.
+   - Simulador real com sliders recalculando um gráfico ao vivo (ex.: curva de concentração x tempo, meia-vida, dose-resposta) para qualquer conteúdo quantitativo/ajustável.
+   - Comparação em "duelo" (dois blocos lado a lado com contraste visual forte, não uma tabela burocrática) para comparar opções/classes/fármacos.
+   - Citação ou insight em destaque tipográfico (frase grande, acento lateral, sem card ao redor) para conteúdo conceitual ou mensagem-chave.
+   - Timeline horizontal/vertical para sequência temporal ou fases.
+   - Flashcards giratórios (clique para virar) para pares pergunta/resposta ou termo/definição.
+   Pelo menos UM elemento do slide deve romper a grade retangular padrão (ex: texto flutuando sobre gradiente sem moldura, número enorme sem card, forma orgânica/diagonal) — nem todo conteúdo pode estar dentro de caixinhas com a mesma borda/sombra/padding.
+9. CONTEÚDO MANDA NA FORMA: a estrutura nasce do que o conteúdo realmente é (mecanismo de ação pede diagrama, não bullet list; dose pede simulador, não texto corrido; comparação pede duelo visual, não tabela genérica) — nunca o inverso. Números, rótulos e divisores carregam informação real (ex.: número = ordem de um passo, rótulo = fase do tratamento), nunca são decoração vazia.
 `;
 
 // Monta os "parts" enviados ao Gemini: texto puro quando não há imagens de
@@ -108,7 +118,7 @@ export async function generateOutlineFromImport({ pages, apiKey }) {
     const fullPrompt = `
     O usuário está IMPORTANDO uma apresentação existente pra este sistema. Abaixo está o texto extraído de cada página/slide do arquivo original (PDF), na ordem original.
 
-    REPRODUZA a mesma sequência e conteúdo — NÃO invente slides novos, NÃO pule nenhuma página, mantenha a mesma ordem e a essência de cada uma, apenas adaptando pro formato deste sistema.
+    REPRODUZA a mesma sequência e conteúdo — NÃO invente slides novos, NÃO pule nenhuma página, mantenha a mesma ordem e a essência de cada uma. A reprodução é do CONTEÚDO/SIGNIFICADO de cada página, NÃO do layout estático do PDF original — o "interactiveElement" de cada slide deve propor uma representação visual moderna e rica, escolhida conforme o que o conteúdo da página realmente é (ex.: diagrama/fluxo anotado para um mecanismo, simulador de sliders para algo quantitativo, hero de dado para uma estatística central, timeline para uma sequência de fases, comparação em duelo para um confronto de opções, citação em destaque tipográfico para uma mensagem-chave, flashcards para pares pergunta/resposta) — NUNCA "colocar o texto da página original dentro de um card genérico".
 
     CONTEÚDO ORIGINAL (uma página por slide):
     """
@@ -151,7 +161,7 @@ export async function generateOutlineFromImport({ pages, apiKey }) {
   }
 }
 
-export async function generateSlideHtml({ slideOutline, presentationTitle, index, totalSlides, apiKey, images }) {
+export async function generateSlideHtml({ slideOutline, presentationTitle, index, totalSlides, apiKey, images, previousLayoutTag }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
 
   if (!effectiveApiKey) {
@@ -173,17 +183,22 @@ export async function generateSlideHtml({ slideOutline, presentationTitle, index
     - Tipo: ${slideOutline.type}
     - Pontos Chave: ${JSON.stringify(slideOutline.keyPoints)}
     - Elemento Interativo Solicitado: ${slideOutline.interactiveElement}
+    ${previousLayoutTag ? `\n    ATENÇÃO — VARIEDADE: o slide anterior desta mesma apresentação já usou o tratamento visual dominante "${previousLayoutTag}". Este slide é PROIBIDO de repetir esse mesmo tratamento — escolha um diferente da lista da regra 8, coerente com o conteúdo deste slide.` : ''}
 
     Instruções Técnicas:
     - Retorne APENAS o fragmento HTML (com <style> e <script> embutidos se necessário).
     - O container raiz deve ter classe "slide-root" e estilo de tela inteira (width: 100%; height: 100%; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif).
     - Se for um gráfico, inclua a tag <canvas id="chart-${index}"></canvas> e o código JS para inicializar com Chart.js.
     - Se for um simulador, inclua sliders/botões e o JS para atualizar o DOM dinamicamente.
+    - Na ÚLTIMA linha da resposta, adicione um comentário HTML isolado no formato exato <!-- layout: nome-curto-em-kebab-case --> nomeando em 2 a 4 palavras o tratamento visual dominante escolhido (ex: <!-- layout: hero-stat -->, <!-- layout: diagrama-processo -->, <!-- layout: simulador-slider -->). É uso interno, não aparece pro usuário.
     `;
 
     const result = await model.generateContent(buildParts(fullPrompt, images));
     const responseText = result.response.text();
-    return { html: cleanCodeBlock(responseText) };
+    const cleaned = cleanCodeBlock(responseText);
+    const layoutMatch = cleaned.match(/<!--\s*layout:\s*([a-z0-9-]+)\s*-->/i);
+    const html = layoutMatch ? cleaned.replace(layoutMatch[0], '').trim() : cleaned;
+    return { html, layoutTag: layoutMatch ? layoutMatch[1].toLowerCase() : null };
   } catch (error) {
     console.error(`Erro na API Gemini (Slide ${index}), usando gerador fallback:`, error.message);
     return { html: generateFallbackSlideHtml(slideOutline, presentationTitle, index, totalSlides), warning: `Falha ao usar a IA Gemini (${error.message}). Exibindo conteúdo de exemplo.` };
