@@ -60,7 +60,7 @@ export default function PublicViewerControls({
         <ChevronLeft size={20} />
       </button>
 
-      <span style={{ fontSize: '0.85rem', fontWeight: 700, padding: '0 0.5rem', color: '#9ca3af' }}>
+      <span style={{ fontSize: '0.85rem', fontWeight: 700, padding: '0 0.5rem', color: '#9ca3af', whiteSpace: 'nowrap', flexShrink: 0 }}>
         {currentIndex + 1} / {totalSlides}
       </span>
 
