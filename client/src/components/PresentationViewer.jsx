@@ -150,6 +150,24 @@ function buildEditorScript(initialSelected, initialCropMode) {
     container.style.position = 'relative';
   }
 
+  // ".slide-root" é o canvas inteiro do slide (é contra a altura DELE que
+  // tudo — arrasto, redimensionar, recorte — calcula % de posição). Se por
+  // qualquer motivo ele não tiver altura própria (ex. um slide que teve seu
+  // conteúdo inserido enquanto ainda era só um texto de placeholder, ver
+  // appendIntoRoot em slideHtmlUtils.js — bug já corrigido lá, mas HTML já
+  // salvo assim continua sem altura), ele encolhe pro tamanho do próprio
+  // conteúdo (auto): mover um elemento pra baixo fica travado quase no topo,
+  // porque o container inteiro mal passa da altura do elemento. Reforça um
+  // mínimo de altura cheia sempre que a caixa renderizada ficar bem menor que
+  // o corpo do slide, sem sobrescrever quando já haja altura própria maior
+  // (slide com bastante conteúdo empilhado, por exemplo).
+  if (container !== document.body) {
+    var bodyH = document.body.getBoundingClientRect().height;
+    if (container.getBoundingClientRect().height < bodyH - 1) {
+      container.style.minHeight = '100%';
+    }
+  }
+
   function indexOf(el) {
     return Array.prototype.indexOf.call(container.children, el);
   }
