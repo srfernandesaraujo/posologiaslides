@@ -1,17 +1,26 @@
 import React, { useEffect, useRef } from 'react';
 
 /**
- * PresentationViewer renderiza o slide HTML atual dentro de um <iframe sandbox="allow-scripts">.
- * O iframe tem origem opaca (sem allow-same-origin), então o script do slide NUNCA tem acesso
- * ao window/document reais da aplicação, a cookies, a localStorage ou às chaves de API do usuário.
- * Chart.js e Mermaid.js são servidos localmente (public/vendor) e injetados dentro do documento
- * isolado para que os slides continuem podendo desenhar gráficos e diagramas.
+ * PresentationViewer renderiza o slide HTML atual dentro de um
+ * <iframe sandbox="allow-scripts allow-same-origin allow-forms allow-popups">.
+ * Chart.js e Mermaid.js são servidos localmente (public/vendor) e injetados dentro do
+ * documento pra que os slides continuem podendo desenhar gráficos e diagramas.
  *
- * Mídia embutida (imagens/vídeos/áudios locais) usa data: URIs em vez de blob: —
- * blob: é preso à origem que o criou e não atravessa essa fronteira de origem opaca.
- * allow-popups é intencionalmente adicionado (baixo risco: só permite que uma página
- * embutida via <iframe> no slide abra uma aba nova, ex. "assistir no YouTube") sem
- * reintroduzir allow-same-origin, que quebraria o isolamento acima.
+ * ATENÇÃO — allow-same-origin (decisão revertida em 2026-07-24, ver histórico do git):
+ * o iframe deixou de ter origem opaca, então script dentro de um slide agora RODA NA
+ * MESMA ORIGEM do app (cookies, localStorage, fetch autenticado à própria API — tudo
+ * acessível). Isso foi necessário porque, sem allow-same-origin, QUALQUER site embutido
+ * via <iframe> (aba "Embed" da biblioteca de mídia) que carregue <script type="module"
+ * crossorigin> — padrão comum em builds Vite/SPA modernas — recebe origem "null" e tem
+ * seu próprio bundle bloqueado por CORS (ex.: simulador.posologia.app). Ou seja: o
+ * isolamento amplo foi trocado por compatibilidade de embeds de terceiros. Na prática,
+ * o risco só se materializa se HTML/script malicioso entrar num slide (edição manual de
+ * HTML, importação de PDF/URL não confiável, presentation compartilhada de origem
+ * duvidosa) — trate qualquer fluxo de importação de conteúdo externo como superfície de
+ * ataque daqui pra frente.
+ *
+ * allow-popups permite que uma página embutida via <iframe> no slide abra uma aba nova
+ * (ex. "assistir no YouTube").
  *
  * reloadKey: o palco (edição e apresentação) renderiza o slide sempre no mesmo
  * canvas nativo fixo (1280x720, ver lib/canvasConstants.js + lib/useCanvasFit.js)
@@ -787,7 +796,7 @@ ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) 
     <iframe
       ref={iframeRef}
       title="slide-content"
-      sandbox="allow-scripts allow-forms allow-popups"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
       style={{
         width: '100%',
         height: '100%',
