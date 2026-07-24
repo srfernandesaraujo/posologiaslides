@@ -30,7 +30,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, branches }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, pointsConfig, branches }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -53,6 +53,11 @@ export function setupSocketIO(httpServer) {
         // necessário pra responder (ex.: a URL da imagem) é enviado pra sala.
         currentCorrectAnswer: correctAnswer || null,
         currentHotspotConfig: hotspotConfig || null,
+        // Pergunta + rótulos das opções da Distribuição de 100 Pontos — ao
+        // contrário do gabarito/zona certa do hotspot, não é sigiloso (não há
+        // resposta "certa" aqui), então é retransmitido pro aluno como está
+        // (ver joined_successfully/sync_slide abaixo).
+        currentPointsConfig: pointsConfig || null,
         // Opções da Trilha de Decisão do slide atual — { optionText, targetSlideId }[]
         // (ver PresentationEditor.jsx). targetSlideId nunca é retransmitido pro
         // aluno (ver sync_slide/joined_successfully abaixo), só o texto da opção.
@@ -88,6 +93,7 @@ export function setupSocketIO(httpServer) {
         currentSlideIndex: session.currentSlideIndex,
         slideType: session.currentSlideType,
         hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null,
+        pointsConfig: session.currentPointsConfig,
         branches: publicBranches(session.currentBranches)
       });
 
@@ -157,7 +163,7 @@ export function setupSocketIO(httpServer) {
     });
 
     // 4. Apresentador altera slide
-    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, branches }) => {
+    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, pointsConfig, branches }) => {
       const session = activeSessions.get(pin);
       if (session) {
         commitDwellTime(session);
@@ -165,6 +171,7 @@ export function setupSocketIO(httpServer) {
         session.currentSlideType = slideType || null;
         session.currentCorrectAnswer = correctAnswer || null;
         session.currentHotspotConfig = hotspotConfig || null;
+        session.currentPointsConfig = pointsConfig || null;
         session.currentBranches = branches || null;
         // Transmite para todos os alunos sincronizarem o celular — só o necessário
         // pra responder (nunca o gabarito, as coordenadas certas do hotspot, ou
@@ -173,6 +180,7 @@ export function setupSocketIO(httpServer) {
           currentSlideIndex: newIndex,
           slideType: session.currentSlideType,
           hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null,
+          pointsConfig: session.currentPointsConfig,
           branches: publicBranches(session.currentBranches)
         });
       }

@@ -26,7 +26,7 @@ import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDI
 import useUndoHistory from '../lib/useUndoHistory';
 import { useAuth } from '../context/AuthContext';
 import {
-  Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu,
+  Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
   GitBranch, Plus
 } from 'lucide-react';
@@ -88,6 +88,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // ou trocar de slide (ver handleMessage/'deselect' e o efeito de troca de
   // slide mais abaixo).
   const [cropMode, setCropMode] = useState(false);
+  const [hotspotUploading, setHotspotUploading] = useState(false);
+  const [hotspotUploadError, setHotspotUploadError] = useState('');
   const [animDuration, setAnimDuration] = useState(ANIMATION_DEFAULTS.duration);
   const [animDelay, setAnimDelay] = useState(ANIMATION_DEFAULTS.delay);
   // Painel "Transição" do slide atual (como este slide entra em cena) —
@@ -160,6 +162,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         slideType: presentation.slides?.[0]?.type || null,
         correctAnswer: presentation.slides?.[0]?.correctAnswer || null,
         hotspotConfig: presentation.slides?.[0]?.hotspotConfig || null,
+        pointsConfig: presentation.slides?.[0]?.pointsConfig || null,
         branches: presentation.slides?.[0]?.branches || null
       });
 
@@ -203,6 +206,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         slideType: slide?.type || null,
         correctAnswer: slide?.correctAnswer || null,
         hotspotConfig: slide?.hotspotConfig || null,
+        pointsConfig: slide?.pointsConfig || null,
         branches: slide?.branches || null
       });
     }
@@ -272,6 +276,19 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     commitDebounced({ ...presentation, slides: updatedSlides });
   };
 
+  // Distribuir 100 Pontos: pergunta livre + rótulo de cada uma das 4 opções
+  // (A/B/C/D continuam sendo as chaves internas de alocação/pontuação, ver
+  // StudentJoin.jsx/ActiveMethodologiesOverlay.jsx — só o TEXTO exibido pro
+  // aluno/apresentador é customizável aqui).
+  const handleChangePointsConfig = (patch) => {
+    const updatedSlides = [...presentation.slides];
+    const prevConfig = updatedSlides[activeIndex].pointsConfig || { question: '', labels: { A: '', B: '', C: '', D: '' } };
+    const nextConfig = { ...prevConfig, ...patch };
+    if (patch.labels) nextConfig.labels = { ...prevConfig.labels, ...patch.labels };
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], pointsConfig: nextConfig };
+    commitDebounced({ ...presentation, slides: updatedSlides });
+  };
+
   // Trilha de Decisão: cada branch é { optionText, targetSlideId } — ver
   // ActiveMethodologiesOverlay (painel "Tomada de Decisão") e StudentJoin
   // (votação da turma). Independente de `currentSlide.type` (pode coexistir
@@ -314,6 +331,30 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     emitSlideChanged(insertIndex);
   };
 
+  // Mesmo endpoint/fluxo já usado pelo upload de mídia da biblioteca (ver
+  // handleFileUpload em MediaLibraryDrawer.jsx): manda pro Cloud Storage e
+  // guarda só a URL retornada — o slide (documento inteiro no Firestore, com
+  // limite de 1 MiB) nunca embute o arquivo em si, só a referência.
+  const handleUploadHotspotImage = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    setHotspotUploadError('');
+    setHotspotUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await apiFetch('/api/materials/upload-media', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Falha ao enviar imagem.');
+      handleChangeHotspotConfig({ imageUrl: data.url });
+    } catch (err) {
+      setHotspotUploadError(err.message || 'Falha ao enviar imagem.');
+    } finally {
+      setHotspotUploading(false);
+    }
+  };
+
   const handleMarkHotspotPoint = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
@@ -330,7 +371,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       // gravado em presentation.slides — ver `currentSlide` acima).
       setAtClosingSlide(true);
       if (socket) {
-        socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, branches: null });
+        socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null });
       }
     }
   };
@@ -1080,14 +1121,28 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         {!isFullscreen && currentSlide.type === 'hotspot' && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '0.5rem' }}>
             <div style={{ flex: 1 }}>
-              <input
-                type="text"
-                className="chat-input"
-                placeholder="URL da imagem"
-                value={currentSlide.hotspotConfig?.imageUrl || ''}
-                onChange={(e) => handleChangeHotspotConfig({ imageUrl: e.target.value })}
-                style={{ width: '100%', marginBottom: '0.5rem', fontSize: '0.8rem', boxSizing: 'border-box' }}
-              />
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <input
+                  type="text"
+                  className="chat-input"
+                  placeholder="URL da imagem"
+                  value={currentSlide.hotspotConfig?.imageUrl || ''}
+                  onChange={(e) => handleChangeHotspotConfig({ imageUrl: e.target.value })}
+                  style={{ flex: 1, fontSize: '0.8rem', boxSizing: 'border-box' }}
+                />
+                <label
+                  className="btn-icon"
+                  style={{ width: 'auto', flexShrink: 0, padding: '0 0.7rem', gap: '0.35rem', fontSize: '0.78rem', opacity: hotspotUploading ? 0.7 : 1, pointerEvents: hotspotUploading ? 'none' : 'auto' }}
+                  title="Fazer upload de uma imagem do seu computador"
+                >
+                  {hotspotUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {hotspotUploading ? 'Enviando...' : 'Upload'}
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleUploadHotspotImage} disabled={hotspotUploading} />
+                </label>
+              </div>
+              {hotspotUploadError && (
+                <p style={{ fontSize: '0.72rem', color: '#f87171', marginTop: '-0.2rem', marginBottom: '0.5rem' }}>{hotspotUploadError}</p>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <label style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Raio de tolerância (%)</label>
                 <input
@@ -1127,6 +1182,35 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {!isFullscreen && currentSlide.type === 'points' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '0.5rem' }}>
+            <input
+              type="text"
+              className="chat-input"
+              placeholder="Pergunta (ex: Como você distribuiria o orçamento entre estas condutas?)"
+              value={currentSlide.pointsConfig?.question || ''}
+              onChange={(e) => handleChangePointsConfig({ question: e.target.value })}
+              style={{ width: '100%', fontSize: '0.8rem', boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem' }}>
+              {['A', 'B', 'C', 'D'].map((key) => (
+                <input
+                  key={key}
+                  type="text"
+                  className="chat-input"
+                  placeholder={`Alternativa ${key}`}
+                  value={currentSlide.pointsConfig?.labels?.[key] || ''}
+                  onChange={(e) => handleChangePointsConfig({ labels: { [key]: e.target.value } })}
+                  style={{ width: '100%', fontSize: '0.8rem', boxSizing: 'border-box' }}
+                />
+              ))}
+            </div>
+            <p style={{ fontSize: '0.72rem', color: '#6b7280', margin: 0 }}>
+              Deixe em branco pra usar "Opção A/B/C/D" (padrão).
+            </p>
           </div>
         )}
 

@@ -270,9 +270,12 @@ export default function ActiveMethodologiesOverlay({
       {/* Widget de Distribuição de 100 Pontos */}
       {currentSlide?.type === 'points' && (
         <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: currentSlide.pointsConfig?.question ? '0.25rem' : '0.75rem' }}>
             <PieChart size={16} /> Distribuição de Pontos ({pointsResponses.length})
           </div>
+          {currentSlide.pointsConfig?.question && (
+            <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>{currentSlide.pointsConfig.question}</div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {pointsRanked.map(({ key, avg }) => {
@@ -280,7 +283,7 @@ export default function ActiveMethodologiesOverlay({
               return (
                 <div key={key} style={{ fontSize: '0.8rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e5e7eb', fontWeight: 700, marginBottom: '0.2rem' }}>
-                    <span>Opção {key}</span>
+                    <span>{currentSlide.pointsConfig?.labels?.[key] || `Opção ${key}`}</span>
                     <span>{Math.round(avg)} pts</span>
                   </div>
                   <div style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>

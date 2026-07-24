@@ -65,6 +65,7 @@ export default function StudentJoin() {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [slideType, setSlideType] = useState(null);
   const [hotspotImageUrl, setHotspotImageUrl] = useState(null);
+  const [pointsConfig, setPointsConfig] = useState(null);
   const [branches, setBranches] = useState(null);
   const [scoreFeedback, setScoreFeedback] = useState(null);
 
@@ -83,19 +84,21 @@ export default function StudentJoin() {
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
 
-    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, branches }) => {
+    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, branches }) => {
       setJoined(true);
       setSessionTitle(title);
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
       setHotspotImageUrl(hotspotImageUrl || null);
+      setPointsConfig(pointsConfig || null);
       setBranches(branches || null);
     });
 
-    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl, branches }) => {
+    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, branches }) => {
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
       setHotspotImageUrl(hotspotImageUrl || null);
+      setPointsConfig(pointsConfig || null);
       setBranches(branches || null);
       setSubmitted(false); // Reseta estado de envio para o novo slide
       setScoreFeedback(null);
@@ -312,7 +315,7 @@ export default function StudentJoin() {
         ) : slideType === 'points' ? (
           <div style={{ width: '100%', maxWidth: '420px' }}>
             <h4 style={{ textAlign: 'center', fontSize: '1.1rem', color: '#9ca3af', marginBottom: '0.3rem' }}>
-              Distribua 100 pontos entre as opções:
+              {pointsConfig?.question || 'Distribua 100 pontos entre as opções:'}
             </h4>
             <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#6b7280', marginBottom: '1.25rem' }}>
               Arraste um slider — os outros se ajustam sozinhos pra soma sempre dar 100.
@@ -321,7 +324,7 @@ export default function StudentJoin() {
               {POINTS_KEYS.map((key, idx) => (
                 <div key={key}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: POINTS_COLORS[idx] }}>Opção {key}</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: POINTS_COLORS[idx] }}>{pointsConfig?.labels?.[key] || `Opção ${key}`}</span>
                     <span style={{ fontSize: '1.1rem', fontWeight: 800 }}>{pointsAllocation[key]}</span>
                   </div>
                   <input
