@@ -42,7 +42,7 @@ const PDFJS_CMAPS_URL = path.join(PDFJS_DIST_DIR, 'cmaps') + '/';
 // abaixo): em vez de pedir pra IA reconstruir o slide a partir só do texto
 // (perdendo imagens/gráficos/layout do original), cada página vira a própria
 // imagem de fundo do slide, pixel a pixel igual ao PDF.
-async function renderPdfPageToJpeg(pdfDoc, pageNumber, targetWidth = 1920) {
+async function renderPdfPageToJpeg(pdfDoc, pageNumber, targetWidth = 1600) {
   const page = await pdfDoc.getPage(pageNumber);
   const baseViewport = page.getViewport({ scale: 1 });
   // Escala pro alvo de largura, com teto/piso pra páginas muito pequenas ou
@@ -60,7 +60,7 @@ async function renderPdfPageToJpeg(pdfDoc, pageNumber, targetWidth = 1920) {
 
   await page.render({ canvasContext: ctx, viewport }).promise;
 
-  return canvas.encode('jpeg', 92);
+  return canvas.encode('jpeg', 85);
 }
 
 const MAX_REDIRECTS = 5;
