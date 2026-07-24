@@ -3,9 +3,10 @@ import multer from 'multer';
 import pdfParse from 'pdf-parse';
 import axios from 'axios';
 import path from 'path';
+import os from 'os';
+import fs from 'fs/promises';
+import { fork } from 'child_process';
 import { fileURLToPath } from 'url';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { createCanvas } from '@napi-rs/canvas';
 import { assertSafeUrl } from '../services/urlSafety.js';
 import { getBucket } from '../services/firebaseAdmin.js';
 
@@ -20,48 +21,12 @@ const uploadMedia = multer({ storage: multer.memoryStorage(), limits: { fileSize
 const uploadPresentationFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const MAX_IMPORT_PAGES = 60;
-
-// Fontes/cmaps padrão do PDF.js (usados quando o PDF referencia uma das 14
-// fontes-base do PDF, ex. Helvetica, sem embutir o glifo) — sem apontar pra
-// eles, o pdfjs lança "Ensure that the standardFontDataUrl API parameter is
-// provided" e cai num fallback grosseiro pro texto que usa essas fontes.
-// ARMADILHA: apesar do nome "*Url", rodando em Node o pdfjs passa esse valor
-// direto pra `fs.readFile()` no processo principal (ver node_utils_fetchData
-// em pdf.mjs) — uma STRING "file://..." não é reconhecida como URL por
-// fs.readFile (só um objeto URL de verdade seria), então precisa ser um
-// caminho de sistema de arquivos puro aqui, não o .href de pathToFileURL.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PDFJS_DIST_DIR = path.join(__dirname, '..', 'node_modules', 'pdfjs-dist');
-// A validação interna do pdfjs exige barra "/" no fim (não path.sep — no
-// Windows seria "\", rejeitado), mesmo passando por fs.readFile depois.
-const PDFJS_STANDARD_FONTS_URL = path.join(PDFJS_DIST_DIR, 'standard_fonts') + '/';
-const PDFJS_CMAPS_URL = path.join(PDFJS_DIST_DIR, 'cmaps') + '/';
-
-// Renderiza uma página do PDF (já carregado via pdfjsLib.getDocument) pra um
-// buffer JPEG — usada pela importação "idêntica" (ver /upload-presentation
-// abaixo): em vez de pedir pra IA reconstruir o slide a partir só do texto
-// (perdendo imagens/gráficos/layout do original), cada página vira a própria
-// imagem de fundo do slide, pixel a pixel igual ao PDF.
-async function renderPdfPageToJpeg(pdfDoc, pageNumber, targetWidth = 1600) {
-  const page = await pdfDoc.getPage(pageNumber);
-  const baseViewport = page.getViewport({ scale: 1 });
-  // Escala pro alvo de largura, com teto/piso pra páginas muito pequenas ou
-  // enormes não gerarem uma imagem ínfima nem estourarem tempo/memória.
-  const scale = Math.min(3, Math.max(1, targetWidth / baseViewport.width));
-  const viewport = page.getViewport({ scale });
-
-  const canvas = createCanvas(Math.round(viewport.width), Math.round(viewport.height));
-  const ctx = canvas.getContext('2d');
-  // Fundo branco antes de renderizar — páginas PDF quase sempre já são
-  // opacas, mas o canvas nasce transparente, e JPEG não tem canal alfa
-  // (qualquer área não coberta viraria preta na conversão sem isto).
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  await page.render({ canvasContext: ctx, viewport }).promise;
-
-  return canvas.encode('jpeg', 85);
-}
+// Renderização de página (pdfjs-dist + @napi-rs/canvas) roda inteira dentro
+// deste script, num PROCESSO FILHO à parte — ver pdfImportWorker.js pro
+// porquê (isolar um crash/estouro de memória do processo principal do
+// servidor) e a lógica de renderização em si.
+const PDF_IMPORT_WORKER_PATH = path.join(__dirname, '..', 'services', 'pdfImportWorker.js');
 
 const MAX_REDIRECTS = 5;
 
@@ -152,34 +117,59 @@ function scheduleImportJobCleanup(jobId) {
   setTimeout(() => importJobs.delete(jobId), IMPORT_JOB_TTL_MS).unref();
 }
 
-// Renderiza e sobe as páginas em segundo plano, atualizando o job em
-// `importJobs` conforme avança — chamada sem `await` pelo handler da rota
-// (a resposta HTTP já foi enviada antes disto começar).
-async function processImportJob(jobId, pdfDoc, userId) {
+// Sobe o buffer do PDF pra um arquivo temporário e inicia o processo filho
+// (pdfImportWorker.js) que renderiza+sobe cada página, atualizando o job em
+// `importJobs` conforme as mensagens chegam — chamada sem `await` pelo
+// handler da rota (a resposta HTTP já foi enviada antes disto começar).
+async function startImportJob(jobId, pdfBuffer, userId) {
   const job = importJobs.get(jobId);
-  const bucket = getBucket();
+  const tmpPath = path.join(os.tmpdir(), `pdf-import-${jobId}.pdf`);
+  await fs.writeFile(tmpPath, pdfBuffer);
 
-  // Sequencial (não Promise.all) — renderizar é pesado em CPU/memória, e um
-  // PDF de 50+ páginas em paralelo poderia estourar o processo do servidor.
-  for (let i = 1; i <= pdfDoc.numPages; i++) {
-    try {
-      const jpegBuffer = await renderPdfPageToJpeg(pdfDoc, i);
-      const objectPath = `imports/${userId}/${jobId}/page-${String(i).padStart(3, '0')}.jpg`;
-      const file = bucket.file(objectPath);
-      await file.save(jpegBuffer, { metadata: { contentType: 'image/jpeg' }, resumable: false });
-      await file.makePublic();
-      job.pageImages.push(`https://storage.googleapis.com/${bucket.name}/${objectPath}`);
-    } catch (pageError) {
-      console.error(`Erro ao renderizar página ${i} do PDF importado (job ${jobId}):`, pageError);
-      job.failedPages++;
-      job.pageImages.push(null);
+  const child = fork(PDF_IMPORT_WORKER_PATH, [jobId, tmpPath, userId], {
+    // 'inherit' nos fds 0-2 pra log do worker (console.error de erro por
+    // página) aparecer junto do log normal do servidor — só o canal ipc
+    // (índice 3, implícito em fork) é exclusivo desta comunicação pai/filho.
+    stdio: ['inherit', 'inherit', 'inherit', 'ipc']
+  });
+  let settled = false;
+
+  const finish = (status, error) => {
+    if (settled) return;
+    settled = true;
+    job.status = status;
+    if (error) job.error = error;
+    scheduleImportJobCleanup(jobId);
+    fs.unlink(tmpPath).catch(() => {});
+  };
+
+  child.on('message', (msg) => {
+    if (msg?.type === 'page') {
+      job.pagesDone = msg.index;
+      job.pageImages.push(msg.url);
+      if (!msg.url) job.failedPages++;
+    } else if (msg?.type === 'done') {
+      finish(job.pageImages.every((url) => !url) ? 'error' : 'done',
+        job.pageImages.every((url) => !url) ? 'Não foi possível renderizar nenhuma página deste PDF.' : null);
+    } else if (msg?.type === 'error') {
+      finish('error', msg.message || 'Falha ao processar o PDF.');
     }
-    job.pagesDone = i;
-  }
+  });
 
-  job.status = job.pageImages.every((url) => !url) ? 'error' : 'done';
-  if (job.status === 'error') job.error = 'Não foi possível renderizar nenhuma página deste PDF.';
-  scheduleImportJobCleanup(jobId);
+  // Processo filho encerrado sem ter mandado 'done'/'error' — provável crash
+  // (estouro de memória, mais comum: SIGKILL do próprio SO/plataforma) no
+  // meio do trabalho. Como isolamos a renderização aqui, o servidor
+  // principal nunca cai junto — só reporta o que deu pra completar.
+  child.on('exit', (code, signal) => {
+    if (settled) return;
+    console.error(`[import ${jobId}] processo de renderização encerrado inesperadamente (code=${code}, signal=${signal}) na página ${job.pagesDone}/${job.pageCount}`);
+    finish('error', `A importação foi interrompida (provavelmente por limite de memória do servidor) na página ${job.pagesDone} de ${job.pageCount}. Tente novamente ou divida o PDF em partes menores.`);
+  });
+
+  child.on('error', (err) => {
+    console.error(`[import ${jobId}] erro ao iniciar processo de renderização:`, err);
+    finish('error', 'Falha ao iniciar o processo de importação.');
+  });
 }
 
 // Upload de PDF pra IMPORTAR uma apresentação existente (ver AIModalGenerator,
@@ -198,39 +188,33 @@ router.post('/upload-presentation', uploadPresentationFile.single('file'), async
       return res.status(400).json({ error: 'Envie um arquivo PDF.' });
     }
 
-    const loadingTask = pdfjsLib.getDocument({
-      data: new Uint8Array(req.file.buffer),
-      standardFontDataUrl: PDFJS_STANDARD_FONTS_URL,
-      cMapUrl: PDFJS_CMAPS_URL,
-      cMapPacked: true,
-      disableFontFace: true,
-      isEvalSupported: false
-    });
-    const pdfDoc = await loadingTask.promise;
+    // Só conta páginas aqui (rápido, leve) — a renderização de verdade (mais
+    // pesada) fica isolada no processo filho, ver startImportJob acima.
+    const pdfData = await pdfParse(req.file.buffer);
 
-    if (pdfDoc.numPages > MAX_IMPORT_PAGES) {
+    if (pdfData.numpages > MAX_IMPORT_PAGES) {
       return res.status(400).json({
-        error: `Este PDF tem ${pdfDoc.numPages} páginas — o limite pra importação é ${MAX_IMPORT_PAGES}. Divida o arquivo em partes menores.`
+        error: `Este PDF tem ${pdfData.numpages} páginas — o limite pra importação é ${MAX_IMPORT_PAGES}. Divida o arquivo em partes menores.`
       });
     }
 
     const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     importJobs.set(jobId, {
       status: 'processing',
-      pageCount: pdfDoc.numPages,
+      pageCount: pdfData.numpages,
       pagesDone: 0,
       pageImages: [],
       failedPages: 0,
       error: null
     });
 
-    res.json({ success: true, jobId, pageCount: pdfDoc.numPages });
+    res.json({ success: true, jobId, pageCount: pdfData.numpages });
 
     // Roda depois da resposta já enviada — erros daqui em diante só existem
     // no estado do job (ver /upload-presentation/:jobId), nunca mais numa
     // resposta HTTP desta requisição.
-    processImportJob(jobId, pdfDoc, req.user.id).catch((err) => {
-      console.error(`Falha inesperada no job de importação ${jobId}:`, err);
+    startImportJob(jobId, req.file.buffer, req.user.id).catch((err) => {
+      console.error(`Falha inesperada ao iniciar job de importação ${jobId}:`, err);
       const job = importJobs.get(jobId);
       if (job) {
         job.status = 'error';
