@@ -2,6 +2,10 @@ import express from 'express';
 import multer from 'multer';
 import pdfParse from 'pdf-parse';
 import axios from 'axios';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { createCanvas } from '@napi-rs/canvas';
 import { assertSafeUrl } from '../services/urlSafety.js';
 import { getBucket } from '../services/firebaseAdmin.js';
 
@@ -16,7 +20,48 @@ const uploadMedia = multer({ storage: multer.memoryStorage(), limits: { fileSize
 const uploadPresentationFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const MAX_IMPORT_PAGES = 60;
-const MAX_CHARS_PER_PAGE = 3000;
+
+// Fontes/cmaps padrão do PDF.js (usados quando o PDF referencia uma das 14
+// fontes-base do PDF, ex. Helvetica, sem embutir o glifo) — sem apontar pra
+// eles, o pdfjs lança "Ensure that the standardFontDataUrl API parameter is
+// provided" e cai num fallback grosseiro pro texto que usa essas fontes.
+// ARMADILHA: apesar do nome "*Url", rodando em Node o pdfjs passa esse valor
+// direto pra `fs.readFile()` no processo principal (ver node_utils_fetchData
+// em pdf.mjs) — uma STRING "file://..." não é reconhecida como URL por
+// fs.readFile (só um objeto URL de verdade seria), então precisa ser um
+// caminho de sistema de arquivos puro aqui, não o .href de pathToFileURL.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PDFJS_DIST_DIR = path.join(__dirname, '..', 'node_modules', 'pdfjs-dist');
+// A validação interna do pdfjs exige barra "/" no fim (não path.sep — no
+// Windows seria "\", rejeitado), mesmo passando por fs.readFile depois.
+const PDFJS_STANDARD_FONTS_URL = path.join(PDFJS_DIST_DIR, 'standard_fonts') + '/';
+const PDFJS_CMAPS_URL = path.join(PDFJS_DIST_DIR, 'cmaps') + '/';
+
+// Renderiza uma página do PDF (já carregado via pdfjsLib.getDocument) pra um
+// buffer JPEG — usada pela importação "idêntica" (ver /upload-presentation
+// abaixo): em vez de pedir pra IA reconstruir o slide a partir só do texto
+// (perdendo imagens/gráficos/layout do original), cada página vira a própria
+// imagem de fundo do slide, pixel a pixel igual ao PDF.
+async function renderPdfPageToJpeg(pdfDoc, pageNumber, targetWidth = 1920) {
+  const page = await pdfDoc.getPage(pageNumber);
+  const baseViewport = page.getViewport({ scale: 1 });
+  // Escala pro alvo de largura, com teto/piso pra páginas muito pequenas ou
+  // enormes não gerarem uma imagem ínfima nem estourarem tempo/memória.
+  const scale = Math.min(3, Math.max(1, targetWidth / baseViewport.width));
+  const viewport = page.getViewport({ scale });
+
+  const canvas = createCanvas(Math.round(viewport.width), Math.round(viewport.height));
+  const ctx = canvas.getContext('2d');
+  // Fundo branco antes de renderizar — páginas PDF quase sempre já são
+  // opacas, mas o canvas nasce transparente, e JPEG não tem canal alfa
+  // (qualquer área não coberta viraria preta na conversão sem isto).
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  await page.render({ canvasContext: ctx, viewport }).promise;
+
+  return canvas.encode('jpeg', 92);
+}
 
 const MAX_REDIRECTS = 5;
 
@@ -91,9 +136,12 @@ router.post('/upload-file', upload.single('file'), async (req, res) => {
 });
 
 // Upload de PDF pra IMPORTAR uma apresentação existente (ver AIModalGenerator,
-// modo "Importar apresentação existente") — extrai o texto POR PÁGINA (não um
-// blob só concatenado, como /upload-file acima), pra a IA conseguir reproduzir
-// um slide por página original em vez de perder a fronteira entre elas.
+// modo "Importar apresentação existente") — renderiza cada PÁGINA como uma
+// imagem (pixel a pixel igual ao PDF original: texto, fotos, gráficos,
+// layout) e sobe cada uma pro Cloud Storage. O cliente monta um slide por
+// página usando essa imagem como fundo inteiro — SEM IA no meio, então nada
+// de texto/imagem se perde e funciona até em PDF escaneado (só imagem, sem
+// camada de texto), que a extração de texto antiga rejeitava.
 router.post('/upload-presentation', uploadPresentationFile.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -103,33 +151,54 @@ router.post('/upload-presentation', uploadPresentationFile.single('file'), async
       return res.status(400).json({ error: 'Envie um arquivo PDF.' });
     }
 
-    const pages = [];
-    // `pagerender` roda uma vez por página do PDF, na ordem — captura o texto
-    // de cada uma num array próprio, sem alterar a concatenação padrão da lib
-    // (que continua disponível em pdfData.text, só não é usada aqui).
-    const pagerender = async (pageData) => {
-      const textContent = await pageData.getTextContent();
-      const text = textContent.items.map((item) => item.str).join(' ');
-      pages.push(text.slice(0, MAX_CHARS_PER_PAGE));
-      return text;
-    };
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(req.file.buffer),
+      standardFontDataUrl: PDFJS_STANDARD_FONTS_URL,
+      cMapUrl: PDFJS_CMAPS_URL,
+      cMapPacked: true,
+      disableFontFace: true,
+      isEvalSupported: false
+    });
+    const pdfDoc = await loadingTask.promise;
 
-    const pdfData = await pdfParse(req.file.buffer, { pagerender });
-
-    if (pdfData.numpages > MAX_IMPORT_PAGES) {
+    if (pdfDoc.numPages > MAX_IMPORT_PAGES) {
       return res.status(400).json({
-        error: `Este PDF tem ${pdfData.numpages} páginas — o limite pra importação é ${MAX_IMPORT_PAGES}. Divida o arquivo em partes menores.`
+        error: `Este PDF tem ${pdfDoc.numPages} páginas — o limite pra importação é ${MAX_IMPORT_PAGES}. Divida o arquivo em partes menores.`
       });
     }
 
-    const avgCharsPerPage = pages.reduce((sum, p) => sum + p.length, 0) / (pages.length || 1);
-    if (avgCharsPerPage < 30) {
-      return res.status(400).json({
-        error: 'Não foi possível extrair texto deste PDF — parece ser um documento escaneado (só imagem). Exporte como PDF de texto (ex: direto do PowerPoint/Google Slides/Keynote) e tente de novo.'
-      });
+    const bucket = getBucket();
+    const importId = Date.now();
+    const pageImages = [];
+    let failedPages = 0;
+
+    // Sequencial (não Promise.all) — renderizar é pesado em CPU/memória, e um
+    // PDF de 50+ páginas em paralelo poderia estourar o processo do servidor.
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      try {
+        const jpegBuffer = await renderPdfPageToJpeg(pdfDoc, i);
+        const objectPath = `imports/${req.user.id}/${importId}/page-${String(i).padStart(3, '0')}.jpg`;
+        const file = bucket.file(objectPath);
+        await file.save(jpegBuffer, { metadata: { contentType: 'image/jpeg' }, resumable: false });
+        await file.makePublic();
+        pageImages.push(`https://storage.googleapis.com/${bucket.name}/${objectPath}`);
+      } catch (pageError) {
+        console.error(`Erro ao renderizar página ${i} do PDF importado:`, pageError);
+        failedPages++;
+        pageImages.push(null);
+      }
     }
 
-    res.json({ success: true, pages, pageCount: pages.length });
+    if (pageImages.every((url) => !url)) {
+      return res.status(500).json({ error: 'Não foi possível renderizar nenhuma página deste PDF.' });
+    }
+
+    res.json({
+      success: true,
+      pageCount: pdfDoc.numPages,
+      pageImages,
+      warning: failedPages > 0 ? `${failedPages} de ${pdfDoc.numPages} página(s) não puderam ser renderizadas e ficaram em branco.` : undefined
+    });
   } catch (error) {
     console.error('Erro na rota upload-presentation:', error);
     res.status(500).json({ error: 'Falha ao processar o PDF enviado.' });

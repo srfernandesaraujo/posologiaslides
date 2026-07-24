@@ -193,6 +193,13 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
     }
   };
 
+  // Reproduz o PDF de forma IDÊNTICA — cada página vira uma imagem (ver
+  // /upload-presentation em materialsRoutes.js) usada como fundo de um slide
+  // inteiro, sem IA no meio pra "recriar" o conteúdo. Escolhido no lugar da
+  // reconstrução criativa antiga (extrair texto + pedir pra IA remontar cada
+  // slide) porque essa perdia imagens/gráficos/layout original — o ponto
+  // aqui é preservar a aula existente pixel a pixel e só then usar os
+  // recursos do sistema (quiz, hotspot, destaque, anotação) por cima dela.
   const handleSubmitImport = async () => {
     if (!importFile) {
       alert('Selecione um arquivo PDF da apresentação existente.');
@@ -202,7 +209,7 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
     setLoading(true);
 
     try {
-      setLoadingStatus('Extraindo o texto de cada página do PDF...');
+      setLoadingStatus('Convertendo cada página em uma imagem idêntica ao original...');
       const formData = new FormData();
       formData.append('file', importFile);
       const uploadRes = await apiFetch('/api/materials/upload-presentation', { method: 'POST', body: formData });
@@ -211,25 +218,24 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
         throw new Error(uploadData.error || 'Erro ao processar o PDF.');
       }
 
-      setLoadingStatus(`Reconstruindo o roteiro das ${uploadData.pageCount} página(s) importada(s)...`);
-      const outlineRes = await apiFetch('/api/ai/import-outline', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pages: uploadData.pages, apiKey })
-      });
-      const outlineData = await outlineRes.json();
-      if (!outlineData.success) {
-        throw new Error(outlineData.error || 'Erro ao gerar estrutura a partir do PDF.');
+      const title = importFile.name.replace(/\.pdf$/i, '');
+      const slides = uploadData.pageImages.map((url, idx) => ({
+        id: `slide-${Date.now()}-${idx}`,
+        title: `${title} — página ${idx + 1}`,
+        // Fundo preto (não branco) pra página não preencher o slide inteiro
+        // (aspect ratio diferente do PDF original, ex. 4:3) não deixar tarja
+        // branca ao redor — combina melhor com o resto do sistema (telão
+        // escuro) do que uma borda branca.
+        html: url
+          ? `<div class="slide-root" style="height:100%; position:relative; background:#0a0a0a;"><img src="${url}" alt="Página ${idx + 1} importada" style="position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:block;" /></div>`
+          : `<div class="slide-root" style="display:flex; align-items:center; justify-content:center; height:100%; padding:2rem; color:#4b5563; font-size:1.05rem; text-align:center;">Não foi possível renderizar a página ${idx + 1} deste PDF.</div>`
+      }));
+
+      if (uploadData.warning) {
+        alert('⚠️ ' + uploadData.warning);
       }
 
-      const slidesData = await generateSlidesFromOutline(outlineData.outline, []);
-
-      const combinedWarning = outlineData.warning || slidesData.warning;
-      if (combinedWarning) {
-        alert('⚠️ ' + combinedWarning);
-      }
-
-      onGenerate(slidesData.presentation);
+      onGenerate({ title, slides });
       onClose();
     } catch (err) {
       alert('Erro na importação: ' + err.message);
@@ -291,21 +297,21 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.5rem', color: '#e5e7eb' }}>
-              {mode === 'import' ? 'Instruções adicionais (Opcional)' : 'Tema ou Prompt Principal da Apresentação *'}
-            </label>
-            <textarea
-              className="chat-input"
-              rows={3}
-              style={{ width: '100%', resize: 'vertical' }}
-              placeholder={mode === 'import'
-                ? 'Ex: Dê mais ênfase ao capítulo de farmacocinética...'
-                : 'Ex: Apresentação para investidores sobre novo produto de inteligência artificial na saúde com comparativo de ROI...'}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-          </div>
+          {mode === 'generate' && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.5rem', color: '#e5e7eb' }}>
+                Tema ou Prompt Principal da Apresentação *
+              </label>
+              <textarea
+                className="chat-input"
+                rows={3}
+                style={{ width: '100%', resize: 'vertical' }}
+                placeholder="Ex: Apresentação para investidores sobre novo produto de inteligência artificial na saúde com comparativo de ROI..."
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+              />
+            </div>
+          )}
 
           {mode === 'import' && (
             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -317,7 +323,7 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
                 <input type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => setImportFile(e.target.files[0] || null)} />
               </label>
               <p style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: '0.6rem', marginBottom: 0 }}>
-                Exporte sua apresentação (PowerPoint, Keynote ou Google Slides) como PDF antes de enviar. A IA reproduz a mesma sequência de slides, um por página do PDF, no formato deste sistema.
+                Exporte sua apresentação (PowerPoint, Keynote ou Google Slides) como PDF antes de enviar. Cada página vira um slide idêntico ao original (não passa por IA — nada de texto, imagem ou layout se perde). Depois é só usar os recursos do sistema (quiz, hotspot, destaque, anotações) por cima.
               </p>
             </div>
           )}
