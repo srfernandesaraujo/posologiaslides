@@ -135,6 +135,53 @@ router.post('/upload-file', upload.single('file'), async (req, res) => {
   }
 });
 
+// Renderizar 30+ páginas numa única requisição HTTP estourava o timeout do
+// proxy da hospedagem (Render free tier: instância "dorme" após inatividade
+// e ainda tem um teto de tempo de resposta — 31 páginas sequenciais somadas
+// ao cold start já bastam pra romper a conexão, e o navegador só reporta
+// "Failed to fetch", sem detalhe nenhum). Em vez de segurar a resposta até
+// renderizar tudo, /upload-presentation devolve um jobId quase na hora (só
+// espera abrir o PDF, rápido) e processa as páginas em segundo plano — o
+// cliente acompanha o progresso via polling em /upload-presentation/:jobId
+// (ver handleSubmitImport em AIModalGenerator.jsx). Cada poll também conta
+// como tráfego pra a instância, então ela não volta a dormir no meio do job.
+const importJobs = new Map(); // jobId -> { status, pageCount, pagesDone, pageImages, error, createdAt }
+const IMPORT_JOB_TTL_MS = 30 * 60 * 1000;
+
+function scheduleImportJobCleanup(jobId) {
+  setTimeout(() => importJobs.delete(jobId), IMPORT_JOB_TTL_MS).unref();
+}
+
+// Renderiza e sobe as páginas em segundo plano, atualizando o job em
+// `importJobs` conforme avança — chamada sem `await` pelo handler da rota
+// (a resposta HTTP já foi enviada antes disto começar).
+async function processImportJob(jobId, pdfDoc, userId) {
+  const job = importJobs.get(jobId);
+  const bucket = getBucket();
+
+  // Sequencial (não Promise.all) — renderizar é pesado em CPU/memória, e um
+  // PDF de 50+ páginas em paralelo poderia estourar o processo do servidor.
+  for (let i = 1; i <= pdfDoc.numPages; i++) {
+    try {
+      const jpegBuffer = await renderPdfPageToJpeg(pdfDoc, i);
+      const objectPath = `imports/${userId}/${jobId}/page-${String(i).padStart(3, '0')}.jpg`;
+      const file = bucket.file(objectPath);
+      await file.save(jpegBuffer, { metadata: { contentType: 'image/jpeg' }, resumable: false });
+      await file.makePublic();
+      job.pageImages.push(`https://storage.googleapis.com/${bucket.name}/${objectPath}`);
+    } catch (pageError) {
+      console.error(`Erro ao renderizar página ${i} do PDF importado (job ${jobId}):`, pageError);
+      job.failedPages++;
+      job.pageImages.push(null);
+    }
+    job.pagesDone = i;
+  }
+
+  job.status = job.pageImages.every((url) => !url) ? 'error' : 'done';
+  if (job.status === 'error') job.error = 'Não foi possível renderizar nenhuma página deste PDF.';
+  scheduleImportJobCleanup(jobId);
+}
+
 // Upload de PDF pra IMPORTAR uma apresentação existente (ver AIModalGenerator,
 // modo "Importar apresentação existente") — renderiza cada PÁGINA como uma
 // imagem (pixel a pixel igual ao PDF original: texto, fotos, gráficos,
@@ -167,42 +214,55 @@ router.post('/upload-presentation', uploadPresentationFile.single('file'), async
       });
     }
 
-    const bucket = getBucket();
-    const importId = Date.now();
-    const pageImages = [];
-    let failedPages = 0;
-
-    // Sequencial (não Promise.all) — renderizar é pesado em CPU/memória, e um
-    // PDF de 50+ páginas em paralelo poderia estourar o processo do servidor.
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-      try {
-        const jpegBuffer = await renderPdfPageToJpeg(pdfDoc, i);
-        const objectPath = `imports/${req.user.id}/${importId}/page-${String(i).padStart(3, '0')}.jpg`;
-        const file = bucket.file(objectPath);
-        await file.save(jpegBuffer, { metadata: { contentType: 'image/jpeg' }, resumable: false });
-        await file.makePublic();
-        pageImages.push(`https://storage.googleapis.com/${bucket.name}/${objectPath}`);
-      } catch (pageError) {
-        console.error(`Erro ao renderizar página ${i} do PDF importado:`, pageError);
-        failedPages++;
-        pageImages.push(null);
-      }
-    }
-
-    if (pageImages.every((url) => !url)) {
-      return res.status(500).json({ error: 'Não foi possível renderizar nenhuma página deste PDF.' });
-    }
-
-    res.json({
-      success: true,
+    const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    importJobs.set(jobId, {
+      status: 'processing',
       pageCount: pdfDoc.numPages,
-      pageImages,
-      warning: failedPages > 0 ? `${failedPages} de ${pdfDoc.numPages} página(s) não puderam ser renderizadas e ficaram em branco.` : undefined
+      pagesDone: 0,
+      pageImages: [],
+      failedPages: 0,
+      error: null
+    });
+
+    res.json({ success: true, jobId, pageCount: pdfDoc.numPages });
+
+    // Roda depois da resposta já enviada — erros daqui em diante só existem
+    // no estado do job (ver /upload-presentation/:jobId), nunca mais numa
+    // resposta HTTP desta requisição.
+    processImportJob(jobId, pdfDoc, req.user.id).catch((err) => {
+      console.error(`Falha inesperada no job de importação ${jobId}:`, err);
+      const job = importJobs.get(jobId);
+      if (job) {
+        job.status = 'error';
+        job.error = 'Falha inesperada ao processar o PDF.';
+        scheduleImportJobCleanup(jobId);
+      }
     });
   } catch (error) {
     console.error('Erro na rota upload-presentation:', error);
     res.status(500).json({ error: 'Falha ao processar o PDF enviado.' });
   }
+});
+
+// Progresso do job de importação criado acima — o cliente faz polling nisto
+// (ver handleSubmitImport em AIModalGenerator.jsx) até status !== 'processing'.
+router.get('/upload-presentation/:jobId', (req, res) => {
+  const job = importJobs.get(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job de importação não encontrado (pode ter expirado).' });
+  }
+
+  res.json({
+    success: true,
+    status: job.status,
+    pageCount: job.pageCount,
+    pagesDone: job.pagesDone,
+    pageImages: job.status === 'done' ? job.pageImages : undefined,
+    error: job.error || undefined,
+    warning: job.status === 'done' && job.failedPages > 0
+      ? `${job.failedPages} de ${job.pageCount} página(s) não puderam ser renderizadas e ficaram em branco.`
+      : undefined
+  });
 });
 
 // Upload de mídia (imagem/vídeo/áudio) para embutir num slide. Vai para o

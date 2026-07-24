@@ -198,8 +198,13 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
   // inteiro, sem IA no meio pra "recriar" o conteúdo. Escolhido no lugar da
   // reconstrução criativa antiga (extrair texto + pedir pra IA remontar cada
   // slide) porque essa perdia imagens/gráficos/layout original — o ponto
-  // aqui é preservar a aula existente pixel a pixel e só then usar os
+  // aqui é preservar a aula existente pixel a pixel e só depois usar os
   // recursos do sistema (quiz, hotspot, destaque, anotação) por cima dela.
+  //
+  // Renderizar 30+ páginas não cabe numa única requisição (timeout de proxy
+  // da hospedagem — ver server/routes/materialsRoutes.js): o upload devolve
+  // um jobId na hora, e o progresso é acompanhado por polling em
+  // /upload-presentation/:jobId até status !== 'processing'.
   const handleSubmitImport = async () => {
     if (!importFile) {
       alert('Selecione um arquivo PDF da apresentação existente.');
@@ -209,7 +214,7 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
     setLoading(true);
 
     try {
-      setLoadingStatus('Convertendo cada página em uma imagem idêntica ao original...');
+      setLoadingStatus('Enviando o PDF...');
       const formData = new FormData();
       formData.append('file', importFile);
       const uploadRes = await apiFetch('/api/materials/upload-presentation', { method: 'POST', body: formData });
@@ -218,8 +223,30 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
         throw new Error(uploadData.error || 'Erro ao processar o PDF.');
       }
 
+      const { jobId, pageCount } = uploadData;
+      let jobResult;
+      // Polling simples (sem websocket): cada consulta também mantém a
+      // instância "acordada" na hospedagem, então nunca dorme no meio do job.
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const statusRes = await apiFetch(`/api/materials/upload-presentation/${jobId}`);
+        const statusData = await statusRes.json();
+        if (!statusData.success) {
+          throw new Error(statusData.error || 'Erro ao acompanhar a importação.');
+        }
+        setLoadingStatus(`Convertendo página ${statusData.pagesDone} de ${pageCount}...`);
+        if (statusData.status === 'done' || statusData.status === 'error') {
+          jobResult = statusData;
+          break;
+        }
+      }
+
+      if (jobResult.status === 'error') {
+        throw new Error(jobResult.error || 'Erro ao processar o PDF.');
+      }
+
       const title = importFile.name.replace(/\.pdf$/i, '');
-      const slides = uploadData.pageImages.map((url, idx) => ({
+      const slides = jobResult.pageImages.map((url, idx) => ({
         id: `slide-${Date.now()}-${idx}`,
         title: `${title} — página ${idx + 1}`,
         // Fundo preto (não branco) pra página não preencher o slide inteiro
@@ -231,8 +258,8 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
           : `<div class="slide-root" style="display:flex; align-items:center; justify-content:center; height:100%; padding:2rem; color:#4b5563; font-size:1.05rem; text-align:center;">Não foi possível renderizar a página ${idx + 1} deste PDF.</div>`
       }));
 
-      if (uploadData.warning) {
-        alert('⚠️ ' + uploadData.warning);
+      if (jobResult.warning) {
+        alert('⚠️ ' + jobResult.warning);
       }
 
       onGenerate({ title, slides });
