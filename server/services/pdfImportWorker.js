@@ -29,7 +29,7 @@ const PDFJS_DIST_DIR = path.join(__dirname, '..', 'node_modules', 'pdfjs-dist');
 const PDFJS_STANDARD_FONTS_URL = path.join(PDFJS_DIST_DIR, 'standard_fonts') + '/';
 const PDFJS_CMAPS_URL = path.join(PDFJS_DIST_DIR, 'cmaps') + '/';
 
-async function renderPdfPageToJpeg(pdfDoc, pageNumber, targetWidth = 1400) {
+async function renderPdfPageToJpeg(pdfDoc, pageNumber, targetWidth = 1100) {
   const page = await pdfDoc.getPage(pageNumber);
   const baseViewport = page.getViewport({ scale: 1 });
   const scale = Math.min(3, Math.max(1, targetWidth / baseViewport.width));
@@ -41,7 +41,7 @@ async function renderPdfPageToJpeg(pdfDoc, pageNumber, targetWidth = 1400) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   await page.render({ canvasContext: ctx, viewport }).promise;
-  const buffer = await canvas.encode('jpeg', 82);
+  const buffer = await canvas.encode('jpeg', 75);
 
   // Libera os caches internos do pdfjs pra esta página (fontes/glifos/
   // imagens decodificadas) — sem isto, memória cresce cumulativamente a
@@ -86,6 +86,18 @@ async function main() {
     // atualiza o progresso do job incrementalmente, e se ESTE processo
     // morrer no meio, o pai já sabe quantas páginas tinham sido concluídas.
     process.send({ type: 'page', index: i, url });
+
+    // page.cleanup() (dentro de renderPdfPageToJpeg) já libera o que é só
+    // desta página, mas o DOCUMENTO inteiro (pdfDoc) mantém caches próprios
+    // (fontes carregadas, XObjects de imagem compartilhados entre páginas)
+    // que só encolhem com uma limpeza no nível do documento — sem isto, um
+    // PDF real de 30+ páginas com fotos/diagramas embutidos vai acumulando
+    // memória a cada página até estourar o limite do container (foi
+    // exatamente o que aconteceu: Render matou a instância inteira por
+    // exceder 512 MiB, não só este processo). Roda a cada poucas páginas
+    // (não a cada uma — startCleanup tem seu próprio custo) pra equilibrar
+    // memória vs. velocidade.
+    if (i % 4 === 0) await pdfDoc.cleanup();
   }
 
   process.send({ type: 'done' });

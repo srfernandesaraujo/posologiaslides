@@ -130,7 +130,13 @@ async function startImportJob(jobId, pdfBuffer, userId) {
     // 'inherit' nos fds 0-2 pra log do worker (console.error de erro por
     // página) aparecer junto do log normal do servidor — só o canal ipc
     // (índice 3, implícito em fork) é exclusivo desta comunicação pai/filho.
-    stdio: ['inherit', 'inherit', 'inherit', 'ipc']
+    stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+    // Teto BEM abaixo do limite de memória do container (Render free = 512
+    // MiB) — só cobre o heap do V8 (não os buffers nativos do canvas, que
+    // são a maior parte do consumo aqui), mas ajuda esta parte a estourar
+    // "na mão" (erro capturável, o processo simplesmente sai) em vez de
+    // contribuir pro total que faz a PLATAFORMA matar o container inteiro.
+    execArgv: ['--max-old-space-size=256']
   });
   let settled = false;
 
