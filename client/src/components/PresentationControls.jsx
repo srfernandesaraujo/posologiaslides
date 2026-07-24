@@ -179,11 +179,18 @@ export default function PresentationControls({
 
       {/* Modo Destaque: escurece os demais elementos do slide ao tocar num —
           botão independente (não é um "activeTool"), pra poder ficar ligado
-          ao mesmo tempo que o laser/caneta em vez de competir com eles. */}
+          ao mesmo tempo que o laser/caneta em vez de competir com eles. Só
+          tem efeito de verdade em apresentação real (tela cheia, ver
+          spotlightEnabled/buildSpotlightScript em PresentationViewer.jsx) —
+          fora dela o clique num elemento já é usado pra SELECIONAR/editar,
+          então os dois listeners de clique competiriam. Desabilitado (com
+          dica explicando o motivo) fora da tela cheia, em vez de ficar
+          clicável sem fazer nada — sem isso parecia simplesmente quebrado. */}
       <button
         className={`btn-icon ${spotlightOn ? 'active' : ''}`}
         onClick={onToggleSpotlight}
-        title="Modo Destaque (escurece os demais elementos ao tocar um)"
+        disabled={!isFullscreen}
+        title={isFullscreen ? 'Modo Destaque (escurece os demais elementos ao tocar um)' : 'Modo Destaque — disponível durante a apresentação (clique em Apresentar/tela cheia)'}
       >
         <Lightbulb size={18} />
       </button>

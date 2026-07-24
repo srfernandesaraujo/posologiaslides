@@ -517,6 +517,16 @@ button.mobile-toggle-btn {
   box-shadow: 0 0 12px var(--accent-primary-glow);
 }
 
+.btn-icon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn-icon:disabled:hover {
+  color: var(--text-muted);
+  background: transparent;
+}
+
 .btn-primary {
   background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-strong));
   color: white;
