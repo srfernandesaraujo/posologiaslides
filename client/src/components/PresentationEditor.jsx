@@ -306,7 +306,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     const newSlide = {
       id: `slide-${Date.now()}`,
       title: 'Novo Slide',
-      html: '<div class="slide-root" style="display:flex; align-items:center; justify-content:center; height:100%; padding:2rem; color:#4b5563; font-size:1.05rem; text-align:center;">Slide em branco — use o chat de IA ou a biblioteca de blocos pra começar.</div>'
+      html: '<div class="slide-root" data-blank-placeholder="true" style="display:flex; align-items:center; justify-content:center; height:100%; padding:2rem; color:#4b5563; font-size:1.05rem; text-align:center;">Slide em branco — use o chat de IA ou a biblioteca de blocos pra começar.</div>'
     };
     const newSlides = [...presentation.slides];
     newSlides.splice(insertIndex, 0, newSlide);
@@ -400,12 +400,20 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         }));
         setSelectedEl({ index: data.index, scope: data.scope, rect: data.rect });
       } else if (data.type === 'crop') {
-        // Alça de recorte solta (ver buildEditorScript/sendCrop) — clip-path
-        // não muda a caixa do elemento, só grava o recorte; sem precisar
-        // atualizar `selectedEl` (rect intacto).
-        updateCurrentSlideHtml((html) => setCropAt(html, data.index, {
-          topPct: data.topPct, rightPct: data.rightPct, bottomPct: data.bottomPct, leftPct: data.leftPct
-        }));
+        // Alça de recorte solta (ver buildEditorScript/sendCrop) — antes de
+        // gravar o recorte em si, persiste a mesma caixa "livre" (posição/
+        // tamanho fixados em %) que detach() já tinha aplicado ao vivo no
+        // iframe; sem isto o elemento (se ainda não estivesse "livre" antes,
+        // ex. imagem recém-inserida) voltava pro fluxo normal no próximo
+        // recarregamento e o corte deixava de bater com a caixa real.
+        updateCurrentSlideHtml((html) => {
+          const positioned = setPositionAt(html, data.index, {
+            leftPct: data.posLeftPct, topPct: data.posTopPct, widthPct: data.posWidthPct, heightPct: data.posHeightPct
+          });
+          return setCropAt(positioned, data.index, {
+            topPct: data.topPct, rightPct: data.rightPct, bottomPct: data.bottomPct, leftPct: data.leftPct
+          });
+        });
       } else if (data.type === 'reset-crop') {
         // Duplo clique num elemento recortado (ver buildEditorScript) — mesma
         // ação do botão "Remover recorte" na barra flutuante, só que disparada

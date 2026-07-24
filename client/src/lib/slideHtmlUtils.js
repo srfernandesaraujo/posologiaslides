@@ -368,6 +368,19 @@ export function clearAnimationAt(html, index) {
 export function appendIntoRoot(html, fragment, meta) {
   const template = parseFragment(html);
   const container = getContainer(template);
+
+  // Slide em branco novo (ver handleAddSlideAt em PresentationEditor.jsx) tem
+  // um texto de placeholder marcado com data-blank-placeholder DENTRO do
+  // próprio ".slide-root" — sem isto, o primeiro bloco inserido só se
+  // empilhava ao LADO do texto (ambos filhos do mesmo flex centralizado), e o
+  // aviso "Slide em branco..." continuava visível por cima/atrás do conteúdo
+  // real pra sempre.
+  if (container.hasAttribute && container.hasAttribute('data-blank-placeholder')) {
+    container.removeAttribute('data-blank-placeholder');
+    container.removeAttribute('style');
+    container.textContent = '';
+  }
+
   const fragTemplate = parseFragment(fragment);
 
   let node;

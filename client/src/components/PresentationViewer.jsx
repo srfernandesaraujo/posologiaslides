@@ -221,10 +221,20 @@ function buildEditorScript(initialSelected, initialCropMode) {
   }
 
   // clip-path não muda getBoundingClientRect() do elemento (só afeta
-  // pintura/hit-test) — ao contrário de sendReposition, não precisa mandar
-  // o retângulo de volta: a caixa do elemento não mudou, só o que é visível dela.
+  // pintura/hit-test), mas a alça de recorte chama detach() no pointerdown
+  // (ver abaixo) igual arrastar/redimensionar — e ESSA parte (position:
+  // absolute + left/top/width/height fixados em %) só existe ao vivo aqui no
+  // iframe, nunca persistida, a menos que também seja mandada pro pai. Sem
+  // isto, um elemento recém-inserido (ainda em fluxo normal, sem
+  // data-el-positioned) recortava certinho na hora, mas ao recarregar o
+  // iframe (próxima ação, tela cheia, F5) voltava pro fluxo normal e o corte
+  // já não batia mais com a caixa real — na prática, parecia que o recorte
+  // não tinha feito nada. Manda a mesma caixa "livre" que sendReposition já
+  // manda, junto com os insets.
   function sendCrop(el, insets) {
     justDragged = true;
+    var containerRect = container.getBoundingClientRect();
+    var elRect = el.getBoundingClientRect();
     window.parent.postMessage({
       source: '${SLIDE_EDITOR_MESSAGE_SOURCE}',
       type: 'crop',
@@ -233,7 +243,11 @@ function buildEditorScript(initialSelected, initialCropMode) {
       topPct: insets.top,
       rightPct: insets.right,
       bottomPct: insets.bottom,
-      leftPct: insets.left
+      leftPct: insets.left,
+      posLeftPct: (elRect.left - containerRect.left) / containerRect.width * 100,
+      posTopPct: (elRect.top - containerRect.top) / containerRect.height * 100,
+      posWidthPct: elRect.width / containerRect.width * 100,
+      posHeightPct: elRect.height / containerRect.height * 100
     }, '*');
   }
 
