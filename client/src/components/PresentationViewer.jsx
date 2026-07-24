@@ -511,8 +511,17 @@ function buildEditorScript(initialSelected, initialCropMode) {
       sendSelect(selected);
     }
 
-    var leftPx = dragState.startLeftPx + dx;
-    var topPx = dragState.startTopPx + dy;
+    // Shift travado no eixo dominante a partir do ponto de início do arrasto
+    // (mesmo atalho do PowerPoint/Illustrator) — reavaliado a cada frame, então
+    // soltar Shift no meio do arrasto libera o outro eixo de novo.
+    var lockedDx = dx;
+    var lockedDy = dy;
+    if (e.shiftKey) {
+      if (Math.abs(dx) > Math.abs(dy)) { lockedDy = 0; } else { lockedDx = 0; }
+    }
+
+    var leftPx = dragState.startLeftPx + lockedDx;
+    var topPx = dragState.startTopPx + lockedDy;
     dragState.el.style.left = (leftPx / dragState.containerWidth * 100) + '%';
     dragState.el.style.top = (topPx / dragState.containerHeight * 100) + '%';
     refreshHandles();
@@ -592,6 +601,19 @@ function buildEditorScript(initialSelected, initialCropMode) {
     selected.classList.add('__pos-selected');
     refreshHandles();
     sendSelect(match);
+  });
+
+  // Duplo clique num elemento recortado (ver setCropAt/data-el-crop) volta ele
+  // pro formato inteiro — mesmo resultado do botão "Remover recorte" da barra
+  // flutuante, só que sem precisar selecionar e depois caçar o ícone. Some o
+  // clip-path na hora aqui (feedback imediato) e avisa o pai só pra persistir.
+  document.body.addEventListener('dblclick', function (e) {
+    var match = e.target.closest(selector);
+    if (!match || !match.hasAttribute('data-el-crop')) return;
+    match.style.clipPath = '';
+    match.removeAttribute('data-el-crop');
+    refreshHandles();
+    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'reset-crop', index: indexOf(match) }, '*');
   });
 
   // Ver comentário de "initialCropMode" acima de buildEditorScript: liga/

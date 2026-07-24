@@ -1,7 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import PresentationViewer from './PresentationViewer';
 import { TRANSITION_DEFAULTS, resolveTransition } from '../lib/transitionCatalog';
-import { Clock, Eye, Sparkles, Search, ChevronRight, ChevronLeft, Lightbulb, MessageSquare, X } from 'lucide-react';
+import { apiFetch } from '../lib/api';
+import { Clock, Eye, Sparkles, Search, ChevronRight, ChevronLeft, Lightbulb, MessageSquare, X, Loader2, ExternalLink } from 'lucide-react';
+
+// Extrai só o texto legível do HTML do slide (sem tags/CSS/JS) — usado como
+// contexto pro Copiloto de perguntas e pra pesquisa web, pra não gastar tokens
+// (nem confundir o modelo) com marcação/estilo/script embutidos no slide.
+function extractSlideText(html) {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script, style').forEach((el) => el.remove());
+  return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+}
 
 export default function PresenterWindow({
   slides,
@@ -16,11 +27,13 @@ export default function PresenterWindow({
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(true);
   const [webQuery, setWebQuery] = useState('');
-  const [webResults, setWebResults] = useState(null);
+  const [webResult, setWebResult] = useState(null);
+  const [webWarning, setWebWarning] = useState(null);
   const [webLoading, setWebLoading] = useState(false);
 
   // Copiloto IA: Sugestões de perguntas instigantes baseadas no slide
   const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const currentSlide = atClosingSlide ? closingSlide : (slides[currentIndex] || { title: 'Slide Atual', html: '' });
   const nextSlide = atClosingSlide ? null : (slides[currentIndex + 1] || null);
@@ -37,21 +50,35 @@ export default function PresenterWindow({
     return () => clearInterval(interval);
   }, [isTimerRunning]);
 
-  // Gera sugestões de perguntas do Copiloto quando o slide muda
+  // Gera sugestões de perguntas do Copiloto quando o slide muda — pede pra IA
+  // perguntas ancoradas no CONTEÚDO REAL deste slide específico (título + texto
+  // extraído do HTML), não mais as mesmas 3 perguntas genéricas fixas de sempre.
   useEffect(() => {
     if (!currentSlide) return;
-    generateAiQuestionsForSlide(currentSlide);
-  }, [currentIndex]);
+    let cancelled = false;
+    setAiLoading(true);
 
-  const generateAiQuestionsForSlide = (slide) => {
-    const title = slide.title || 'Slide';
-    // Sugestões inteligentes de perguntas instigantes
-    setAiSuggestions([
-      `"Qual seria a primeira conduta clínica que vocês tomariam diante dos dados deste slide?"`,
-      `"Alguém saberia me dizer qual a principal complicação se não seguirmos este protocolo?"`,
-      `"Como essa evidência se relaciona com o caso clínico discutido na aula anterior?"`
-    ]);
-  };
+    (async () => {
+      try {
+        const res = await apiFetch('/api/ai/generate-questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            slideTitle: currentSlide.title,
+            slideText: extractSlideText(currentSlide.html)
+          })
+        });
+        const data = await res.json();
+        if (!cancelled) setAiSuggestions(data.questions || []);
+      } catch {
+        if (!cancelled) setAiSuggestions([]);
+      } finally {
+        if (!cancelled) setAiLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [currentIndex]);
 
   const formatTime = (totalSeconds) => {
     const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
@@ -59,21 +86,32 @@ export default function PresenterWindow({
     return `${m}:${s}`;
   };
 
+  // Pesquisa real na web (Google Search via grounding do Gemini, ver
+  // searchWebForPresenter em aiService.js) — antes era um mock com setTimeout
+  // que sempre devolvia 2 respostas de template com o termo buscado só
+  // interpolado no meio, nenhuma busca de verdade acontecia.
   const handleWebSearch = async (e) => {
     e.preventDefault();
     if (!webQuery.trim()) return;
     setWebLoading(true);
+    setWebResult(null);
+    setWebWarning(null);
 
     try {
-      // Simula busca rápida de artigos/evidências científicas
-      setTimeout(() => {
-        setWebResults([
-          { title: `Diretrizes Atualizadas 2026: ${webQuery}`, snippet: `Estudos clínicos recentes indicam uma taxa de eficácia de 89% no tratamento primário.` },
-          { title: `Revisão Farmacológica: ${webQuery}`, snippet: `Mecanismo de ação envolve inibição seletiva de receptores específicos com meia-vida prolongada.` }
-        ]);
-        setWebLoading(false);
-      }, 800);
-    } catch (err) {
+      const res = await apiFetch('/api/ai/web-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: webQuery.trim(),
+          slideContext: extractSlideText(currentSlide?.html)
+        })
+      });
+      const data = await res.json();
+      setWebResult(data.result || null);
+      setWebWarning(data.warning || (data.result ? null : 'Não foi possível pesquisar agora.'));
+    } catch {
+      setWebWarning('Não foi possível pesquisar agora — verifique sua conexão.');
+    } finally {
       setWebLoading(false);
     }
   };
@@ -165,13 +203,22 @@ export default function PresenterWindow({
             <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#67e8f9', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Lightbulb size={16} /> Copiloto IA: Perguntas para a Plateia
             </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {aiSuggestions.map((q, idx) => (
-                <div key={idx} style={{ background: 'rgba(34,211,238,0.1)', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', fontSize: '0.82rem', color: '#cffafe', borderLeft: '3px solid var(--accent-primary)' }}>
-                  {q}
-                </div>
-              ))}
-            </div>
+            {aiLoading ? (
+              <div style={{ fontSize: '0.78rem', color: '#67e8f9', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Loader2 size={13} className="animate-spin" /> Pensando em perguntas para este slide...
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {aiSuggestions.map((q, idx) => (
+                  <div key={idx} style={{ background: 'rgba(34,211,238,0.1)', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', fontSize: '0.82rem', color: '#cffafe', borderLeft: '3px solid var(--accent-primary)' }}>
+                    "{q}"
+                  </div>
+                ))}
+                {aiSuggestions.length === 0 && (
+                  <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>Não foi possível gerar perguntas para este slide.</div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Busca Rápida na Web para Perguntas Difíceis */}
@@ -188,21 +235,43 @@ export default function PresenterWindow({
                 value={webQuery}
                 onChange={(e) => setWebQuery(e.target.value)}
               />
-              <button type="submit" className="btn-primary" style={{ padding: '0.4rem 0.7rem' }}>
+              <button type="submit" className="btn-primary" style={{ padding: '0.4rem 0.7rem' }} disabled={webLoading}>
                 <Search size={14} />
               </button>
             </form>
 
-            {webLoading && <div style={{ fontSize: '0.78rem', color: '#38bdf8' }}>Buscando evidências na web...</div>}
+            {webLoading && (
+              <div style={{ fontSize: '0.78rem', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Loader2 size={13} className="animate-spin" /> Pesquisando na web...
+              </div>
+            )}
 
-            {webResults && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '120px', overflowY: 'auto' }}>
-                {webResults.map((r, i) => (
-                  <div key={i} style={{ background: 'rgba(255,255,255,0.03)', padding: '0.5rem', borderRadius: '0.4rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f3f4f6' }}>{r.title}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{r.snippet}</div>
+            {!webLoading && webWarning && (
+              <div style={{ fontSize: '0.78rem', color: '#fbbf24' }}>{webWarning}</div>
+            )}
+
+            {!webLoading && webResult && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '220px', overflowY: 'auto' }}>
+                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem 0.7rem', borderRadius: '0.4rem', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: '0.8rem', color: '#f3f4f6', lineHeight: 1.5 }}>{webResult.answer}</div>
+                </div>
+                {webResult.sources?.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Fontes</div>
+                    {webResult.sources.map((s, i) => (
+                      <a
+                        key={i}
+                        href={s.uri}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: '0.75rem', color: '#67e8f9', display: 'flex', alignItems: 'center', gap: '0.3rem', textDecoration: 'none' }}
+                      >
+                        <ExternalLink size={11} style={{ flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</span>
+                      </a>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>

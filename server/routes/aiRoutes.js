@@ -1,5 +1,5 @@
 import express from 'express';
-import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote } from '../services/aiService.js';
+import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote, generateSlideQuestions, searchWebForPresenter } from '../services/aiService.js';
 import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
@@ -159,6 +159,32 @@ router.post('/generate-quote', async (req, res) => {
   } catch (error) {
     console.error('Erro na rota generate-quote:', error);
     res.status(500).json({ error: 'Falha ao gerar a citação de encerramento.' });
+  }
+});
+
+// Rota 6: Perguntas do Copiloto (Visão do Apresentador) contextualizadas no slide atual
+router.post('/generate-questions', async (req, res) => {
+  try {
+    const { slideTitle, slideText, apiKey } = req.body;
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const { questions, warning } = await generateSlideQuestions({ slideTitle, slideText, apiKey: effectiveApiKey });
+    res.json({ success: true, questions, warning: warning || null });
+  } catch (error) {
+    console.error('Erro na rota generate-questions:', error);
+    res.status(500).json({ error: 'Falha ao gerar as perguntas do Copiloto.' });
+  }
+});
+
+// Rota 7: Pesquisa real na web (Visão do Apresentador) via grounding do Gemini
+router.post('/web-search', async (req, res) => {
+  try {
+    const { query, slideContext, apiKey } = req.body;
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const { result, warning } = await searchWebForPresenter({ query, slideContext, apiKey: effectiveApiKey });
+    res.json({ success: true, result: result || null, warning: warning || null });
+  } catch (error) {
+    console.error('Erro na rota web-search:', error);
+    res.status(500).json({ error: 'Falha ao pesquisar na web.' });
   }
 });
 

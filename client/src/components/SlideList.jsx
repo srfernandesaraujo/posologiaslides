@@ -30,7 +30,7 @@ function LazySlidePreview({ html }) {
   );
 }
 
-export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onDeleteSlide, onReorderSlides, className = '', onClose }) {
+export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onInsertSlideAfter, onDeleteSlide, onReorderSlides, className = '', onClose }) {
   const listRef = useRef(null);
   // Índice sendo arrastado e índice "bruto" (antes do ajuste de deslocamento,
   // ver handlePointerUp) sobre o qual o ponteiro está no momento — null
@@ -166,6 +166,20 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
           <div className="slide-thumb-caption">
             {slide.title || `Slide ${idx + 1}`}
           </div>
+
+          {onInsertSlideAfter && (
+            <button
+              type="button"
+              className="slide-insert-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onInsertSlideAfter(idx);
+              }}
+              title="Inserir slide depois deste"
+            >
+              <Plus size={14} />
+            </button>
+          )}
         </div>
       ))}
     </div>

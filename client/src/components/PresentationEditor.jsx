@@ -298,6 +298,22 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     handleChangeBranches(nextBranches);
   };
 
+  // Cria um slide em branco pronto pro professor montar do zero (chat de IA,
+  // biblioteca de blocos/mídia) — usado tanto por "Adicionar Novo Slide Vazio"
+  // (sempre no fim) quanto pelo botão "+" que aparece ao passar o mouse numa
+  // miniatura (logo depois dela, ver SlideList/onInsertSlideAfter abaixo).
+  const handleAddSlideAt = (insertIndex) => {
+    const newSlide = {
+      id: `slide-${Date.now()}`,
+      title: 'Novo Slide',
+      html: '<div class="slide-root" style="display:flex; align-items:center; justify-content:center; height:100%; padding:2rem; color:#4b5563; font-size:1.05rem; text-align:center;">Slide em branco — use o chat de IA ou a biblioteca de blocos pra começar.</div>'
+    };
+    const newSlides = [...presentation.slides];
+    newSlides.splice(insertIndex, 0, newSlide);
+    commit({ ...presentation, slides: newSlides });
+    emitSlideChanged(insertIndex);
+  };
+
   const handleMarkHotspotPoint = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
@@ -390,6 +406,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         updateCurrentSlideHtml((html) => setCropAt(html, data.index, {
           topPct: data.topPct, rightPct: data.rightPct, bottomPct: data.bottomPct, leftPct: data.leftPct
         }));
+      } else if (data.type === 'reset-crop') {
+        // Duplo clique num elemento recortado (ver buildEditorScript) — mesma
+        // ação do botão "Remover recorte" na barra flutuante, só que disparada
+        // direto no palco, sem precisar selecionar e depois clicar no ícone.
+        updateCurrentSlideHtml((html) => clearCropAt(html, data.index));
       } else if (data.type === 'zoom-gesture') {
         // Pinça de dois dedos ou Ctrl+roda do mouse (ver buildZoomGestureScript,
         // só ativo em apresentação de verdade) — o script só manda o FATOR de
@@ -816,14 +837,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             setMobileSlideListOpen(false);
           }}
           onClose={() => setMobileSlideListOpen(false)}
-          onAddSlide={() => {
-            const newSlide = { id: `slide-${Date.now()}`, title: `Novo Slide ${presentation.slides.length + 1}`, html: '<div style="padding:2rem; color:white;">Novo Slide Interativo</div>' };
-            const newIndex = presentation.slides.length;
-            commit({ ...presentation, slides: [...presentation.slides, newSlide] });
-            // Seleciona o slide recém-criado em vez de deixar o palco parado
-            // no slide que estava ativo antes de adicionar.
-            emitSlideChanged(newIndex);
-          }}
+          onAddSlide={() => handleAddSlideAt(presentation.slides.length)}
+          onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
           onDeleteSlide={(idxToDelete) => {
             if (presentation.slides.length <= 1) return;
             const newSlides = presentation.slides.filter((_, i) => i !== idxToDelete);

@@ -449,6 +449,125 @@ export async function generateClosingQuote({ presentationTitle, description, api
   }
 }
 
+// Perguntas de exemplo só quando não há chave de API — nunca usadas com IA
+// disponível (ver generateSlideQuestions).
+const FALLBACK_QUESTIONS = [
+  'Qual seria a primeira conduta clínica que vocês tomariam diante dos dados deste slide?',
+  'Alguém saberia me dizer qual a principal complicação se não seguirmos este protocolo?',
+  'Como essa evidência se relaciona com o caso clínico discutido na aula anterior?'
+];
+
+// Gera 3 perguntas pro Copiloto do apresentador FEITAS SOB MEDIDA pro conteúdo real
+// do slide atual (título + texto extraído do HTML, sem tags/CSS/JS) — antes eram
+// sempre as mesmas 3 perguntas genéricas fixas (FALLBACK_QUESTIONS acima), sem
+// nenhuma relação com o slide que estivesse em exibição.
+export async function generateSlideQuestions({ slideTitle, slideText, apiKey }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+
+  if (!effectiveApiKey) {
+    return { questions: FALLBACK_QUESTIONS, warning: 'Nenhuma chave de API do Gemini configurada. Exibindo perguntas de exemplo.' };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const prompt = `
+    Você é um professor experiente prestes a apresentar o slide abaixo para uma turma.
+    Gere EXATAMENTE 3 perguntas instigantes para fazer À TURMA sobre o CONTEÚDO
+    ESPECÍFICO deste slide — nunca perguntas genéricas que serviriam para qualquer
+    slide de qualquer aula.
+
+    TÍTULO DO SLIDE: "${slideTitle || 'Sem título'}"
+    CONTEÚDO DO SLIDE (texto extraído, sem formatação):
+    """
+    ${(slideText || '').slice(0, 4000) || '(sem texto extraído)'}
+    """
+
+    Regras obrigatórias:
+    - Cada pergunta deve citar ou se apoiar em um dado, termo, número ou conceito que
+      REALMENTE aparece no conteúdo acima — nunca uma pergunta que funcionaria em
+      qualquer slide de qualquer aula.
+    - Curtas (1 frase cada), em português, terminadas em "?".
+    - Sem numeração, sem marcador, sem markdown, sem aspas ao redor da frase.
+    - Uma pergunta por linha, nada além disso.
+
+    Responda APENAS com as 3 perguntas, uma por linha.
+    `;
+
+    const result = await model.generateContent(prompt);
+    const questions = result.response.text()
+      .split('\n')
+      .map((line) => line.replace(/^[-*\d.)\s]+/, '').replace(/^["'“]+|["'”]+$/g, '').trim())
+      .filter(Boolean)
+      .slice(0, 3);
+
+    return { questions: questions.length === 3 ? questions : FALLBACK_QUESTIONS };
+  } catch (error) {
+    console.error('Erro na API Gemini (Perguntas do Copiloto):', error.message);
+    return { questions: FALLBACK_QUESTIONS, warning: `Falha ao gerar perguntas com IA (${error.message}). Exibindo perguntas de exemplo.` };
+  }
+}
+
+// Pesquisa de verdade na web (Google Search via grounding nativo do Gemini) — antes
+// era um mock com setTimeout que sempre devolvia 2 respostas de template com o termo
+// buscado interpolado no meio, sem nenhuma busca real acontecer. Retorna uma resposta
+// sintetizada e as fontes reais usadas para chegar nela (ver groundingMetadata),
+// em vez de tentar imitar uma lista de resultados de motor de busca.
+export async function searchWebForPresenter({ query, slideContext, apiKey }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+
+  if (!effectiveApiKey) {
+    return { warning: 'Nenhuma chave de API do Gemini configurada. Configure sua chave em Configurações para pesquisar na web.' };
+  }
+  if (!query || !query.trim()) {
+    return { warning: 'Digite algo para pesquisar.' };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    // `tools` vai na CRIAÇÃO do modelo (não em generateContent) — é assim que o SDK
+    // encaminha pro campo "tools" da requisição REST (ver node_modules/@google/
+    // generative-ai/dist/index.js). "googleSearch" é a chave da ferramenta de
+    // grounding pros modelos 2.x — a lib tem só o tipo antigo "googleSearchRetrieval"
+    // (de modelos 1.5) declarado no .d.ts, mas isso é só checagem de TypeScript: o
+    // objeto passa direto sem validação de runtime, então a API do Gemini recebe e
+    // interpreta a chave nova normalmente.
+    const model = genAI.getGenerativeModel({
+      model: GEMINI_MODEL,
+      tools: [{ googleSearch: {} }]
+    });
+
+    const contextLine = slideContext ? `\nContexto (slide em exibição agora na aula): "${slideContext.slice(0, 500)}"` : '';
+    const prompt = `Pesquise na web agora e responda em português, de forma direta e factual, à pergunta de um professor durante uma aula: "${query}"${contextLine}\n\nSeja objetivo (2 a 4 frases), cite números/valores concretos quando a busca confirmar algum, e não invente nada que a pesquisa não sustente.`;
+
+    const result = await model.generateContent(prompt);
+    const answer = result.response.text().trim();
+    const candidate = result.response.candidates?.[0];
+    const grounding = candidate?.groundingMetadata;
+    // "groundingChuncks" (com erro de digitação) é o nome que aparece no .d.ts desta
+    // versão da lib — mantém os dois nomes pra não depender de qual a API realmente
+    // devolver.
+    const chunks = grounding?.groundingChunks || grounding?.groundingChuncks || [];
+
+    const seenUrls = new Set();
+    const sources = chunks
+      .map((c) => c.web)
+      .filter((web) => web?.uri && !seenUrls.has(web.uri) && seenUrls.add(web.uri))
+      .slice(0, 5)
+      .map((web) => ({ title: web.title || web.uri, uri: web.uri }));
+
+    if (!answer) {
+      return { warning: 'A busca não encontrou uma resposta clara — tente reformular a pergunta.' };
+    }
+
+    return { result: { query, answer, sources } };
+  } catch (error) {
+    console.error('Erro na API Gemini (Busca Web com Grounding):', error.message);
+    return { warning: `Falha ao pesquisar na web (${error.message}).` };
+  }
+}
+
 // Auxiliares de parsing e fallback inteligente
 function extractJson(text) {
   const match = text.match(/\{[\s\S]*\}/);
