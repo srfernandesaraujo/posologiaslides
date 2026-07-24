@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Users, BarChart2, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2 } from 'lucide-react';
+import { Users, BarChart2, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart } from 'lucide-react';
+import { layoutWordCloud } from '../lib/wordCloudLayout';
 import { apiFetch } from '../lib/api';
 
 export default function ActiveMethodologiesOverlay({
@@ -10,7 +11,7 @@ export default function ActiveMethodologiesOverlay({
   slideIndex,
   onNavigateBranch
 }) {
-  const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [] });
+  const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   const [participantCount, setParticipantCount] = useState(0);
   const [leaderboard, setLeaderboard] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -21,7 +22,7 @@ export default function ActiveMethodologiesOverlay({
 
     const handleUpdate = ({ slideIndex: updatedSlideIndex, responses, totalParticipants }) => {
       if (updatedSlideIndex === slideIndex) {
-        setLiveData(responses || { answers: [], words: [], irat: [], hotspots: [], branchVotes: [] });
+        setLiveData(responses || { answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
       }
       setParticipantCount(totalParticipants || 0);
     };
@@ -82,6 +83,20 @@ export default function ActiveMethodologiesOverlay({
     if (iratCounts[r.choice] !== undefined) iratCounts[r.choice]++;
   });
 
+  // Calcula a média de pontos alocados por opção (distribuição de 100 pontos),
+  // ordenada da maior média pra menor — cada resposta individual já soma 100,
+  // então a média das 4 opções entre todas as respostas também soma 100.
+  const pointsResponses = liveData.points || [];
+  const pointsTotals = { A: 0, B: 0, C: 0, D: 0 };
+  pointsResponses.forEach((p) => {
+    ['A', 'B', 'C', 'D'].forEach((k) => { pointsTotals[k] += Number(p.allocation?.[k]) || 0; });
+  });
+  const pointsDivisor = pointsResponses.length || 1;
+  const pointsRanked = ['A', 'B', 'C', 'D']
+    .map((k) => ({ key: k, avg: pointsTotals[k] / pointsDivisor }))
+    .sort((a, b) => b.avg - a.avg);
+  const maxPointsAvg = pointsRanked[0]?.avg || 1;
+
   // Agrega a nuvem de palavras por frequência (case-insensitive) — sem isso,
   // 5 alunos respondendo "dor" viravam 5 pills iguais em vez de uma palavra
   // maior. Tamanho da fonte é proporcional à contagem, não fixo.
@@ -92,10 +107,16 @@ export default function ActiveMethodologiesOverlay({
     if (!wordCounts.has(key)) wordCounts.set(key, { word: item.word.trim(), count: 0 });
     wordCounts.get(key).count += 1;
   });
-  const wordEntries = [...wordCounts.values()].sort((a, b) => b.count - a.count);
-  const maxWordCount = wordEntries[0]?.count || 1;
-  const minWordCount = wordEntries[wordEntries.length - 1]?.count || 1;
-  const WORD_COLORS = ['#22d3ee', '#34d399', '#38bdf8', '#67e8f9'];
+  // Cap nas 40 palavras mais frequentes — além disso o layout em espiral fica
+  // lento pra achar espaço livre e a nuvem vira ruído visual ilegível.
+  const wordEntries = [...wordCounts.values()].sort((a, b) => b.count - a.count).slice(0, 40);
+  const WORD_CLOUD_AREA = { width: 360, height: 250, maxFontSize: 38 };
+  const WORD_COLORS = ['#22d3ee', '#34d399', '#a78bfa', '#38bdf8', '#f472b6', '#fbbf24'];
+  const wordLayout = useMemo(
+    () => layoutWordCloud(wordEntries, WORD_CLOUD_AREA),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(wordEntries)]
+  );
 
   return (
     <div style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
@@ -167,34 +188,34 @@ export default function ActiveMethodologiesOverlay({
 
       {/* Widget de Nuvem de Palavras */}
       {currentSlide?.type === 'wordcloud' && (
-        <div className="glass-panel" style={{ padding: '1.1rem', width: 'min(380px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+        <div className="glass-panel" style={{ padding: '1.1rem', width: 'min(410px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
           <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
             <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'center', gap: '0.1rem 0.5rem', maxHeight: '220px', overflowY: 'auto', padding: '0.25rem' }}>
-            {wordEntries.map((entry, idx) => {
-              const ratio = maxWordCount === minWordCount ? 1 : (entry.count - minWordCount) / (maxWordCount - minWordCount);
-              const fontSize = 0.85 + ratio * 1.35;
-              const colorIdx = idx % WORD_COLORS.length;
-              return (
-                <span
-                  key={entry.word}
-                  title={`${entry.count}x`}
-                  style={{
-                    fontSize: `${fontSize}rem`,
-                    fontWeight: 700,
-                    color: WORD_COLORS[colorIdx],
-                    lineHeight: 1.25,
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {entry.word}
-                </span>
-              );
-            })}
+          <div style={{ position: 'relative', width: `${WORD_CLOUD_AREA.width}px`, height: `${WORD_CLOUD_AREA.height}px`, margin: '0 auto' }}>
+            {wordLayout.map((entry, idx) => (
+              <span
+                key={entry.word}
+                title={`${entry.count}x`}
+                style={{
+                  position: 'absolute',
+                  left: `calc(50% + ${entry.x}px)`,
+                  top: `calc(50% + ${entry.y}px)`,
+                  fontSize: `${entry.fontSize}px`,
+                  fontWeight: 800,
+                  color: WORD_COLORS[idx % WORD_COLORS.length],
+                  lineHeight: 1.15,
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {entry.word}
+              </span>
+            ))}
             {wordEntries.length === 0 && (
-              <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>Aguardando palavras enviadas pelos alunos...</span>
+              <span style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', fontSize: '0.78rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                Aguardando palavras enviadas pelos alunos...
+              </span>
             )}
           </div>
 
@@ -242,6 +263,35 @@ export default function ActiveMethodologiesOverlay({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Widget de Distribuição de 100 Pontos */}
+      {currentSlide?.type === 'points' && (
+        <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+            <PieChart size={16} /> Distribuição de Pontos ({pointsResponses.length})
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {pointsRanked.map(({ key, avg }) => {
+              const pct = maxPointsAvg > 0 ? (avg / maxPointsAvg) * 100 : 0;
+              return (
+                <div key={key} style={{ fontSize: '0.8rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e5e7eb', fontWeight: 700, marginBottom: '0.2rem' }}>
+                    <span>Opção {key}</span>
+                    <span>{Math.round(avg)} pts</span>
+                  </div>
+                  <div style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #fbbf24, #f59e0b)', transition: 'width 0.6s cubic-bezier(0.16, 1, 0.3, 1)' }} />
+                  </div>
+                </div>
+              );
+            })}
+            {pointsResponses.length === 0 && (
+              <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>Aguardando distribuições enviadas pelos alunos...</span>
+            )}
           </div>
         </div>
       )}

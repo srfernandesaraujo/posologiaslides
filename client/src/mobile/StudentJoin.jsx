@@ -3,6 +3,59 @@ import { io } from 'socket.io-client';
 import { API_URL } from '../lib/api';
 import { Smartphone, Send, CheckCircle2, Sparkles, Users } from 'lucide-react';
 
+const POINTS_TOTAL = 100;
+const POINTS_KEYS = ['A', 'B', 'C', 'D'];
+const POINTS_COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981'];
+const EVEN_SPLIT = POINTS_KEYS.reduce((acc, k) => ({ ...acc, [k]: POINTS_TOTAL / POINTS_KEYS.length }), {});
+
+// Move o slider de `key` pra `nextValue` e tira/devolve a diferença dos outros
+// três, proporcionalmente ao que cada um já tinha — assim a soma dos 4 nunca
+// sai de 100 e o aluno não precisa acertar as contas na mão.
+function rebalancePoints(allocation, key, nextValue) {
+  const clamped = Math.max(0, Math.min(POINTS_TOTAL, Math.round(nextValue)));
+  const others = POINTS_KEYS.filter((k) => k !== key);
+  const delta = clamped - allocation[key];
+  const othersTotal = others.reduce((sum, k) => sum + allocation[k], 0);
+
+  if (delta === 0) return allocation;
+
+  const next = { ...allocation, [key]: clamped };
+
+  if (delta > 0) {
+    // Precisa "roubar" `delta` pontos dos outros três — se eles não têm o
+    // suficiente, o slider nem chega a subir tanto quanto o aluno pediu.
+    const actualDelta = Math.min(delta, othersTotal);
+    next[key] = allocation[key] + actualDelta;
+    let remaining = actualDelta;
+    others.forEach((k, idx) => {
+      const isLast = idx === others.length - 1;
+      const share = othersTotal > 0 ? allocation[k] / othersTotal : 1 / others.length;
+      const cut = isLast ? remaining : Math.min(allocation[k], Math.round(actualDelta * share));
+      next[k] = allocation[k] - cut;
+      remaining -= cut;
+    });
+  } else {
+    // Devolve `-delta` pontos pros outros três, proporcionalmente ao que já tinham
+    // (se todos estiverem em 0, divide igualmente pra não ficar tudo num só).
+    const give = -delta;
+    let remaining = give;
+    others.forEach((k, idx) => {
+      const isLast = idx === others.length - 1;
+      const share = othersTotal > 0 ? allocation[k] / othersTotal : 1 / others.length;
+      const add = isLast ? remaining : Math.round(give * share);
+      next[k] = allocation[k] + add;
+      remaining -= add;
+    });
+  }
+
+  // Corrige deriva de arredondamento pra soma nunca fugir de 100 — ajusta no
+  // próprio slider que o aluno acabou de mexer, é o menos surpreendente.
+  const sum = POINTS_KEYS.reduce((s, k) => s + next[k], 0);
+  next[key] += POINTS_TOTAL - sum;
+
+  return next;
+}
+
 export default function StudentJoin() {
   const [socket, setSocket] = useState(null);
   const [pin, setPin] = useState('');
@@ -18,6 +71,7 @@ export default function StudentJoin() {
   // Estados de resposta do aluno
   const [quizChoice, setQuizChoice] = useState('');
   const [wordInput, setWordInput] = useState('');
+  const [pointsAllocation, setPointsAllocation] = useState(EVEN_SPLIT);
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
@@ -45,6 +99,7 @@ export default function StudentJoin() {
       setBranches(branches || null);
       setSubmitted(false); // Reseta estado de envio para o novo slide
       setScoreFeedback(null);
+      setPointsAllocation(EVEN_SPLIT);
     });
 
     newSocket.on('response_scored', ({ correct, points }) => {
@@ -105,6 +160,22 @@ export default function StudentJoin() {
         slideIndex: currentSlideIndex,
         responseType: 'hotspot',
         answer: { x, y }
+      });
+    }
+  };
+
+  const handlePointsSlide = (key, value) => {
+    setPointsAllocation((prev) => rebalancePoints(prev, key, Number(value)));
+  };
+
+  const handleSendPoints = () => {
+    setSubmitted(true);
+    if (socket) {
+      socket.emit('submit_response', {
+        pin,
+        slideIndex: currentSlideIndex,
+        responseType: 'points',
+        answer: pointsAllocation
       });
     }
   };
@@ -237,6 +308,40 @@ export default function StudentJoin() {
               onClick={handleHotspotTap}
               style={{ width: '100%', borderRadius: '0.75rem', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.15)' }}
             />
+          </div>
+        ) : slideType === 'points' ? (
+          <div style={{ width: '100%', maxWidth: '420px' }}>
+            <h4 style={{ textAlign: 'center', fontSize: '1.1rem', color: '#9ca3af', marginBottom: '0.3rem' }}>
+              Distribua 100 pontos entre as opções:
+            </h4>
+            <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#6b7280', marginBottom: '1.25rem' }}>
+              Arraste um slider — os outros se ajustam sozinhos pra soma sempre dar 100.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+              {POINTS_KEYS.map((key, idx) => (
+                <div key={key}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: POINTS_COLORS[idx] }}>Opção {key}</span>
+                    <span style={{ fontSize: '1.1rem', fontWeight: 800 }}>{pointsAllocation[key]}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max={POINTS_TOTAL}
+                    value={pointsAllocation[key]}
+                    onChange={(e) => handlePointsSlide(key, e.target.value)}
+                    style={{ width: '100%', accentColor: POINTS_COLORS[idx] }}
+                  />
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={handleSendPoints}
+              className="btn-primary"
+              style={{ width: '100%', justifyContent: 'center', padding: '0.8rem', fontSize: '1rem', marginTop: '1.5rem' }}
+            >
+              <Send size={18} /> Enviar Distribuição
+            </button>
           </div>
         ) : (
           <div style={{ width: '100%', maxWidth: '400px' }}>

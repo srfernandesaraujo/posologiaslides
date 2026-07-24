@@ -59,7 +59,7 @@ export function setupSocketIO(httpServer) {
         currentBranches: branches || null,
         scores: new Map(), // socketId -> { name, score }
         participants: new Map(), // socketId -> { name, joinedAt }
-        responses: {}, // slideIndex -> { answers: [], words: [], irat: [], hotspots: [] }
+        responses: {}, // slideIndex -> { answers: [], words: [], irat: [], hotspots: [], points: [] }
         startTime: Date.now(),
         lastSlideChangeAt: Date.now(),
         slideDwellTimes: {} // slideIndex -> totalSeconds
@@ -109,7 +109,7 @@ export function setupSocketIO(httpServer) {
       const studentName = participant ? participant.name : 'Anônimo';
 
       if (!session.responses[slideIndex]) {
-        session.responses[slideIndex] = { answers: [], words: [], irat: [], hotspots: [], branchVotes: [] };
+        session.responses[slideIndex] = { answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] };
       }
 
       const slideData = session.responses[slideIndex];
@@ -135,6 +135,10 @@ export function setupSocketIO(httpServer) {
         // Votação da turma na Trilha de Decisão — raciocínio clínico em grupo,
         // sem certo/errado, então sem pontuação (mesmo espírito do wordcloud).
         slideData.branchVotes.push({ student: studentName, answer, timestamp: Date.now() });
+      } else if (responseType === 'points') {
+        // Distribuição de 100 pontos entre A/B/C/D — enquete de opinião/priorização,
+        // sem gabarito (mesmo espírito do wordcloud/branch, sem pontuação).
+        slideData.points.push({ student: studentName, allocation: answer, timestamp: Date.now() });
       }
 
       if (scoreResult) {
@@ -258,8 +262,8 @@ export function getSessionReport(pin) {
 
   let totalResponses = 0;
   const perSlide = [...slideIndexes].sort((a, b) => a - b).map((slideIndex) => {
-    const data = session.responses[slideIndex] || { answers: [], words: [], irat: [], hotspots: [] };
-    const responseCount = data.answers.length + data.words.length + data.irat.length + (data.hotspots?.length || 0);
+    const data = session.responses[slideIndex] || { answers: [], words: [], irat: [], hotspots: [], points: [] };
+    const responseCount = data.answers.length + data.words.length + data.irat.length + (data.hotspots?.length || 0) + (data.points?.length || 0);
     totalResponses += responseCount;
 
     return {

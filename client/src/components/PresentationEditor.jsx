@@ -958,6 +958,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <option value="wordcloud">Nuvem de Palavras</option>
                 <option value="tbl">TBL — Verificação Individual (iRAT)</option>
                 <option value="hotspot">Hotspot em Imagem</option>
+                <option value="points">Distribuir 100 Pontos</option>
               </select>
             </div>
 
