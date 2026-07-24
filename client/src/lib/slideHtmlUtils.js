@@ -377,7 +377,15 @@ export function appendIntoRoot(html, fragment, meta) {
   // real pra sempre.
   if (container.hasAttribute && container.hasAttribute('data-blank-placeholder')) {
     container.removeAttribute('data-blank-placeholder');
-    container.removeAttribute('style');
+    // Só troca o style pelo mínimo (altura cheia) em vez de zerar tudo —
+    // a altura 100% era o que fazia o ".slide-root" ocupar o slide inteiro
+    // (não vem de nenhum CSS global, ver `doc` em PresentationViewer.jsx);
+    // removê-la fazia o container encolher pro tamanho do próprio conteúdo
+    // inserido (auto), sem espaço embaixo pra arrastar nada pra baixo ou
+    // soltar outro bloco (ex. um título acima/abaixo da imagem), e os
+    // cálculos de arrasto/recorte (em % da altura do container) ficavam
+    // errados com um container quase do tamanho só da imagem.
+    container.setAttribute('style', 'height:100%; position:relative;');
     container.textContent = '';
   }
 
