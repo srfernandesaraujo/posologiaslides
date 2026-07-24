@@ -185,8 +185,9 @@ function AnimatedNumber({ value, active, duration = 800, delay = 0 }) {
   return display;
 }
 
-// Roda por ~3 rodadas de números aleatórios ("caça-níquel") e só então trava no valor
-// real, avisando o pai via onSettle para disparar o piscar 2x do card.
+// Roda por ~3 rodadas de números aleatórios ("caça-níquel"), cada uma parada tempo
+// suficiente pra ser lida, e só então trava no valor real — dispara onSettle pro
+// pai piscar o card 2x.
 function RollingNumber({ value, active, onSettle }) {
   const [display, setDisplay] = useState(0);
 
@@ -195,11 +196,12 @@ function RollingNumber({ value, active, onSettle }) {
       setDisplay(0);
       return undefined;
     }
-    const rollStep = 130;
+    const rollStep = 450;
+    const rounds = 3;
     const spread = Math.max(value * 3, 9);
     const timers = [];
 
-    for (let round = 0; round < 3; round++) {
+    for (let round = 0; round < rounds; round++) {
       timers.push(setTimeout(() => {
         setDisplay(1 + Math.floor(Math.random() * spread));
       }, round * rollStep));
@@ -208,7 +210,7 @@ function RollingNumber({ value, active, onSettle }) {
     timers.push(setTimeout(() => {
       setDisplay(value);
       onSettle?.();
-    }, 3 * rollStep));
+    }, rounds * rollStep));
 
     return () => timers.forEach(clearTimeout);
   }, [active, value]);

@@ -1435,23 +1435,26 @@ button.mobile-toggle-btn {
 
 .landing-mockup-shimmer {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 55%;
   background: linear-gradient(
     100deg,
-    transparent 30%,
-    rgba(255, 255, 255, 0.09) 45%,
-    rgba(34, 211, 238, 0.16) 50%,
-    rgba(255, 255, 255, 0.09) 55%,
-    transparent 70%
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 35%,
+    rgba(34, 211, 238, 0.28) 50%,
+    rgba(255, 255, 255, 0.12) 65%,
+    transparent 100%
   );
-  background-size: 250% 100%;
-  animation: mockup-shimmer-sweep 2.6s ease-in-out infinite;
+  transform: translateX(-130%);
+  animation: mockup-shimmer-sweep 2.8s ease-in-out infinite;
   pointer-events: none;
 }
 
 @keyframes mockup-shimmer-sweep {
-  0% { background-position: 140% 0; }
-  100% { background-position: -40% 0; }
+  0% { transform: translateX(-130%); }
+  100% { transform: translateX(230%); }
 }
 
 .landing-mockup-line {
