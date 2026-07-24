@@ -154,6 +154,35 @@ function buildEditorScript(initialSelected, initialCropMode) {
     return Array.prototype.indexOf.call(container.children, el);
   }
 
+  // Um <iframe> (embed de página, ver handleInsertMedia) é outro contexto de
+  // navegação — cliques na área visível dele nunca chegam a este documento,
+  // então pointerdown/click acima nunca disparam e o elemento fica impossível
+  // de selecionar (logo, de apagar). Um escudo transparente por cima, só
+  // durante a edição (buildEditorScript nunca roda na apresentação real),
+  // intercepta o clique aqui; .closest(selector) sobe do escudo até o wrapper
+  // endereçável (mesmo índice de sempre), então seleção/apagar continuam
+  // funcionando como em qualquer outro elemento.
+  Array.prototype.forEach.call(container.querySelectorAll('iframe'), function (frame) {
+    var wrapper = frame.parentElement;
+    if (wrapper === container) {
+      // Iframe solto direto em ".slide-root" (sem wrapper próprio, ex. colado
+      // manualmente no editor de HTML) — embrulha no mesmo slot pra continuar
+      // endereçável pelo índice de sempre (a troca só existe aqui, ao vivo;
+      // o HTML persistido nem sabe que esse wrapper existe).
+      var rect = frame.getBoundingClientRect();
+      wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:relative; width:' + rect.width + 'px; height:' + rect.height + 'px;';
+      frame.replaceWith(wrapper);
+      wrapper.appendChild(frame);
+    } else if (getComputedStyle(wrapper).position === 'static') {
+      wrapper.style.position = 'relative';
+    }
+    var shield = document.createElement('div');
+    shield.className = '__pos-iframe-shield';
+    shield.style.cssText = 'position:absolute; inset:0; z-index:1; background:transparent;';
+    wrapper.appendChild(shield);
+  });
+
   // Controles nativos que dependem do próprio mousedown+arrastar pra
   // funcionar (slider de simulador, campo de texto, botão de aba/flashcard) —
   // iniciar o arrasto do elemento inteiro nesses casos sequestraria o gesto
