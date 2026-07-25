@@ -1290,17 +1290,22 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <Bot size={18} />
               </button>
             </div>
+            </div>
 
-            <ToolbarDivider />
-
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            {/* Fora do grupo acima (que tem seu próprio flex-wrap e pode quebrar
+                em telas mais estreitas) — como item de nível externo com
+                margin-left:auto, "Exibição"/"Apresentar" ficam sempre grudados
+                na borda direita da MESMA linha, mesmo se o resto do menu tiver
+                quebrado por falta de espaço (antes, por estarem dentro daquele
+                grupo, quebravam junto e caíam soltos à esquerda numa segunda
+                linha — ver captura de tela do usuário). */}
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginLeft: 'auto', flexShrink: 0 }}>
               <button className="btn-primary" onClick={() => setShowPresenterWindow(true)} title="Visão Apresentador (janela separada com notas e controles)" style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.82rem' }}>
                 <Tv size={16} /> <span className="btn-label">Exibição</span>
               </button>
               <button className="btn-primary" onClick={toggleFullscreen} style={{ fontSize: '0.82rem' }}>
                 <Play size={16} /> <span className="btn-label">Apresentar (F)</span>
               </button>
-            </div>
             </div>
           </div>
         )}
