@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Upload, Link, FileText, X, Loader2, Image as ImageIcon, FileUp } from 'lucide-react';
+import { Sparkles, Upload, Link, FileText, X, Loader2, Image as ImageIcon, FileUp, ClipboardPaste } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 
 export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
   // 'generate' = criar do zero (fluxo original); 'import' = reproduzir um PDF
-  // existente (ver handleSubmitImport) — mesma modal, só muda a origem do
-  // outline (etapa 1); a etapa 2 (gerar o HTML de cada slide) é idêntica.
+  // existente via texto+visão do Gemini (ver handleSubmitImport) — mesma
+  // modal, só muda a origem do outline (etapa 1); a etapa 2 (gerar o HTML de
+  // cada slide) é idêntica. 'paste' = colar um JSON de apresentação já
+  // pronto (ver handleSubmitPaste) — sem nenhuma chamada de IA/servidor:
+  // pensado pra quando o próprio usuário (com a ajuda de um assistente de
+  // código, ex. Claude Code lendo o PDF direto) já monta o conteúdo dos
+  // slides "na mão" com mais cuidado/qualidade do que a IA do sistema
+  // conseguiria sozinha, e só precisa carregar o resultado aqui.
   const [mode, setMode] = useState('generate');
+  const [pasteJson, setPasteJson] = useState('');
+  const [pasteError, setPasteError] = useState('');
   const [prompt, setPrompt] = useState('');
   const [numSlides, setNumSlides] = useState(15);
   const [linkUrl, setLinkUrl] = useState('');
@@ -242,9 +250,48 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
     }
   };
 
+  // Carrega uma apresentação já pronta em JSON — sem nenhuma chamada de
+  // rede: valida o formato mínimo esperado ({ title, slides: [{ html }] } —
+  // ver onGenerate em App.jsx, que só faz setPresentation(...) com isto e
+  // deixa o autosave normal do editor persistir) e completa qualquer campo
+  // que falte (id/title por slide) em vez de exigir que o JSON seja perfeito.
+  const handleSubmitPaste = () => {
+    setPasteError('');
+    let parsed;
+    try {
+      parsed = JSON.parse(pasteJson);
+    } catch {
+      setPasteError('JSON inválido — confira se colou o conteúdo completo, sem cortar o início/fim.');
+      return;
+    }
+
+    if (!parsed || !Array.isArray(parsed.slides) || parsed.slides.length === 0) {
+      setPasteError('O JSON precisa ter um campo "slides" com pelo menos um item.');
+      return;
+    }
+    if (parsed.slides.some((s) => typeof s?.html !== 'string' || !s.html.trim())) {
+      setPasteError('Todo slide precisa ter um campo "html" (string) com o conteúdo do slide.');
+      return;
+    }
+
+    const presentation = {
+      title: parsed.title || 'Apresentação Importada',
+      description: parsed.description,
+      slides: parsed.slides.map((s, i) => ({
+        id: s.id || `slide-${Date.now()}-${i}`,
+        title: s.title || `Slide ${i + 1}`,
+        html: s.html
+      }))
+    };
+
+    onGenerate(presentation);
+    onClose();
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (mode === 'import') handleSubmitImport();
+    else if (mode === 'paste') handleSubmitPaste();
     else handleSubmitGenerate();
   };
 
@@ -291,24 +338,67 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
           >
             Importar apresentação existente
           </button>
+          <button
+            type="button"
+            onClick={() => setMode('paste')}
+            style={{
+              flex: 1, padding: '0.5rem', borderRadius: '0.5rem', border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700,
+              background: mode === 'paste' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)',
+              color: mode === 'paste' ? '#071019' : '#9ca3af'
+            }}
+          >
+            Colar apresentação (JSON)
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.5rem', color: '#e5e7eb' }}>
-              {mode === 'import' ? 'Instruções adicionais (Opcional)' : 'Tema ou Prompt Principal da Apresentação *'}
-            </label>
-            <textarea
-              className="chat-input"
-              rows={3}
-              style={{ width: '100%', resize: 'vertical' }}
-              placeholder={mode === 'import'
-                ? 'Ex: Dê mais ênfase ao capítulo de farmacocinética...'
-                : 'Ex: Apresentação para investidores sobre novo produto de inteligência artificial na saúde com comparativo de ROI...'}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-          </div>
+          {mode !== 'paste' && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.5rem', color: '#e5e7eb' }}>
+                {mode === 'import' ? 'Instruções adicionais (Opcional)' : 'Tema ou Prompt Principal da Apresentação *'}
+              </label>
+              <textarea
+                className="chat-input"
+                rows={3}
+                style={{ width: '100%', resize: 'vertical' }}
+                placeholder={mode === 'import'
+                  ? 'Ex: Dê mais ênfase ao capítulo de farmacocinética...'
+                  : 'Ex: Apresentação para investidores sobre novo produto de inteligência artificial na saúde com comparativo de ROI...'}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+              />
+            </div>
+          )}
+
+          {mode === 'paste' && (
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                <ClipboardPaste size={16} /> Colar Apresentação Pronta (JSON) *
+              </span>
+              <p style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: 0, marginBottom: '0.6rem' }}>
+                Pra quando o conteúdo já foi montado fora daqui (ex.: peça pro Claude Code ler seu PDF e gerar o JSON) — carrega direto, sem nenhuma chamada de IA. Formato esperado:
+              </p>
+              <pre style={{ fontSize: '0.68rem', color: '#9ca3af', background: 'rgba(0,0,0,0.3)', padding: '0.6rem', borderRadius: '0.4rem', overflowX: 'auto', marginBottom: '0.6rem' }}>
+{`{
+  "title": "Título da Apresentação",
+  "slides": [
+    { "title": "Slide 1", "html": "<div class=\\"slide-root\\">...</div>" }
+  ]
+}`}
+              </pre>
+              <textarea
+                className="chat-input"
+                rows={8}
+                style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace', fontSize: '0.75rem' }}
+                placeholder='Cole o JSON aqui...'
+                value={pasteJson}
+                onChange={(e) => { setPasteJson(e.target.value); setPasteError(''); }}
+              />
+              {pasteError && (
+                <p style={{ fontSize: '0.75rem', color: '#f87171', marginTop: '0.5rem', marginBottom: 0 }}>{pasteError}</p>
+              )}
+            </div>
+          )}
 
           {mode === 'import' && (
             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -473,8 +563,8 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
               Cancelar
             </button>
             <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-              {mode === 'import' ? 'Importar Apresentação' : 'Gerar Apresentação'}
+              {loading ? <Loader2 size={18} className="animate-spin" /> : (mode === 'paste' ? <ClipboardPaste size={18} /> : <Sparkles size={18} />)}
+              {mode === 'import' ? 'Importar Apresentação' : mode === 'paste' ? 'Carregar Apresentação' : 'Gerar Apresentação'}
             </button>
           </div>
         </form>
