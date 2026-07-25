@@ -171,8 +171,8 @@ export const BLOCK_CATALOG = [
     configFields: [
       {
         key: 'rows',
-        label: 'Linhas — uma por linha, células separadas por "|"',
-        type: 'textarea',
+        label: 'Conteúdo da tabela',
+        type: 'table-editor',
         default: 'Coluna A | Coluna B | Coluna C\nLinha 1 | Valor | Valor\nLinha 2 | Valor | Valor'
       }
     ],

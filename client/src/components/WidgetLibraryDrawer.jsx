@@ -7,6 +7,7 @@ import {
   Columns3, LayoutGrid, PanelLeft, CircleDot, ArrowRight,
   BarChart3, GanttChartSquare, Network, Workflow, History, Filter, Target, CircleEllipsis, CalendarDays
 } from 'lucide-react';
+import TableFieldEditor from './TableFieldEditor';
 import { apiFetch } from '../lib/api';
 import { WIDGET_CATALOG } from '../lib/widgetCatalog';
 import { BLOCK_CATALOG } from '../lib/blockCatalog';
@@ -410,6 +411,11 @@ export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget, e
                               style={{ fontSize: '0.8rem', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
                               value={values[field.key] ?? ''}
                               onChange={(e) => handleFieldChange(field.key, e.target.value)}
+                            />
+                          ) : field.type === 'table-editor' ? (
+                            <TableFieldEditor
+                              value={values[field.key] ?? ''}
+                              onChange={(next) => handleFieldChange(field.key, next)}
                             />
                           ) : field.type === 'select' ? (
                             <select
