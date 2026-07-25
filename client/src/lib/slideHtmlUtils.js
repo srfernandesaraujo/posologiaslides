@@ -414,6 +414,66 @@ export function clearCropAt(html, index) {
   return serializeFragment(template);
 }
 
+// Edição de tabela em grade (ver TableFieldEditor.jsx) pra QUALQUER elemento
+// que contenha um <table> em algum lugar dentro dele — não só tabelas
+// inseridas como bloco do catálogo (essas já têm "Editar campos" via
+// data-el-source/config, ver getElementMeta). Um <table> dentro de um
+// elemento maior escrito à mão (ex.: o template "Caso Clínico", que combina
+// texto + tabela num único elemento de topo) não tem esse metadado, então só
+// sobrava "Editar HTML" bruto pra mexer nos dados da tabela — estas três
+// funções tratam o PRIMEIRO <table> encontrado dentro do elemento como a
+// "tabela editável" dele, independente de metadado de catálogo.
+export function hasTableAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  return !!el?.querySelector('table');
+}
+
+// Mesma sintaxe "linha por linha, células separadas por |" que buildTable
+// (blockCatalog.js)/TableFieldEditor já usam — lida de volta a partir do
+// <table> renderizado (texto de cada célula), não de um data-el-config
+// (este elemento pode nem ter um).
+export function getTableRowsAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  const table = el?.querySelector('table');
+  if (!table) return null;
+
+  const rows = Array.from(table.querySelectorAll('tr'));
+  return rows.map((tr) => Array.from(tr.children).map((cell) => cell.textContent.trim()).join(' | ')).join('\n');
+}
+
+// Reconstrói o <thead>/<tbody> do PRIMEIRO <table> encontrado a partir da
+// string de linhas — reaproveita o `style` já presente no primeiro <th>/<td>
+// existentes (em vez de embutir de novo as constantes de estilo de
+// blockCatalog.js, que criaria um import circular já que blockCatalog.js
+// importa appendIntoRoot deste arquivo) pra preservar qualquer customização
+// visual que a tabela já tivesse, célula nova ou não.
+export function setTableRowsAt(html, index, rowsString) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  const table = el?.querySelector('table');
+  if (!table) return html;
+
+  const lines = (rowsString || '').split('\n').map((line) => line.split('|').map((cell) => cell.trim()));
+  const [header, ...body] = lines;
+
+  const thStyle = table.querySelector('th')?.getAttribute('style')
+    || 'text-align:left;padding:0.6rem 0.9rem;background:rgba(34,211,238,0.1);color:#67e8f9;font-size:0.75rem;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid rgba(255,255,255,0.12);';
+  const tdStyle = table.querySelector('td')?.getAttribute('style')
+    || 'padding:0.6rem 0.9rem;color:#e2e8f0;font-size:0.9rem;border-bottom:1px solid rgba(255,255,255,0.06);';
+
+  let thead = table.querySelector('thead');
+  let tbody = table.querySelector('tbody');
+  if (!thead) { thead = document.createElement('thead'); table.insertBefore(thead, table.firstChild); }
+  if (!tbody) { tbody = document.createElement('tbody'); table.appendChild(tbody); }
+
+  thead.innerHTML = `<tr>${(header || []).map((cell) => `<th style="${thStyle}">${cell}</th>`).join('')}</tr>`;
+  tbody.innerHTML = body.map((row) => `<tr>${row.map((cell) => `<td style="${tdStyle}">${cell}</td>`).join('')}</tr>`).join('');
+
+  return serializeFragment(template);
+}
+
 export function isCroppedAt(html, index) {
   const template = parseFragment(html);
   const el = getContainer(template).children[index];

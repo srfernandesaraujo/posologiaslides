@@ -9,6 +9,7 @@ import WidgetLibraryDrawer from './WidgetLibraryDrawer';
 import SlideTemplateGallery from './SlideTemplateGallery';
 import AISingleSlideModal from './AISingleSlideModal';
 import LayoutVariationsModal from './LayoutVariationsModal';
+import TableFieldEditor from './TableFieldEditor';
 import RelatedPresentationPicker from './RelatedPresentationPicker';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
@@ -20,7 +21,8 @@ import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
   moveElementAt, bringToFrontAt, sendToBackAt, regenerateElementIds, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
   setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setAllAnimationsAt, setPositionAt, clearPositionAt, isPositionedAt,
-  setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt
+  setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt,
+  hasTableAt, getTableRowsAt, setTableRowsAt
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
@@ -33,7 +35,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2
 } from 'lucide-react';
 
 // O DOM normaliza valores de estilo ao ler de volta (cor hex vira "rgb(...)",
@@ -98,6 +100,22 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // elemento selecionado no momento em que abre (mesmo `selectedEl` da barra
   // de ação), não precisa de índice próprio.
   const [layoutVariationsOpen, setLayoutVariationsOpen] = useState(false);
+  // Modal "Editar tabela" — mesma ideia, escopado ao `selectedEl` atual;
+  // edita o PRIMEIRO <table> dentro do elemento (ver hasTableAt/getTableRowsAt/
+  // setTableRowsAt), funciona mesmo em elementos sem metadado de catálogo
+  // (ex.: tabela dentro de um template escrito à mão).
+  const [tableEditOpen, setTableEditOpen] = useState(false);
+  const [tableDraft, setTableDraft] = useState('');
+  // Só recarrega o rascunho quando o modal ABRE (não a cada render enquanto
+  // fica aberto) — senão qualquer novo render do componente pai (não raro,
+  // já que `currentSlide.html` muda a cada tecla se algo mais estivesse
+  // editando ao mesmo tempo) apagaria as edições feitas na grade.
+  useEffect(() => {
+    if (tableEditOpen && selectedEl) {
+      setTableDraft(getTableRowsAt(currentSlide.html, selectedEl.index) || '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableEditOpen]);
   // Aula relacionada (ver RelatedPresentationPicker) — link mostrado no slide
   // de encerramento virtual, guardado como relatedPresentationId/Title direto
   // no objeto `presentation` (persistido pelo autosave normal).
@@ -1767,6 +1785,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             const currentAnim = animEntries.find((e) => e.category === animCategory);
             const positioned = isPositionedAt(currentSlide.html, selectedEl.index);
             const cropped = isCroppedAt(currentSlide.html, selectedEl.index);
+            const hasTable = hasTableAt(currentSlide.html, selectedEl.index);
             const textStyle = getTextStyleAt(currentSlide.html, selectedEl.index);
             const btnStyle = { width: '30px', height: '30px' };
             const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
@@ -1880,6 +1899,19 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   >
                     <Shuffle size={15} />
                   </button>
+                  {hasTable && (
+                    <>
+                      {divider}
+                      <button
+                        className="btn-icon"
+                        style={btnStyle}
+                        title="Editar tabela (grade em vez de HTML)"
+                        onClick={() => setTableEditOpen(true)}
+                      >
+                        <Table2 size={15} />
+                      </button>
+                    </>
+                  )}
                   {elementMeta ? (
                     <>
                       {divider}
@@ -2338,6 +2370,32 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         onClose={() => setLayoutVariationsOpen(false)}
         onSelect={handleSelectLayoutVariation}
       />
+
+      {/* Editar Tabela em grade (qualquer <table> dentro do elemento selecionado,
+          com ou sem metadado de catálogo — ver hasTableAt/getTableRowsAt) */}
+      {tableEditOpen && selectedEl && (
+        <div className="modal-overlay" onClick={() => setTableEditOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '620px', width: '95%' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Table2 size={18} /> Editar Tabela
+              </h3>
+              <button className="btn-icon" onClick={() => setTableEditOpen(false)}><X size={18} /></button>
+            </div>
+            <TableFieldEditor value={tableDraft} onChange={setTableDraft} />
+            <button
+              className="btn-primary"
+              style={{ width: '100%', justifyContent: 'center', marginTop: '1rem' }}
+              onClick={() => {
+                updateCurrentSlideHtml((html) => setTableRowsAt(html, selectedEl.index, tableDraft));
+                setTableEditOpen(false);
+              }}
+            >
+              <Save size={15} /> Salvar Alterações
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Seletor de Aula Relacionada */}
       <RelatedPresentationPicker
