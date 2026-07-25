@@ -160,6 +160,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     { sender: 'ai', text: 'Olá! Sou seu assistente de IA. Selecione um slide e me peça para alterar cores, adicionar gráficos, simuladores ou novos conteúdos!' }
   ]);
   const [chatInput, setChatInput] = useState('');
+  // Auto-cresce o campo de instrução (textarea) conforme o texto ganha linhas
+  // — ver useEffect logo abaixo, que recalcula a altura toda vez que
+  // `chatInput` muda (digitação OU limpeza programática ao enviar).
+  const chatInputRef = useRef(null);
+  const CHAT_INPUT_MAX_HEIGHT = 140;
   const [chatLoading, setChatLoading] = useState(false);
   const [chatAttachments, setChatAttachments] = useState([]);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -1088,6 +1093,29 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
   const removeAttachment = (id) => {
     setChatAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
+  // Recalcula a altura do textarea a cada mudança de `chatInput` — cresce com
+  // o texto (até CHAT_INPUT_MAX_HEIGHT, depois rola por dentro) e encolhe de
+  // volta pra uma linha tanto ao apagar manualmente quanto ao ENVIAR (que
+  // limpa `chatInput` via setChatInput('') em handleSendChatMessage, sem
+  // passar pelo onChange do campo — por isso o efeito, não só o onChange).
+  useEffect(() => {
+    const el = chatInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, CHAT_INPUT_MAX_HEIGHT) + 'px';
+  }, [chatInput]);
+
+  // Enter sozinho envia (comportamento de sempre); Shift+Enter insere uma
+  // quebra de linha — como <textarea> não tem um "onSubmit" nativo pra
+  // Enter, precisa deste onKeyDown chamando o mesmo handler do botão de
+  // enviar/form (ele já faz e.preventDefault(), funciona igual vindo de um
+  // KeyboardEvent).
+  const handleChatInputKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      handleSendChatMessage(e);
+    }
   };
 
   const handleSendChatMessage = async (e) => {
@@ -2139,14 +2167,17 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             <button type="button" className="btn-icon" onClick={() => setShowAttachMenu(!showAttachMenu)} disabled={chatLoading} title="Anexar material de referência (PDF, imagem, link)">
               <Paperclip size={16} />
             </button>
-            <input
-              type="text"
+            <textarea
+              ref={chatInputRef}
+              rows={1}
               className="chat-input"
-              placeholder={chatLoading ? 'Aguarde a IA terminar...' : 'Instrua a IA sobre este slide... (cole um print com Ctrl+V)'}
+              placeholder={chatLoading ? 'Aguarde a IA terminar...' : 'Instrua a IA sobre este slide... (cole um print com Ctrl+V, Shift+Enter pra quebrar linha)'}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={handleChatInputKeyDown}
               onPaste={handleChatInputPaste}
               disabled={chatLoading}
+              style={{ resize: 'none', overflowY: 'auto', maxHeight: `${CHAT_INPUT_MAX_HEIGHT}px`, fontFamily: 'inherit', lineHeight: '1.4' }}
             />
             <button type="submit" className="btn-primary" style={{ padding: '0.6rem 0.8rem' }} disabled={chatLoading}>
               {chatLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}

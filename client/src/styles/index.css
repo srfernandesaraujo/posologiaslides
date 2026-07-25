@@ -630,6 +630,7 @@ button.mobile-toggle-btn {
   padding: 1rem;
   border-top: 1px solid var(--border-glass);
   display: flex;
+  align-items: flex-end;
   gap: 0.5rem;
 }
 
