@@ -865,6 +865,15 @@ export default function PresentationViewer({ htmlContent, editable = false, spot
   @keyframes pos-slide-in-right { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
   @keyframes pos-scale-in { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
   @keyframes pos-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+  @keyframes pos-shake { 10%, 90% { transform: translateX(-1px); } 20%, 80% { transform: translateX(2px); } 30%, 50%, 70% { transform: translateX(-4px); } 40%, 60% { transform: translateX(4px); } }
+  @keyframes pos-flash { 0%, 50%, 100% { opacity: 1; } 25%, 75% { opacity: 0.25; } }
+  @keyframes pos-bounce { 0%, 100% { transform: translateY(0); } 30% { transform: translateY(-14px); } 50% { transform: translateY(0); } 70% { transform: translateY(-6px); } }
+  @keyframes pos-fade-out { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes pos-fade-out-up { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-16px); } }
+  @keyframes pos-fade-out-down { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(16px); } }
+  @keyframes pos-slide-out-left { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-40px); } }
+  @keyframes pos-slide-out-right { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(40px); } }
+  @keyframes pos-scale-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.85); } }
 </style>
 <script src="/vendor/chart.umd.min.js"></script>
 ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}

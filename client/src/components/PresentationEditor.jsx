@@ -20,7 +20,7 @@ import {
   setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt
 } from '../lib/slideHtmlUtils';
-import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
+import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
 import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closingSlideTemplate';
@@ -132,6 +132,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [hotspotUploadError, setHotspotUploadError] = useState('');
   const [animDuration, setAnimDuration] = useState(ANIMATION_DEFAULTS.duration);
   const [animDelay, setAnimDelay] = useState(ANIMATION_DEFAULTS.delay);
+  // Categoria (Entrada/Ênfase/Saída) exibida no momento no painel "Animar" —
+  // só filtra quais presets aparecem no grid, ver useEffect abaixo que a
+  // sincroniza com a animação já aplicada ao selecionar um elemento novo.
+  const [animCategory, setAnimCategory] = useState('entrance');
   // Painel "Transição" do slide atual (como este slide entra em cena) —
   // aberto/fechado igual ao painel "Animar" de elemento, mas em escopo de slide.
   const [transitionPanelOpen, setTransitionPanelOpen] = useState(false);
@@ -587,6 +591,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     const anim = getAnimationAt(currentSlide.html, selectedEl.index);
     setAnimDuration(anim?.duration ?? ANIMATION_DEFAULTS.duration);
     setAnimDelay(anim?.delay ?? ANIMATION_DEFAULTS.delay);
+    const appliedPreset = anim && ANIMATION_PRESETS.find((p) => p.id === anim.presetId);
+    setAnimCategory(appliedPreset?.category ?? 'entrance');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEl?.index]);
 
@@ -1129,7 +1135,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           }}
           onClose={() => setMobileSlideListOpen(false)}
           onAddSlide={() => handleAddSlideAt(presentation.slides.length)}
-          onAddTemplate={() => handleOpenTemplateGallery(presentation.slides.length)}
+          onAddTemplate={() => handleOpenTemplateGallery(activeIndex + 1)}
           onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
           onDeleteSlide={(idxToDelete) => {
             if (presentation.slides.length <= 1) return;
@@ -1704,8 +1710,30 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                       background: 'rgba(15, 23, 42, 0.97)'
                     }}
                   >
+                    <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.5rem' }}>
+                      {ANIMATION_CATEGORIES.map((cat) => (
+                        <button
+                          key={cat.id}
+                          onClick={() => setAnimCategory(cat.id)}
+                          style={{
+                            flex: 1,
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            padding: '0.3rem 0.2rem',
+                            borderRadius: '0.35rem',
+                            cursor: 'pointer',
+                            border: animCategory === cat.id ? '1px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.1)',
+                            background: animCategory === cat.id ? 'rgba(34,211,238,0.15)' : 'rgba(255,255,255,0.04)',
+                            color: animCategory === cat.id ? '#67e8f9' : '#9ca3af'
+                          }}
+                        >
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem', marginBottom: '0.65rem' }}>
-                      {ANIMATION_PRESETS.map((preset) => {
+                      {ANIMATION_PRESETS.filter((preset) => preset.category === animCategory).map((preset) => {
                         const active = currentAnim?.presetId === preset.id;
                         return (
                           <button
@@ -1738,10 +1766,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     />
 
                     <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#9ca3af', marginBottom: '0.15rem' }}>
-                      <span>Atraso</span><span>{animDelay.toFixed(1)}s</span>
+                      <span>{animCategory === 'exit' ? 'Some depois de' : 'Atraso'}</span><span>{animDelay.toFixed(1)}s</span>
                     </label>
                     <input
-                      type="range" min="0" max="1.5" step="0.1" value={animDelay}
+                      type="range" min="0" max={animCategory === 'exit' ? 5 : 1.5} step="0.1" value={animDelay}
                       onChange={(e) => handleAnimSliderChange('delay', Number(e.target.value))}
                       style={{ width: '100%', accentColor: 'var(--accent-primary)' }}
                     />
