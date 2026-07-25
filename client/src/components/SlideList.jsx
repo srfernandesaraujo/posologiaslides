@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Plus, Trash2, X, GripVertical, LayoutTemplate } from 'lucide-react';
+import { Plus, Trash2, X, GripVertical, LayoutTemplate, Copy } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
 
 // Só monta a prévia real (iframe sandboxed com fontes/Chart.js, ver
@@ -30,7 +30,7 @@ function LazySlidePreview({ html }) {
   );
 }
 
-export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onInsertSlideAfter, onDeleteSlide, onReorderSlides, className = '', onClose }) {
+export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onReorderSlides, className = '', onClose }) {
   const listRef = useRef(null);
   // Índice sendo arrastado e índice "bruto" (antes do ajuste de deslocamento,
   // ver handlePointerUp) sobre o qual o ponteiro está no momento — null
@@ -150,6 +150,27 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
             >
               <GripVertical size={18} />
             </button>
+
+            {onDuplicateSlide && (
+              <button
+                className="btn-icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDuplicateSlide(idx);
+                }}
+                style={{
+                  position: 'absolute',
+                  bottom: '4px',
+                  right: slides.length > 1 ? '30px' : '4px',
+                  width: '22px',
+                  height: '22px',
+                  opacity: 0.6
+                }}
+                title="Duplicar Slide"
+              >
+                <Copy size={12} />
+              </button>
+            )}
 
             {slides.length > 1 && (
               <button

@@ -1266,6 +1266,17 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               return Math.min(shifted, newSlides.length - 1);
             });
           }}
+          onDuplicateSlide={(idxToDuplicate) => {
+            // Clona o slide inteiro (mesmo html/branches/type/etc.) só com um
+            // id novo — insere logo depois do original e já seleciona a cópia,
+            // pra editar o conteúdo dela sem afetar a original.
+            const original = presentation.slides[idxToDuplicate];
+            const duplicate = { ...original, id: `slide-${Date.now()}` };
+            const newSlides = [...presentation.slides];
+            newSlides.splice(idxToDuplicate + 1, 0, duplicate);
+            commit({ ...presentation, slides: newSlides });
+            setActiveIndex(idxToDuplicate + 1);
+          }}
           onReorderSlides={(fromIndex, toIndex) => {
             const newSlides = [...presentation.slides];
             const [moved] = newSlides.splice(fromIndex, 1);
