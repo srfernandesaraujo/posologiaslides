@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { ANIMATION_PRESETS } from '../lib/animationCatalog';
 
 /**
  * PresentationViewer renderiza o slide HTML atual dentro de um
@@ -345,16 +346,28 @@ function buildEditorScript(initialSelected, initialCropMode) {
       return;
     }
     var r = selected.getBoundingClientRect();
+    // clip-path não muda getBoundingClientRect() (só afeta pintura), então um
+    // elemento recortado tinha as alças de redimensionar desenhadas nos
+    // cantos da caixa CHEIA original — fora da área visível, muitas vezes
+    // flutuando sobre outro conteúdo do slide. Usa a mesma conta de
+    // positionCropHandles() (caixa cheia + insets do recorte) pra desenhar
+    // nos cantos do que está de fato visível; sem recorte, insets são todos 0
+    // e vTop/vBottom/vLeft/vRight caem de volta em r.top/r.bottom/r.left/r.right.
+    var insets = readCropInsets(selected);
+    var vTop = r.top + r.height * insets.top / 100;
+    var vBottom = r.bottom - r.height * insets.bottom / 100;
+    var vLeft = r.left + r.width * insets.left / 100;
+    var vRight = r.right - r.width * insets.right / 100;
     // Metade da caixa de TOQUE (28px, ver .__pos-handle), não do quadradinho
     // visual (11px, ::after) — centraliza a caixa maior no mesmo ponto onde o
     // quadradinho ficava antes, então o visual não muda, só a área tocável.
     var half = 14;
-    handles.e.style.left = (r.right - half) + 'px';
-    handles.e.style.top = (r.top + r.height / 2 - half) + 'px';
-    handles.s.style.left = (r.left + r.width / 2 - half) + 'px';
-    handles.s.style.top = (r.bottom - half) + 'px';
-    handles.se.style.left = (r.right - half) + 'px';
-    handles.se.style.top = (r.bottom - half) + 'px';
+    handles.e.style.left = (vRight - half) + 'px';
+    handles.e.style.top = (vTop + (vBottom - vTop) / 2 - half) + 'px';
+    handles.s.style.left = (vLeft + (vRight - vLeft) / 2 - half) + 'px';
+    handles.s.style.top = (vBottom - half) + 'px';
+    handles.se.style.left = (vRight - half) + 'px';
+    handles.se.style.top = (vBottom - half) + 'px';
     for (var k2 in handles) setHandleDisplay(handles[k2], 'block');
   }
 
@@ -401,13 +414,20 @@ function buildEditorScript(initialSelected, initialCropMode) {
       if (el !== selected) { selected = el; selected.classList.add('__pos-selected'); }
       var containerRect = container.getBoundingClientRect();
       var elRect = el.getBoundingClientRect();
+      // Base do arrasto é o tamanho VISÍVEL (caixa cheia menos os insets do
+      // recorte, ver positionHandles), não o da caixa cheia — a alça agora
+      // fica desenhada na borda visível, então o mouse precisa mover a mesma
+      // distância que essa borda anda na tela (sem recorte, insets são 0 e
+      // isto cai de volta no tamanho da caixa cheia de sempre).
+      var insets = readCropInsets(el);
       resizeState = {
         el: el,
         pos: pos,
+        insets: insets,
         startClientX: e.clientX,
         startClientY: e.clientY,
-        startWidthPx: elRect.width,
-        startHeightPx: elRect.height,
+        startWidthPx: elRect.width * (100 - insets.left - insets.right) / 100,
+        startHeightPx: elRect.height * (100 - insets.top - insets.bottom) / 100,
         containerWidth: containerRect.width,
         containerHeight: containerRect.height
       };
@@ -486,13 +506,23 @@ function buildEditorScript(initialSelected, initialCropMode) {
       var rdx = e.clientX - resizeState.startClientX;
       var rdy = e.clientY - resizeState.startClientY;
       var el = resizeState.el;
+      var insets = resizeState.insets;
+      // newWidthPx/newHeightPx aqui são o tamanho VISÍVEL alvo; como os
+      // insets do recorte são percentuais da caixa cheia, a caixa cheia
+      // precisa crescer na mesma proporção pra a área visível terminar
+      // exatamente do tamanho que o mouse pediu (sem recorte, os fatores
+      // abaixo são 1 e widthPx/heightPx viram o próprio tamanho visível).
       if (resizeState.pos === 'e' || resizeState.pos === 'se') {
-        var newWidthPx = Math.max(MIN_SIZE_PX, resizeState.startWidthPx + rdx);
-        el.style.width = (newWidthPx / resizeState.containerWidth * 100) + '%';
+        var newVisibleWidthPx = Math.max(MIN_SIZE_PX, resizeState.startWidthPx + rdx);
+        var widthFactor = (100 - insets.left - insets.right) / 100;
+        var widthPx = widthFactor > 0 ? newVisibleWidthPx / widthFactor : newVisibleWidthPx;
+        el.style.width = (widthPx / resizeState.containerWidth * 100) + '%';
       }
       if (resizeState.pos === 's' || resizeState.pos === 'se') {
-        var newHeightPx = Math.max(MIN_SIZE_PX, resizeState.startHeightPx + rdy);
-        el.style.height = (newHeightPx / resizeState.containerHeight * 100) + '%';
+        var newVisibleHeightPx = Math.max(MIN_SIZE_PX, resizeState.startHeightPx + rdy);
+        var heightFactor = (100 - insets.top - insets.bottom) / 100;
+        var heightPx = heightFactor > 0 ? newVisibleHeightPx / heightFactor : newVisibleHeightPx;
+        el.style.height = (heightPx / resizeState.containerHeight * 100) + '%';
       }
       positionHandles();
       return;
@@ -836,7 +866,112 @@ function buildZoomGestureScript(zoomGestureEnabled) {
 </script>`;
 }
 
-export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, selectedElement = null, cropMode = false }) {
+// Script injetado só na apresentação de verdade em tela cheia (ver
+// `animationTriggersEnabled` = `isFullscreen` em PresentationEditor) — toca
+// os efeitos com gatilho 'click'/'with-previous'/'after-previous' guardados
+// em `data-el-anim` (ver ANIMATION_TRIGGERS/setAnimationEntryAt), que o
+// resto do app deixa PENDENTES (não entram no `animation` inline que toca
+// sozinho ao carregar, ver writeAnimationEntries em slideHtmlUtils.js).
+// Nunca roda junto de buildEditorScript (editable) — na edição, um efeito
+// pendente fica parado no estado final/normal, sem tocar; é só aqui que ele
+// de fato espera o clique. Documentado no painel "Animar" pro usuário não
+// estranhar o elemento "não animando" enquanto edita.
+// Pode coexistir com buildSpotlightScript (também document.body/'click' em
+// tela cheia, ver spotlightEnabled) — os dois ouvintes são independentes e
+// nenhum chama preventDefault/stopPropagation, então um clique em cima de um
+// elemento tanto acende o holofote nele QUANTO consome um passo pendente de
+// animação, se houver um. Não tratado como conflito de propósito (nenhum dos
+// dois deveria bloquear o outro), só documentado pra não surpreender.
+function buildAnimationTriggerScript(enabled) {
+  if (!enabled) return '';
+  // Mapa keyframe -> estilo estático "antes de tocar" pros presets de ENTRADA
+  // pendentes (ver `pendingStyle` em animationCatalog.js) — sem isto, um
+  // texto com entrada "ao clicar" apareceria no estado final (visível) até o
+  // clique que deveria revelá-lo, em vez de ficar escondido esperando.
+  // Ênfase/saída não precisam disto (já começam no estado normal/visível).
+  var pendingStyleByKeyframe = {};
+  ANIMATION_PRESETS.forEach(function (p) { if (p.pendingStyle) pendingStyleByKeyframe[p.keyframe] = p.pendingStyle; });
+
+  return `
+<script>
+(function () {
+  var container = document.querySelector('.slide-root') || document.body;
+  var PENDING_STYLE = ${JSON.stringify(pendingStyleByKeyframe)};
+
+  function applyPendingStyle(el, styleStr) {
+    styleStr.split(';').forEach(function (decl) {
+      var parts = decl.split(':');
+      if (parts.length < 2) return;
+      var prop = parts[0].trim();
+      var value = parts.slice(1).join(':').trim();
+      if (prop && value) el.style.setProperty(prop, value);
+    });
+  }
+
+  function buildAnimationCss(entry) {
+    return entry.keyframe + ' ' + entry.duration + 's cubic-bezier(0.16, 1, 0.3, 1) ' + entry.delay + 's both ' + (entry.loop ? 'infinite' : '1');
+  }
+
+  function readEntries(el) {
+    try {
+      var parsed = JSON.parse(el.getAttribute('data-el-anim') || 'null');
+      if (!parsed) return [];
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  // Monta a sequência de "passos" a partir da ordem dos elementos no slide:
+  // cada entrada 'click' abre um passo novo; 'with-previous' entra no MESMO
+  // passo (toca junto do clique que o abriu); 'after-previous' entra no
+  // mesmo passo, mas só depois que a entrada anterior DENTRO DELE terminar
+  // (duração+atraso encadeados, ver variável cursor abaixo). Entradas sem nenhum 'click'
+  // antes delas (podem ser o primeiro efeito do slide) caem no "passo 0", que
+  // toca sozinho ao carregar, sem esperar clique nenhum — mesma convenção do
+  // PowerPoint pra "com o anterior"/"após o anterior" como primeiro efeito.
+  var steps = [[]];
+  var cursor = 0;
+  Array.prototype.forEach.call(container.children, function (el) {
+    if (!el.getAttribute || !el.hasAttribute('data-el-anim')) return;
+    readEntries(el).forEach(function (entry) {
+      if (entry.trigger !== 'click' && entry.trigger !== 'with-previous' && entry.trigger !== 'after-previous') return;
+
+      if (entry.trigger === 'click') {
+        steps.push([]);
+        cursor = 0;
+      }
+      var offset = entry.trigger === 'after-previous' ? cursor : 0;
+      steps[steps.length - 1].push({ el: el, entry: entry, offset: offset });
+      cursor = offset + entry.delay + entry.duration;
+
+      var pending = PENDING_STYLE[entry.keyframe];
+      if (pending) applyPendingStyle(el, pending);
+    });
+  });
+
+  function playStepEntry(item) {
+    var el = item.el, entry = item.entry;
+    if (item.offset > 0) {
+      window.setTimeout(function () { el.style.animation = buildAnimationCss(entry); }, item.offset * 1000);
+    } else {
+      el.style.animation = buildAnimationCss(entry);
+    }
+  }
+
+  if (steps[0].length) steps[0].forEach(playStepEntry);
+  var stepIndex = 1;
+
+  document.addEventListener('click', function () {
+    if (stepIndex >= steps.length) return;
+    steps[stepIndex].forEach(playStepEntry);
+    stepIndex++;
+  });
+})();
+</script>`;
+}
+
+export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, selectedElement = null, cropMode = false }) {
   const iframeRef = useRef(null);
   // Ref (não estado/dependência do efeito abaixo): só precisamos do valor mais
   // recente NO MOMENTO em que o iframe recarrega por outro motivo (ver
@@ -929,6 +1064,7 @@ ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}
 ${content}
 ${buildSpotlightScript(spotlightEnabled)}
 ${buildZoomGestureScript(zoomGestureEnabled)}
+${buildAnimationTriggerScript(animationTriggersEnabled)}
 ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) : ''}
 </body>
 </html>`;
@@ -948,7 +1084,7 @@ ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) 
       cancelAnimationFrame(frame1);
       if (frame2) cancelAnimationFrame(frame2);
     };
-  }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled]);
+  }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled, animationTriggersEnabled]);
 
   return (
     <iframe

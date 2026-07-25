@@ -17,10 +17,10 @@ import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
   moveElementAt, bringToFrontAt, sendToBackAt, regenerateElementIds, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
-  setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt,
+  setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt
 } from '../lib/slideHtmlUtils';
-import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
+import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
 import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closingSlideTemplate';
@@ -132,9 +132,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [hotspotUploadError, setHotspotUploadError] = useState('');
   const [animDuration, setAnimDuration] = useState(ANIMATION_DEFAULTS.duration);
   const [animDelay, setAnimDelay] = useState(ANIMATION_DEFAULTS.delay);
+  const [animTrigger, setAnimTrigger] = useState(ANIMATION_DEFAULTS.trigger);
   // Categoria (Entrada/Ênfase/Saída) exibida no momento no painel "Animar" —
-  // só filtra quais presets aparecem no grid, ver useEffect abaixo que a
-  // sincroniza com a animação já aplicada ao selecionar um elemento novo.
+  // só filtra quais presets aparecem no grid; duração/atraso/gatilho exibidos
+  // são os da entrada JÁ APLICADA nessa categoria (elemento pode ter uma
+  // entrada por categoria ao mesmo tempo, ver ANIMATION_CATEGORIES). Ver
+  // useEffect abaixo (sincroniza ao selecionar um elemento novo) e
+  // handleSelectAnimCategory (sincroniza ao trocar de aba).
   const [animCategory, setAnimCategory] = useState('entrance');
   // Painel "Transição" do slide atual (como este slide entra em cena) —
   // aberto/fechado igual ao painel "Animar" de elemento, mas em escopo de slide.
@@ -588,13 +592,31 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // deixados por uma seleção anterior, em vez do que já está de fato aplicado.
   useEffect(() => {
     if (!selectedEl) return;
-    const anim = getAnimationAt(currentSlide.html, selectedEl.index);
-    setAnimDuration(anim?.duration ?? ANIMATION_DEFAULTS.duration);
-    setAnimDelay(anim?.delay ?? ANIMATION_DEFAULTS.delay);
-    const appliedPreset = anim && ANIMATION_PRESETS.find((p) => p.id === anim.presetId);
-    setAnimCategory(appliedPreset?.category ?? 'entrance');
+    const entries = getAnimationsAt(currentSlide.html, selectedEl.index);
+    // Abre direto na primeira categoria (ordem entrada/ênfase/saída) que já
+    // tem um efeito aplicado — evita cair sempre em "Entrada" vazia quando o
+    // elemento só tem, por exemplo, uma saída configurada.
+    const firstWithEntry = ANIMATION_CATEGORIES.find((cat) => entries.some((e) => e.category === cat.id));
+    const cat = firstWithEntry?.id ?? 'entrance';
+    setAnimCategory(cat);
+    const entry = entries.find((e) => e.category === cat);
+    setAnimDuration(entry?.duration ?? ANIMATION_DEFAULTS.duration);
+    setAnimDelay(entry?.delay ?? ANIMATION_DEFAULTS.delay);
+    setAnimTrigger(entry?.trigger ?? ANIMATION_DEFAULTS.trigger);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEl?.index]);
+
+  // Troca de aba (Entrada/Ênfase/Saída) dentro do painel "Animar" — sincroniza
+  // os sliders/gatilho exibidos com o que JÁ está aplicado nessa categoria
+  // (ou os valores padrão, se ainda não houver nenhum efeito nela).
+  const handleSelectAnimCategory = (cat) => {
+    setAnimCategory(cat);
+    if (!selectedEl) return;
+    const entry = getAnimationsAt(currentSlide.html, selectedEl.index).find((e) => e.category === cat);
+    setAnimDuration(entry?.duration ?? ANIMATION_DEFAULTS.duration);
+    setAnimDelay(entry?.delay ?? ANIMATION_DEFAULTS.delay);
+    setAnimTrigger(entry?.trigger ?? ANIMATION_DEFAULTS.trigger);
+  };
 
   // Desfazer/Refazer: além de trocar `presentation`, limpa seleção/painéis
   // abertos (igual a qualquer outra troca estrutural de HTML, ver o efeito
@@ -892,37 +914,51 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setElementHtmlDraft(null);
   };
 
-  // Aplica um preset de animação ao elemento selecionado com a duração/atraso
-  // configurados no momento — a troca de HTML já recarrega o palco, então a
-  // animação toca na hora, servindo de preview automático.
+  // Aplica um preset de animação ao elemento selecionado, na categoria (entrada/
+  // ênfase/saída) do próprio preset, com a duração/atraso/gatilho configurados
+  // no momento — troca só a entrada DAQUELA categoria (ver setAnimationEntryAt),
+  // as outras categorias já aplicadas ao elemento continuam intactas. A troca
+  // de HTML já recarrega o palco, então um efeito 'auto' toca na hora, servindo
+  // de preview automático ('click'/'with-previous'/'after-previous' só tocam
+  // de verdade na apresentação em tela cheia, ver buildAnimationTriggerScript).
   const handleApplyAnimation = (preset) => {
     if (!selectedEl) return;
-    updateCurrentSlideHtml((html) => setAnimationAt(html, selectedEl.index, {
-      presetId: preset.id, keyframe: preset.keyframe, loop: preset.loop, duration: animDuration, delay: animDelay
+    updateCurrentSlideHtml((html) => setAnimationEntryAt(html, selectedEl.index, preset.category, {
+      presetId: preset.id, keyframe: preset.keyframe, loop: preset.loop, duration: animDuration, delay: animDelay, trigger: animTrigger
     }));
   };
 
-  // Mexer nos sliders só reaplica ao vivo se já houver uma animação — caso
-  // contrário, os valores só ficam prontos pro próximo preset escolhido.
+  // Mexer nos sliders só reaplica ao vivo se a categoria em exibição já tiver
+  // um efeito — caso contrário, os valores só ficam prontos pro próximo
+  // preset escolhido.
   const handleAnimSliderChange = (field, value) => {
     if (field === 'duration') setAnimDuration(value); else setAnimDelay(value);
     if (!selectedEl) return;
-    const current = getAnimationAt(currentSlide.html, selectedEl.index);
+    const current = getAnimationsAt(currentSlide.html, selectedEl.index).find((e) => e.category === animCategory);
     if (!current) return;
-    const preset = ANIMATION_PRESETS.find((p) => p.id === current.presetId);
-    if (!preset) return;
-    updateCurrentSlideHtml((html) => setAnimationAt(html, selectedEl.index, {
-      presetId: preset.id,
-      keyframe: preset.keyframe,
-      loop: preset.loop,
+    updateCurrentSlideHtml((html) => setAnimationEntryAt(html, selectedEl.index, animCategory, {
+      presetId: current.presetId,
+      keyframe: current.keyframe,
+      loop: current.loop,
       duration: field === 'duration' ? value : animDuration,
-      delay: field === 'delay' ? value : animDelay
+      delay: field === 'delay' ? value : animDelay,
+      trigger: current.trigger
     }), { debounced: true });
+  };
+
+  // Troca só o GATILHO do efeito já aplicado na categoria em exibição (ver
+  // ANIMATION_TRIGGERS) — não mexe em duração/atraso/preset.
+  const handleSetAnimTrigger = (trigger) => {
+    setAnimTrigger(trigger);
+    if (!selectedEl) return;
+    const current = getAnimationsAt(currentSlide.html, selectedEl.index).find((e) => e.category === animCategory);
+    if (!current) return;
+    updateCurrentSlideHtml((html) => setAnimationEntryAt(html, selectedEl.index, animCategory, { ...current, trigger }));
   };
 
   const handleClearAnimation = () => {
     if (!selectedEl) return;
-    updateCurrentSlideHtml((html) => clearAnimationAt(html, selectedEl.index));
+    updateCurrentSlideHtml((html) => clearAnimationEntryAt(html, selectedEl.index, animCategory));
   };
 
   // Cor da fonte e família tipográfica do elemento selecionado (painel
@@ -1599,6 +1635,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     editable={!isFullscreen && !atClosingSlide}
                     spotlightEnabled={isFullscreen && spotlightOn}
                     zoomGestureEnabled={isFullscreen}
+                    animationTriggersEnabled={isFullscreen && !atClosingSlide}
                     selectedElement={selectedEl}
                     cropMode={cropMode}
                   />
@@ -1611,7 +1648,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           {!isFullscreen && selectedEl && (() => {
             const elementMeta = getElementMeta(currentSlide.html, selectedEl.index);
             const grouped = isGroupedAt(currentSlide.html, selectedEl.index);
-            const currentAnim = getAnimationAt(currentSlide.html, selectedEl.index);
+            const animEntries = getAnimationsAt(currentSlide.html, selectedEl.index);
+            const currentAnim = animEntries.find((e) => e.category === animCategory);
             const positioned = isPositionedAt(currentSlide.html, selectedEl.index);
             const cropped = isCroppedAt(currentSlide.html, selectedEl.index);
             const textStyle = getTextStyleAt(currentSlide.html, selectedEl.index);
@@ -1734,25 +1772,36 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     }}
                   >
                     <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.5rem' }}>
-                      {ANIMATION_CATEGORIES.map((cat) => (
-                        <button
-                          key={cat.id}
-                          onClick={() => setAnimCategory(cat.id)}
-                          style={{
-                            flex: 1,
-                            fontSize: '0.68rem',
-                            fontWeight: 700,
-                            padding: '0.3rem 0.2rem',
-                            borderRadius: '0.35rem',
-                            cursor: 'pointer',
-                            border: animCategory === cat.id ? '1px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.1)',
-                            background: animCategory === cat.id ? 'rgba(34,211,238,0.15)' : 'rgba(255,255,255,0.04)',
-                            color: animCategory === cat.id ? '#67e8f9' : '#9ca3af'
-                          }}
-                        >
-                          {cat.label}
-                        </button>
-                      ))}
+                      {ANIMATION_CATEGORIES.map((cat) => {
+                        const hasEntry = animEntries.some((e) => e.category === cat.id);
+                        return (
+                          <button
+                            key={cat.id}
+                            onClick={() => handleSelectAnimCategory(cat.id)}
+                            style={{
+                              flex: 1,
+                              position: 'relative',
+                              fontSize: '0.68rem',
+                              fontWeight: 700,
+                              padding: '0.3rem 0.2rem',
+                              borderRadius: '0.35rem',
+                              cursor: 'pointer',
+                              border: animCategory === cat.id ? '1px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.1)',
+                              background: animCategory === cat.id ? 'rgba(34,211,238,0.15)' : 'rgba(255,255,255,0.04)',
+                              color: animCategory === cat.id ? '#67e8f9' : '#9ca3af'
+                            }}
+                          >
+                            {cat.label}
+                            {/* Bolinha indicando que essa categoria já tem um efeito aplicado
+                                (elemento pode ter entrada + ênfase + saída ao mesmo tempo) —
+                                sem isto, trocar de aba escondia efeitos já configurados sem
+                                nenhum sinal de que ainda estavam lá. */}
+                            {hasEntry && (
+                              <span style={{ position: 'absolute', top: '2px', right: '2px', width: '5px', height: '5px', borderRadius: '50%', background: '#34d399' }} />
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem', marginBottom: '0.65rem' }}>
@@ -1796,6 +1845,37 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                       onChange={(e) => handleAnimSliderChange('delay', Number(e.target.value))}
                       style={{ width: '100%', accentColor: 'var(--accent-primary)' }}
                     />
+
+                    {currentAnim && (
+                      <>
+                        <label style={{ display: 'block', fontSize: '0.68rem', color: '#9ca3af', margin: '0.6rem 0 0.25rem' }}>Disparo</label>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.3rem' }}>
+                          {ANIMATION_TRIGGERS.map((trig) => (
+                            <button
+                              key={trig.id}
+                              onClick={() => handleSetAnimTrigger(trig.id)}
+                              style={{
+                                fontSize: '0.66rem',
+                                fontWeight: 700,
+                                padding: '0.3rem 0.2rem',
+                                borderRadius: '0.35rem',
+                                cursor: 'pointer',
+                                border: animTrigger === trig.id ? '1px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.1)',
+                                background: animTrigger === trig.id ? 'rgba(34,211,238,0.15)' : 'rgba(255,255,255,0.04)',
+                                color: animTrigger === trig.id ? '#67e8f9' : '#9ca3af'
+                              }}
+                            >
+                              {trig.label}
+                            </button>
+                          ))}
+                        </div>
+                        {animTrigger !== 'auto' && (
+                          <p style={{ fontSize: '0.65rem', color: '#6b7280', margin: '0.4rem 0 0' }}>
+                            Só dispara na apresentação em tela cheia — aqui no editor o elemento fica no estado final, sem tocar o efeito.
+                          </p>
+                        )}
+                      </>
+                    )}
 
                     {currentAnim && (
                       <button

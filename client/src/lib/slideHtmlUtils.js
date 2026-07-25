@@ -1,3 +1,5 @@
+import { ANIMATION_PRESETS } from './animationCatalog';
+
 // Gera um sufixo curto e único para escopar ids/classes de um bloco inserido
 // dentro do HTML do slide — permite inserir o mesmo bloco mais de uma vez sem
 // colisão de id. Compartilhado entre os catálogos que geram HTML com <script>
@@ -208,7 +210,7 @@ export function setAlignmentAt(html, index, align) {
 
 // Aplica cor de texto e/ou família de fonte ao elemento em `index` — direto
 // no elemento de topo (funciona através do wrapper de alinhamento, já que
-// cor/fonte herdam normalmente pros filhos, igual `setCropAt`/`setAnimationAt`
+// cor/fonte herdam normalmente pros filhos, igual `setCropAt`/`setAnimationEntryAt`
 // não desembrulham). `color`/`fontFamily` ausentes (undefined) deixam aquele
 // valor intacto; string vazia remove o override (volta a herdar do slide).
 export function setTextStyleAt(html, index, { color, fontFamily } = {}) {
@@ -216,13 +218,30 @@ export function setTextStyleAt(html, index, { color, fontFamily } = {}) {
   const el = getContainer(template).children[index];
   if (!el) return html;
 
+  // A IA quase sempre grava cor/fonte inline diretamente em cada tag de texto
+  // (título, parágrafo, trechos em <strong>/<span> destacados) — ver
+  // server/services/aiService.js. Cor/fonte inline em um DESCENDENTE sempre
+  // vence a herdada do ancestral, não importa a especificidade; só mudar
+  // `el.style.color` no elemento de topo silenciosamente não fazia nada
+  // sempre que houvesse qualquer trecho colorido "por dentro" (o caso comum:
+  // ênfase em negrito com cor própria no meio da frase). Ao ESCOLHER uma cor/
+  // fonte nova, o usuário espera que ela valha pra TUDO dentro do elemento —
+  // por isso limpa o override dos descendentes também, não só do próprio el.
   if (color !== undefined) {
-    if (color) el.style.color = color;
-    else el.style.removeProperty('color');
+    if (color) {
+      el.style.color = color;
+      el.querySelectorAll('*').forEach((child) => { if (child.style.color) child.style.removeProperty('color'); });
+    } else {
+      el.style.removeProperty('color');
+    }
   }
   if (fontFamily !== undefined) {
-    if (fontFamily) el.style.fontFamily = fontFamily;
-    else el.style.removeProperty('font-family');
+    if (fontFamily) {
+      el.style.fontFamily = fontFamily;
+      el.querySelectorAll('*').forEach((child) => { if (child.style.fontFamily) child.style.removeProperty('font-family'); });
+    } else {
+      el.style.removeProperty('font-family');
+    }
   }
   return serializeFragment(template);
 }
@@ -401,41 +420,91 @@ export function isCroppedAt(html, index) {
   return !!el && el.hasAttribute('data-el-crop');
 }
 
-// Aplica uma animação CSS (ver client/src/lib/animationCatalog.js) ao elemento
-// de topo em `index` — anima o mesmo "slot" endereçável usado por todas as
-// outras mutações (align/move/group/delete), sem tratamento especial se ele
-// estiver dentro de um wrapper de alinhamento (efeito visual idêntico, já que
-// o wrapper só tem esse filho). Grava `data-el-anim` pra permitir reabrir o
-// painel já com o preset/duração/atraso atuais.
-export function setAnimationAt(html, index, { presetId, keyframe, loop, duration, delay }) {
+// Anima o mesmo "slot" endereçável usado por todas as outras mutações
+// (align/move/group/delete), sem tratamento especial se ele estiver dentro de
+// um wrapper de alinhamento (efeito visual idêntico, já que o wrapper só tem
+// esse filho). `data-el-anim` guarda uma LISTA de entradas (uma por
+// categoria — ver ANIMATION_CATEGORIES em animationCatalog.js), permitindo um
+// elemento ter entrada + ênfase + saída ao mesmo tempo; formatos antigos
+// (objeto único, sem `category`/`keyframe`/`trigger`) são migrados na leitura
+// via busca em ANIMATION_PRESETS pelo `presetId` salvo.
+function buildAnimationCss({ keyframe, duration, delay, loop }) {
+  return `${keyframe} ${duration}s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s both ${loop ? 'infinite' : '1'}`;
+}
+
+function migrateAnimationEntry(entry) {
+  if (entry && entry.category && entry.keyframe) return { trigger: 'auto', ...entry };
+  const preset = entry && ANIMATION_PRESETS.find((p) => p.id === entry.presetId);
+  if (!preset) return null;
+  return { category: preset.category, presetId: preset.id, keyframe: preset.keyframe, loop: preset.loop, duration: entry.duration, delay: entry.delay, trigger: entry.trigger || 'auto' };
+}
+
+function readAnimationEntries(el) {
+  let parsed;
+  try {
+    parsed = JSON.parse(el.getAttribute('data-el-anim') || 'null');
+  } catch {
+    return [];
+  }
+  if (!parsed) return [];
+  const list = Array.isArray(parsed) ? parsed : [parsed];
+  return list.map(migrateAnimationEntry).filter(Boolean);
+}
+
+// Persiste a lista de entradas em `data-el-anim` e reconstrói o `animation`
+// inline a partir só das entradas 'auto' (as com gatilho 'click'/'with-
+// previous'/'after-previous' não tocam sozinhas ao carregar — quem as dispara
+// é buildAnimationTriggerScript em PresentationViewer.jsx, só ativo na
+// apresentação de verdade; ver comentário de ANIMATION_TRIGGERS). `animation`
+// aceita uma lista separada por vírgula nativamente, daí várias entradas
+// 'auto' tocarem juntas sem conflito.
+function writeAnimationEntries(el, entries) {
+  if (entries.length) el.setAttribute('data-el-anim', JSON.stringify(entries));
+  else el.removeAttribute('data-el-anim');
+
+  const autoEntries = entries.filter((entry) => entry.trigger === 'auto');
+  if (autoEntries.length) el.style.animation = autoEntries.map(buildAnimationCss).join(', ');
+  else el.style.removeProperty('animation');
+}
+
+export function getAnimationsAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return [];
+  return readAnimationEntries(el);
+}
+
+// Aplica/substitui o efeito de UMA categoria no elemento em `index`,
+// preservando os efeitos das OUTRAS categorias já aplicados — no máximo uma
+// entrada por categoria (escolher um novo preset na mesma categoria troca o
+// anterior, igual antes; categorias diferentes convivem).
+export function setAnimationEntryAt(html, index, category, { presetId, keyframe, loop, duration, delay, trigger }) {
   const template = parseFragment(html);
   const el = getContainer(template).children[index];
   if (!el) return html;
 
-  el.style.animation = `${keyframe} ${duration}s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s both ${loop ? 'infinite' : '1'}`;
-  el.setAttribute('data-el-anim', JSON.stringify({ presetId, duration, delay }));
+  const entries = readAnimationEntries(el);
+  const newEntry = { category, presetId, keyframe, loop, duration, delay, trigger: trigger || 'auto' };
+  // Substitui NO LUGAR quando a categoria já tinha uma entrada — mantém a
+  // ordem relativa às outras categorias do mesmo elemento estável entre
+  // edições (importa pro buildAnimationTriggerScript em PresentationViewer.jsx,
+  // que usa essa ordem pra decidir qual efeito cai em qual "passo" da
+  // sequência de cliques; remover+adicionar no fim reordenaria silenciosamente
+  // sempre que o usuário reconfigurasse um efeito já existente).
+  const existingIndex = entries.findIndex((entry) => entry.category === category);
+  if (existingIndex >= 0) entries[existingIndex] = newEntry;
+  else entries.push(newEntry);
+  writeAnimationEntries(el, entries);
   return serializeFragment(template);
 }
 
-export function getAnimationAt(html, index) {
-  const template = parseFragment(html);
-  const el = getContainer(template).children[index];
-  if (!el || !el.hasAttribute('data-el-anim')) return null;
-
-  try {
-    return JSON.parse(el.getAttribute('data-el-anim'));
-  } catch {
-    return null;
-  }
-}
-
-export function clearAnimationAt(html, index) {
+export function clearAnimationEntryAt(html, index, category) {
   const template = parseFragment(html);
   const el = getContainer(template).children[index];
   if (!el) return html;
 
-  el.style.animation = '';
-  el.removeAttribute('data-el-anim');
+  const entries = readAnimationEntries(el).filter((entry) => entry.category !== category);
+  writeAnimationEntries(el, entries);
   return serializeFragment(template);
 }
 
