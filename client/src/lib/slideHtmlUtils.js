@@ -118,6 +118,33 @@ export function moveElementAt(html, index, direction) {
   return serializeFragment(template);
 }
 
+// Move o elemento em `index` pro topo ou fundo da pilha de camadas — ao
+// contrário de `moveElementAt` (troca com o vizinho, um passo de cada vez),
+// pula direto pro início ou fim da lista de filhos de ".slide-root". Isso
+// importa sobretudo pra elementos com posição livre (ver `setPositionAt`)
+// que ficam sobrepostos ao arrastar: como `setPositionAt` aplica o MESMO
+// z-index (10) a todos eles, a ordem de pintura entre elementos empatados em
+// z-index é a ordem no DOM — mover o elemento pro fim da lista o traz pra
+// frente de tudo; pro início, manda pra trás de tudo. Funciona igual pra
+// elementos em fluxo normal (só reordena a pilha, sem gerar `position` novo).
+export function bringToFrontAt(html, index) {
+  const template = parseFragment(html);
+  const container = getContainer(template);
+  const el = container.children[index];
+  if (!el) return html;
+  container.appendChild(el);
+  return serializeFragment(template);
+}
+
+export function sendToBackAt(html, index) {
+  const template = parseFragment(html);
+  const container = getContainer(template);
+  const el = container.children[index];
+  if (!el) return html;
+  container.insertBefore(el, container.firstChild);
+  return serializeFragment(template);
+}
+
 // Alinha o elemento na posição `index` envolvendo-o num flex container que
 // posiciona o conteúdo à esquerda/centro/direita — funciona igual não importa
 // se o elemento original é block, inline ou inline-flex (ícones, botões,

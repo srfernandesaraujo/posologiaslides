@@ -11,7 +11,39 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-export function buildClosingSlideHtml({ presentationTitle, userName, quote, quoteLoading }) {
+// Identificador da mensagem que o link "Aula Relacionada" manda pro app
+// principal ao ser clicado (ver listener em PresentationEditor.jsx) — mesmo
+// padrão de ponte iframe→pai já usado por SLIDE_EDITOR_MESSAGE_SOURCE em
+// PresentationViewer.jsx, só que este script roda SEMPRE (não só em modo
+// editável), já que o slide de encerramento aparece tanto editando quanto
+// apresentando de verdade.
+export const RELATED_LINK_MESSAGE_SOURCE = 'posologia-related-link';
+
+function buildRelatedLinkBlock(relatedPresentation) {
+  if (!relatedPresentation?.id) return '';
+  const title = escapeHtml(relatedPresentation.title || 'Próxima aula');
+  // O id vem do Firestore (doc id, sempre alfanumérico) — ainda assim passa
+  // por JSON.stringify (não interpolação crua) ao entrar no <script>, pra
+  // nunca depender dessa suposição pra evitar quebrar o script.
+  const idJson = JSON.stringify(relatedPresentation.id);
+
+  return `
+    <button id="posologia-related-link-btn" type="button" style="margin-top:1.5rem; display:inline-flex; align-items:center; gap:0.5rem; padding:0.7rem 1.3rem; border-radius:999px; border:1px solid rgba(52,211,153,0.4); background:rgba(52,211,153,0.1); color:#6ee7b7; font-size:0.9rem; font-weight:700; font-family:inherit; cursor:pointer; animation: pos-fade-in-up 0.5s ease 0.32s both;">
+      <span>Próxima aula: ${title}</span>
+      <span style="font-size:1.05rem; line-height:1;">&rarr;</span>
+    </button>
+    <script>
+      (function () {
+        var btn = document.getElementById('posologia-related-link-btn');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+          window.parent.postMessage({ source: '${RELATED_LINK_MESSAGE_SOURCE}', type: 'open-related', id: ${idJson} }, '*');
+        });
+      })();
+    </script>`;
+}
+
+export function buildClosingSlideHtml({ presentationTitle, userName, quote, quoteLoading, relatedPresentation }) {
   const title = escapeHtml(presentationTitle || 'Apresentação');
   const author = escapeHtml(userName);
 
@@ -37,6 +69,8 @@ export function buildClosingSlideHtml({ presentationTitle, userName, quote, quot
       <div style="font-size:2.6rem; line-height:1; color:#22d3ee; opacity:0.5; font-family:Georgia, serif;">&ldquo;</div>
       ${quoteBlock}
     </div>
+
+    ${buildRelatedLinkBlock(relatedPresentation)}
   </div>
   `;
 }

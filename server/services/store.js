@@ -197,7 +197,14 @@ function serializePresentation(id, p) {
     slides: p.slides,
     favorite: !!p.favorite,
     updatedAt: p.updatedAt,
-    lastOpenedAt: p.lastOpenedAt || null
+    lastOpenedAt: p.lastOpenedAt || null,
+    // Link "Aula Relacionada" mostrado no slide de encerramento (ver
+    // client/src/lib/closingSlideTemplate.js) — título denormalizado junto do
+    // id pra não precisar de outra consulta só pra rotular o link; fica
+    // desatualizado se a aula relacionada for renomeada depois (aceitável,
+    // corrige sozinho ao vincular de novo).
+    relatedPresentationId: p.relatedPresentationId || null,
+    relatedPresentationTitle: p.relatedPresentationTitle || null
   };
 }
 
@@ -207,14 +214,18 @@ export async function getPresentation(id, userId) {
 }
 
 export async function savePresentation(presentation, userId) {
-  const { id, title, description, slides } = presentation;
+  const { id, title, description, slides, relatedPresentationId, relatedPresentationTitle } = presentation;
   const now = Date.now();
 
   if (id) {
     const ref = presentationsRef(userId).doc(id);
     const existing = await ref.get();
     if (existing.exists) {
-      const data = { title, description: description || null, slides, updatedAt: now };
+      const data = {
+        title, description: description || null, slides, updatedAt: now,
+        relatedPresentationId: relatedPresentationId || null,
+        relatedPresentationTitle: relatedPresentationTitle || null
+      };
       await ref.update(data);
       return serializePresentation(id, { ...existing.data(), ...data });
     }
@@ -231,7 +242,9 @@ export async function savePresentation(presentation, userId) {
     favorite: false,
     createdAt: now,
     updatedAt: now,
-    lastOpenedAt: null
+    lastOpenedAt: null,
+    relatedPresentationId: relatedPresentationId || null,
+    relatedPresentationTitle: relatedPresentationTitle || null
   };
   const ref = await presentationsRef(userId).add(data);
   return serializePresentation(ref.id, data);

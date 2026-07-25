@@ -157,6 +157,7 @@ export default function App() {
         presentation={presentation}
         setPresentation={setPresentation}
         onOpenModal={() => setIsModalOpen(true)}
+        onOpenPresentation={openPresentation}
       />
 
       {/* Modais */}

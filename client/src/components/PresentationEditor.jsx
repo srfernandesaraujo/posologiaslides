@@ -7,6 +7,7 @@ import ActiveMethodologiesOverlay from './ActiveMethodologiesOverlay';
 import MediaLibraryDrawer from './MediaLibraryDrawer';
 import WidgetLibraryDrawer from './WidgetLibraryDrawer';
 import SlideTemplateGallery from './SlideTemplateGallery';
+import RelatedPresentationPicker from './RelatedPresentationPicker';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
 import ShareLinkModal from './ShareLinkModal';
@@ -15,13 +16,13 @@ import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
-  moveElementAt, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
+  moveElementAt, bringToFrontAt, sendToBackAt, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
   setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
-import { buildClosingSlideHtml } from '../lib/closingSlideTemplate';
+import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closingSlideTemplate';
 import useCanvasFit from '../lib/useCanvasFit';
 import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDIT_RANGE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
 import useUndoHistory from '../lib/useUndoHistory';
@@ -29,10 +30,10 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus
+  GitBranch, Plus, BringToFront, SendToBack, Milestone
 } from 'lucide-react';
 
-export default function PresentationEditor({ presentation, setPresentation, onOpenModal }) {
+export default function PresentationEditor({ presentation, setPresentation, onOpenModal, onOpenPresentation }) {
   const { user } = useAuth();
   // Desfazer/Refazer: `commit`/`commitDebounced` substituem `setPresentation`
   // direto em todo handler que muda `presentation` (ver troca abaixo) — só
@@ -69,6 +70,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // miniatura específica), decidido no momento em que a galeria é aberta.
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const [templateInsertIndex, setTemplateInsertIndex] = useState(0);
+  // Aula relacionada (ver RelatedPresentationPicker) — link mostrado no slide
+  // de encerramento virtual, guardado como relatedPresentationId/Title direto
+  // no objeto `presentation` (persistido pelo autosave normal).
+  const [relatedPickerOpen, setRelatedPickerOpen] = useState(false);
   // Chat de IA: painel flutuante que só aparece quando aberto (não é mais só
   // uma gaveta mobile — em qualquer largura de tela ele fica escondido até
   // ser aberto por este botão ou por "Editar este elemento com IA").
@@ -190,7 +195,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           presentationTitle: presentation?.title,
           userName: user?.name,
           quote: closingQuote,
-          quoteLoading: !closingQuote
+          quoteLoading: !closingQuote,
+          relatedPresentation: presentation?.relatedPresentationId
+            ? { id: presentation.relatedPresentationId, title: presentation.relatedPresentationTitle }
+            : null
         })
       }
     : presentation?.slides?.[activeIndex] || {
@@ -354,6 +362,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     emitSlideChanged(templateInsertIndex);
   };
 
+  const handleSelectRelatedPresentation = (id, title) => {
+    commit({ ...presentation, relatedPresentationId: id, relatedPresentationTitle: title });
+    setRelatedPickerOpen(false);
+  };
+
+  const handleClearRelatedPresentation = () => {
+    commit({ ...presentation, relatedPresentationId: null, relatedPresentationTitle: null });
+    setRelatedPickerOpen(false);
+  };
+
   // Mesmo endpoint/fluxo já usado pelo upload de mídia da biblioteca (ver
   // handleFileUpload em MediaLibraryDrawer.jsx): manda pro Cloud Storage e
   // guarda só a URL retornada — o slide (documento inteiro no Firestore, com
@@ -443,7 +461,25 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   useEffect(() => {
     const handleMessage = (e) => {
       const data = e.data;
-      if (!data || data.source !== SLIDE_EDITOR_MESSAGE_SOURCE) return;
+      if (!data) return;
+      // Clique no link "Aula Relacionada" do slide de encerramento (ver
+      // closingSlideTemplate.js) — roda SEMPRE (editando ou apresentando de
+      // verdade), diferente do resto deste handler, que só existe pro script
+      // do modo editável (buildEditorScript). Reseta o palco pro slide 0 da
+      // nova apresentação; sem isso, `activeIndex`/`atClosingSlide` ficavam
+      // com o valor de antes (este componente não desmonta ao trocar de
+      // apresentação, só o objeto `presentation` muda) e a nova apresentação
+      // abria direto no PRÓPRIO encerramento em vez do primeiro slide.
+      if (data.source === RELATED_LINK_MESSAGE_SOURCE && data.type === 'open-related') {
+        if (data.id && onOpenPresentation) {
+          setAtClosingSlide(false);
+          setActiveIndex(0);
+          setClosingQuote(null);
+          onOpenPresentation(data.id);
+        }
+        return;
+      }
+      if (data.source !== SLIDE_EDITOR_MESSAGE_SOURCE) return;
       if (data.type === 'select') {
         setSelectedEl({ index: data.index, scope: data.scope, rect: data.rect });
         setElementHtmlDraft(null);
@@ -650,6 +686,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleMoveElement = (direction) => {
     if (!selectedEl) return;
     mutateCurrentSlideHtml((html) => moveElementAt(html, selectedEl.index, direction));
+  };
+
+  // Camadas: pula o elemento direto pro topo/fundo da pilha (ver
+  // bringToFrontAt/sendToBackAt em slideHtmlUtils.js) — diferente das setas
+  // "mover para cima/baixo" acima, que trocam de posição com o vizinho um
+  // passo de cada vez. Mais importante pra elementos com posição livre (ver
+  // `positioned` abaixo) que ficam sobrepostos ao arrastar.
+  const handleLayerElement = (edge) => {
+    if (!selectedEl) return;
+    mutateCurrentSlideHtml((html) => (edge === 'front' ? bringToFrontAt : sendToBackAt)(html, selectedEl.index));
   };
 
   const handleGroupElement = (neighbor) => {
@@ -1088,6 +1134,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
             <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
               <button
+                className={`btn-icon ${presentation.relatedPresentationId ? 'active' : ''}`}
+                onClick={() => setRelatedPickerOpen(true)}
+                title={presentation.relatedPresentationId ? `Aula relacionada: ${presentation.relatedPresentationTitle}` : 'Vincular aula relacionada (aparece no encerramento)'}
+              >
+                <Milestone size={18} />
+              </button>
+              <button
                 className="btn-icon"
                 onClick={() => setIsShareOpen(true)}
                 disabled={!presentation.id}
@@ -1381,6 +1434,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   {divider}
                   <button className="btn-icon" style={btnStyle} title="Mover para cima" onClick={() => handleMoveElement('up')}><ArrowUp size={15} /></button>
                   <button className="btn-icon" style={btnStyle} title="Mover para baixo" onClick={() => handleMoveElement('down')}><ArrowDown size={15} /></button>
+                  {divider}
+                  <button className="btn-icon" style={btnStyle} title="Trazer para frente (camadas)" onClick={() => handleLayerElement('front')}><BringToFront size={15} /></button>
+                  <button className="btn-icon" style={btnStyle} title="Enviar para trás (camadas)" onClick={() => handleLayerElement('back')}><SendToBack size={15} /></button>
                   {divider}
                   {grouped ? (
                     <button className="btn-icon" style={btnStyle} title="Desagrupar" onClick={handleUngroupElement}><Rows3 size={15} /></button>
@@ -1696,6 +1752,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         isOpen={templateGalleryOpen}
         onClose={() => setTemplateGalleryOpen(false)}
         onSelectTemplate={handleSelectTemplate}
+      />
+
+      {/* Seletor de Aula Relacionada */}
+      <RelatedPresentationPicker
+        isOpen={relatedPickerOpen}
+        onClose={() => setRelatedPickerOpen(false)}
+        currentPresentationId={presentation.id}
+        currentRelated={presentation.relatedPresentationId ? { id: presentation.relatedPresentationId, title: presentation.relatedPresentationTitle } : null}
+        onSelect={handleSelectRelatedPresentation}
+        onClear={handleClearRelatedPresentation}
       />
 
       {/* Modal de Link Público (Compartilhar) */}
