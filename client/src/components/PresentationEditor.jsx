@@ -724,30 +724,69 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     commit({ ...presentation, slides: updatedSlides });
   };
 
-  // Atalho de teclado Ctrl/Cmd+C (copiar elemento selecionado) e Ctrl/Cmd+V
-  // (colar no slide ativo) — mesma proteção contra digitação em campo de
-  // texto do atalho de desfazer/refazer acima. Diferente daquele, este efeito
-  // NÃO usa uma lista de dependências estreita: `selectedEl`/`elementClipboard`
-  // mudam a cada seleção/cópia, e um closure "velho" faria Ctrl+C copiar o
-  // elemento errado (ou nada) até a próxima renderização que recriasse o
-  // listener por outro motivo.
+  // Sobe uma imagem (mesma rota que o upload de arquivo da Biblioteca de
+  // Mídias já usa) e insere no slide ativo — compartilhado pelo Ctrl+V de
+  // imagem do clipboard do SO (ver listener de 'paste' abaixo).
+  const handlePasteImageFile = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await apiFetch('/api/materials/upload-media', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Falha ao colar a imagem.');
+      handleInsertMedia({ type: data.type, url: data.url, name: data.name });
+    } catch (err) {
+      alert('Não foi possível colar a imagem: ' + err.message);
+    }
+  };
+
+  // Atalho de teclado Ctrl/Cmd+C (copiar elemento selecionado) — mesma
+  // proteção contra digitação em campo de texto do atalho de desfazer/refazer
+  // acima. NÃO usa uma lista de dependências estreita: `selectedEl` muda a
+  // cada seleção, e um closure "velho" faria Ctrl+C copiar o elemento errado
+  // (ou nada) até a próxima renderização que recriasse o listener por outro
+  // motivo.
   useEffect(() => {
-    const handleCopyPasteKeydown = (e) => {
+    const handleCopyKeydown = (e) => {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
       if (!(e.ctrlKey || e.metaKey) || atClosingSlide) return;
-      const key = e.key.toLowerCase();
-      if (key === 'c' && selectedEl) {
+      if (e.key.toLowerCase() === 'c' && selectedEl) {
         e.preventDefault();
         handleCopyElement();
-      } else if (key === 'v' && elementClipboard) {
+      }
+    };
+    window.addEventListener('keydown', handleCopyKeydown);
+    return () => window.removeEventListener('keydown', handleCopyKeydown);
+  }, [selectedEl, atClosingSlide, currentSlide]);
+
+  // Ctrl/Cmd+V no palco (fora de campos de texto — o chat tem seu próprio
+  // onPaste, ver handleChatInputPaste) usa o evento nativo 'paste' em vez de
+  // 'keydown': só ele dá acesso a `e.clipboardData`, necessário pra colar uma
+  // imagem copiada de fora do app (print, imagem da internet). Prioriza a
+  // imagem do clipboard do sistema operacional quando presente; só cai pro
+  // "colar elemento copiado dentro do app" (elementClipboard) se não houver
+  // nenhuma imagem — evita colar os dois de uma vez no raro caso de o SO ter
+  // uma imagem no clipboard AO MESMO TEMPO que um elemento copiado no app.
+  useEffect(() => {
+    const handleWindowPaste = (e) => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+      if (atClosingSlide) return;
+      const items = Array.from(e.clipboardData?.items || []);
+      const imageItem = items.find((item) => item.kind === 'file' && item.type.startsWith('image/'));
+      if (imageItem) {
+        e.preventDefault();
+        const file = imageItem.getAsFile();
+        if (file) handlePasteImageFile(file);
+      } else if (elementClipboard) {
         e.preventDefault();
         handlePasteElement();
       }
     };
-    window.addEventListener('keydown', handleCopyPasteKeydown);
-    return () => window.removeEventListener('keydown', handleCopyPasteKeydown);
-  }, [selectedEl, elementClipboard, atClosingSlide, currentSlide, activeIndex, presentation]);
+    window.addEventListener('paste', handleWindowPaste);
+    return () => window.removeEventListener('paste', handleWindowPaste);
+  }, [elementClipboard, atClosingSlide, currentSlide, activeIndex, presentation]);
 
   const handleGroupElement = (neighbor) => {
     if (!selectedEl) return;
@@ -847,6 +886,39 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     if (!selectedEl) return;
     setChatScope({ index: selectedEl.index });
     setChatOpen(true);
+  };
+
+  // Lê um File direto no navegador e devolve só a parte base64 (sem o prefixo
+  // "data:...;base64,") — mesmo formato que a rota /upload-file já devolve
+  // pra anexos de imagem (ver handleAttachFile abaixo), mas sem precisar
+  // fazer uma viagem ao servidor só pra reencodar um arquivo que já está no
+  // navegador (útil pro paste de imagem, que não passa por <input type=file>).
+  const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Falha ao ler o arquivo.'));
+    reader.readAsDataURL(file);
+  });
+
+  // Colar (Ctrl+V) uma imagem copiada de fora (print, imagem da internet)
+  // direto no campo de instrução do chat — útil pra mostrar exatamente o
+  // elemento/trecho do slide que o professor quer alterar, em vez de só
+  // descrever em texto. Só intercepta quando o clipboard tem de fato um
+  // ARQUIVO de imagem; colar texto normal continua funcionando do jeito
+  // padrão do navegador (sem preventDefault nesse caso).
+  const handleChatInputPaste = async (e) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItem = items.find((item) => item.kind === 'file' && item.type.startsWith('image/'));
+    if (!imageItem) return;
+    e.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    try {
+      const data = await readFileAsBase64(file);
+      setChatAttachments((prev) => [...prev, { id: Date.now().toString(), kind: 'image', name: 'Imagem colada', mimeType: file.type, data }]);
+    } catch {
+      alert('Não foi possível colar a imagem.');
+    }
   };
 
   const handleAttachFile = async (e) => {
@@ -1780,9 +1852,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             <input
               type="text"
               className="chat-input"
-              placeholder={chatLoading ? 'Aguarde a IA terminar...' : 'Instrua a IA sobre este slide...'}
+              placeholder={chatLoading ? 'Aguarde a IA terminar...' : 'Instrua a IA sobre este slide... (cole um print com Ctrl+V)'}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
+              onPaste={handleChatInputPaste}
               disabled={chatLoading}
             />
             <button type="submit" className="btn-primary" style={{ padding: '0.6rem 0.8rem' }} disabled={chatLoading}>

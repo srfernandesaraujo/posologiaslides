@@ -832,8 +832,27 @@ export default function PresentationViewer({ htmlContent, editable = false, spot
 <meta charset="UTF-8" />
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #090d16; }
+  /* O elemento html fica com overflow:hidden (evita bounce/scrollbar
+     duplicada); quem rola é o body — conteúdo gerado pela IA às vezes fica
+     mais alto que os 720px nativos do slide (ex.: diagrama interativo +
+     painel de detalhes que só aparece ao clicar), e antes esse excesso era
+     cortado em silêncio, sem nenhuma forma de ver o resto. overflow-x
+     continua hidden (o slide é sempre 1280px de largura, não deveria haver
+     conteúdo largo demais por design). Isto NÃO afeta o overflow:hidden que
+     elementos internos já usam de propósito pra recorte/máscara (ex.: crop
+     de imagem em blockCatalog.js, slider antes/depois em widgetCatalog.js)
+     — overflow não é herdado pelos filhos em CSS. */
+  html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+  body { margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #090d16; }
   * { box-sizing: border-box; }
+  /* Scrollbar fina e discreta (tema escuro), em vez da barra cinza padrão do
+     navegador destoando do visual do slide — só aparece quando há de fato
+     conteúdo pra rolar. */
+  body::-webkit-scrollbar { width: 8px; }
+  body::-webkit-scrollbar-track { background: transparent; }
+  body::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.35); border-radius: 999px; }
+  body::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.55); }
+  body { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.35) transparent; }
 
   /* Biblioteca de animações aplicáveis a um elemento via o painel "Animar" do
      editor (ver client/src/lib/animationCatalog.js) — sempre presente (não só
