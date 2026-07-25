@@ -187,6 +187,65 @@ function buildTextOtherElements() {
   );
 }
 
+// Cartão de identificação do paciente (idade/sexo/queixa/comorbidades) — pares
+// rótulo/valor em linhas, não uma tabela, pra ficar compacto ao lado da
+// vinheta do caso sem competir visualmente com a tabela de exames.
+function patientCard(delayIndex) {
+  const fields = [
+    ['Idade', '58 anos'],
+    ['Sexo', 'Feminino'],
+    ['Queixa principal', 'Dor torácica'],
+    ['Comorbidades', 'HAS, DM2']
+  ];
+  const rows = fields.map(([label, value]) => `
+    <div style="display:flex;justify-content:space-between;gap:1rem;padding:0.55rem 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+      <span style="color:#9ca3af;font-size:0.82rem;font-weight:600;">${label}</span>
+      <span style="color:#e2e8f0;font-size:0.88rem;font-weight:700;text-align:right;">${value}</span>
+    </div>`).join('');
+  return `
+<div style="padding:1.5rem;border-radius:1rem;background:rgba(15,23,42,0.55);border:1px solid rgba(167,139,250,0.3);${fadeUp(delayIndex)}">
+  <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.6rem;">
+    <div style="width:2.4rem;height:2.4rem;flex-shrink:0;border-radius:50%;background:rgba(167,139,250,0.15);display:flex;align-items:center;justify-content:center;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c4b5fd" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+    </div>
+    <div style="font-size:0.72rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#c4b5fd;">Identificação do Paciente</div>
+  </div>
+  ${rows}
+</div>`;
+}
+
+// Pergunta disparada pra turma discutir o caso — âmbar (mesma cor de alerta/
+// atenção usada em warning-box no BLOCK_CATALOG) pra destacar do resto do
+// slide sem parecer um dado clínico a mais.
+function discussionQuestion(text, delayIndex) {
+  return `
+<div style="padding:1.1rem 1.4rem;border-radius:0.75rem;background:rgba(251,191,36,0.08);border-left:3px solid rgba(251,191,36,0.7);${fadeUp(delayIndex)}">
+  <div style="font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#fbbf24;margin-bottom:0.35rem;">Pergunta para discussão</div>
+  <p style="margin:0;color:#f1f5f9;font-size:1rem;font-weight:600;line-height:1.5;">${text}</p>
+</div>`;
+}
+
+function buildClinicalCase() {
+  const vignette = 'Paciente relata início dos sintomas há 3 dias, com piora progressiva nas últimas horas. Nega episódios semelhantes anteriores. Em uso regular das medicações listadas a seguir.';
+  const examRows = 'Parâmetro | Resultado\nPA | 150/95 mmHg\nFC | 92 bpm\nGlicemia | 210 mg/dL';
+  const left = [
+    heading('Caso Clínico', '2rem', 0),
+    patientCard(1)
+  ].join('');
+  const right = [
+    paragraph(vignette, 1),
+    blockHtml('table', { rows: examRows })
+  ].join('');
+  return assemble(
+    `${ROOT_BASE}display:flex;flex-direction:column;gap:1.25rem;padding:3.5rem 4.5rem;justify-content:center;background:${BG.flatDeep};`,
+    [
+      { html: tagChip('Caso Clínico', 'violet', 0) },
+      { html: twoColumns(left, right, '0.85fr 1.15fr', 1) },
+      { html: discussionQuestion('Qual seria a conduta terapêutica mais adequada para este caso, considerando o quadro apresentado?', 2) }
+    ]
+  );
+}
+
 function buildComparisonDuel() {
   const side = (title, accent, items) => {
     const a = ACCENTS[accent];
@@ -307,6 +366,7 @@ export const SLIDE_TEMPLATE_CATALOG = [
   { id: 'text-simulator', title: 'Texto + Simulador', description: 'Texto de contexto seguido de um simulador de sliders já funcional.', category: 'Dados', iconName: 'Activity', layoutTag: 'simulador-slider', buildHtml: buildTextSimulator },
   { id: 'only-elements-grid', title: 'Somente Elementos (Grade)', description: 'Grade de cartões, sem bloco de texto corrido — direto ao ponto.', category: 'Elementos', iconName: 'LayoutGrid', layoutTag: 'grade-elementos', buildHtml: buildOnlyElementsGrid },
   { id: 'text-other-elements', title: 'Texto + Outros Elementos', description: 'Texto de um lado, destaque + tabela do outro.', category: 'Conteúdo', iconName: 'StickyNote', layoutTag: 'texto-elementos', buildHtml: buildTextOtherElements },
+  { id: 'clinical-case', title: 'Caso Clínico', description: 'Identificação do paciente, vinheta, dados de exame e pergunta pra discussão em turma.', category: 'Caso Clínico', iconName: 'Stethoscope', layoutTag: 'caso-clinico', buildHtml: buildClinicalCase },
   { id: 'comparison-duel', title: 'Comparação em Duelo', description: 'Dois blocos lado a lado com contraste forte — ideal pra comparar opções.', category: 'Elementos', iconName: 'Columns2', layoutTag: 'comparacao-duelo', buildHtml: buildComparisonDuel },
   { id: 'hero-stat', title: 'Hero de Dado', description: 'Um número gigante como protagonista visual, com contexto mínimo.', category: 'Dados', iconName: 'Hash', layoutTag: 'hero-stat', buildHtml: buildHeroStat },
   { id: 'process-diagram', title: 'Diagrama de Processo', description: 'Etapas numeradas conectadas — mecanismos, vias, sequências.', category: 'Elementos', iconName: 'Workflow', layoutTag: 'diagrama-processo', buildHtml: buildProcessDiagram },
