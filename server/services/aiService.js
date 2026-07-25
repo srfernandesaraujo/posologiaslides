@@ -370,6 +370,62 @@ export async function generateSlideHtml({ slideOutline, presentationTitle, index
   }
 }
 
+// Gera UM slide avulso a partir de um prompt livre + material/imagem de
+// referência opcional (ver AISingleSlideModal.jsx no cliente) — pra inserir
+// dentro de uma apresentação já existente, sem passar pelo fluxo de outline
+// (que é feito pra montar VÁRIOS slides coerentes entre si de uma vez). Só
+// uma chamada ao Gemini, no mesmo espírito de generateSlideHtml, mas sem um
+// slideOutline estruturado — o título curto vem embutido na resposta via o
+// mesmo truque do marcador `<!-- layout: ... -->` (aqui `<!-- title: ... -->`),
+// já que não há outline prévio de onde tirar um título.
+export async function generateSingleSlideHtml({ prompt, materials, apiKey, images }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+
+  if (!effectiveApiKey) {
+    const fallbackOutline = { title: (prompt || 'Novo Slide').slice(0, 60), subtitle: '', type: 'dashboard', keyPoints: ['Configure sua chave de API do Gemini em Configurações para gerar conteúdo real.'] };
+    return {
+      title: fallbackOutline.title,
+      html: generateFallbackSlideHtml(fallbackOutline, 'Apresentação', 1, 1),
+      warning: 'Nenhuma chave de API do Gemini configurada. Exibindo conteúdo de exemplo — configure sua chave em Configurações para gerar conteúdo real.'
+    };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const fullPrompt = `
+    ${SYSTEM_PROMPT}
+
+    Gere o código HTML + CSS + JS COMPLETO para UM ÚNICO SLIDE avulso, que será inserido dentro de uma apresentação já existente (não é a apresentação inteira, é só este slide).
+
+    O QUE ESTE SLIDE DEVE CONTER:
+    "${prompt}"
+    ${materialsBlock(materials)}
+
+    Instruções Técnicas:
+    - Retorne APENAS o fragmento HTML (com <style> e <script> embutidos se necessário).
+    - O container raiz deve ter classe "slide-root" e estilo de tela inteira (width: 100%; height: 100%; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif).
+    - Na ÚLTIMA linha da resposta, adicione um comentário HTML isolado no formato exato <!-- title: Título Curto do Slide --> com um título curto (3 a 8 palavras) pra este slide — é uso interno (aparece só na lista de slides), não no conteúdo visível.
+    `;
+
+    const result = await generateContentWithRetry(model, buildParts(fullPrompt, images));
+    const cleaned = cleanCodeBlock(result.response.text());
+    const titleMatch = cleaned.match(/<!--\s*title:\s*(.+?)\s*-->/i);
+    const html = titleMatch ? cleaned.replace(titleMatch[0], '').trim() : cleaned;
+    const title = titleMatch ? titleMatch[1].trim() : (prompt || 'Novo Slide').slice(0, 60);
+    return { title, html };
+  } catch (error) {
+    console.error('Erro na API Gemini (Slide Único):', error.message);
+    const fallbackOutline = { title: (prompt || 'Novo Slide').slice(0, 60), subtitle: '', type: 'dashboard', keyPoints: ['Não foi possível gerar o conteúdo com IA desta vez.'] };
+    return {
+      title: fallbackOutline.title,
+      html: generateFallbackSlideHtml(fallbackOutline, 'Apresentação', 1, 1),
+      warning: `Falha ao usar a IA Gemini (${error.message}). Exibindo conteúdo de exemplo.`
+    };
+  }
+}
+
 export async function editSlideWithAi({ currentHtml, instruction, apiKey, materials, images, elementHtml }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
   // `elementHtml` presente: o usuário selecionou um elemento específico do

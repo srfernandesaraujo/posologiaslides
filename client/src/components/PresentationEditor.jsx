@@ -7,6 +7,7 @@ import ActiveMethodologiesOverlay from './ActiveMethodologiesOverlay';
 import MediaLibraryDrawer from './MediaLibraryDrawer';
 import WidgetLibraryDrawer from './WidgetLibraryDrawer';
 import SlideTemplateGallery from './SlideTemplateGallery';
+import AISingleSlideModal from './AISingleSlideModal';
 import RelatedPresentationPicker from './RelatedPresentationPicker';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
@@ -89,6 +90,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // miniatura específica), decidido no momento em que a galeria é aberta.
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const [templateInsertIndex, setTemplateInsertIndex] = useState(0);
+  // Modal "Novo Slide com IA" (ver AISingleSlideModal) — reaproveita
+  // `templateInsertIndex` acima pra guardar onde o slide gerado deve entrar.
+  const [aiSingleSlideOpen, setAiSingleSlideOpen] = useState(false);
   // Aula relacionada (ver RelatedPresentationPicker) — link mostrado no slide
   // de encerramento virtual, guardado como relatedPresentationId/Title direto
   // no objeto `presentation` (persistido pelo autosave normal).
@@ -405,6 +409,24 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     newSlides.splice(templateInsertIndex, 0, newSlide);
     commit({ ...presentation, slides: newSlides });
     setTemplateGalleryOpen(false);
+    emitSlideChanged(templateInsertIndex);
+  };
+
+  // Mesma convenção de índice de handleOpenTemplateGallery/handleSelectTemplate
+  // acima, só que o slide vem de um prompt de IA (ver AISingleSlideModal) em
+  // vez de um template pronto — reaproveita `templateInsertIndex` pra não
+  // duplicar o rastreio de "onde entra o próximo slide".
+  const handleOpenAISingleSlide = (insertIndex) => {
+    setTemplateInsertIndex(insertIndex);
+    setAiSingleSlideOpen(true);
+  };
+
+  const handleInsertAISlide = (title, html) => {
+    const newSlide = { id: `slide-${Date.now()}`, title, html };
+    const newSlides = [...presentation.slides];
+    newSlides.splice(templateInsertIndex, 0, newSlide);
+    commit({ ...presentation, slides: newSlides });
+    setAiSingleSlideOpen(false);
     emitSlideChanged(templateInsertIndex);
   };
 
@@ -1253,6 +1275,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           onClose={() => setMobileSlideListOpen(false)}
           onAddSlide={() => handleAddSlideAt(presentation.slides.length)}
           onAddTemplate={() => handleOpenTemplateGallery(activeIndex + 1)}
+          onAddSlideWithAI={() => handleOpenAISingleSlide(activeIndex + 1)}
           onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
           onDeleteSlide={(idxToDelete) => {
             if (presentation.slides.length <= 1) return;
@@ -2267,6 +2290,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         isOpen={templateGalleryOpen}
         onClose={() => setTemplateGalleryOpen(false)}
         onSelectTemplate={handleSelectTemplate}
+      />
+
+      {/* Novo Slide com IA (prompt + arquivo de referência) */}
+      <AISingleSlideModal
+        isOpen={aiSingleSlideOpen}
+        onClose={() => setAiSingleSlideOpen(false)}
+        onInsert={handleInsertAISlide}
       />
 
       {/* Seletor de Aula Relacionada */}

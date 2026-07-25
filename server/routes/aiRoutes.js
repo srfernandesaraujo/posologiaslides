@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateEquivalentImage, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote, generateSlideQuestions, searchWebForPresenter } from '../services/aiService.js';
+import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateEquivalentImage, generateSlideHtml, generateSingleSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote, generateSlideQuestions, searchWebForPresenter } from '../services/aiService.js';
 import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
@@ -160,6 +160,25 @@ router.post('/edit-slide', async (req, res) => {
   } catch (error) {
     console.error('Erro na rota edit-slide:', error);
     res.status(500).json({ error: 'Falha ao editar o slide com IA.' });
+  }
+});
+
+// Rota 3b: Gerar UM slide avulso via IA (prompt + material/imagem de
+// referência opcional) pra inserir dentro de uma apresentação já existente —
+// ver AISingleSlideModal.jsx (botão "+ Slide com IA" na lista de slides).
+router.post('/generate-single-slide', async (req, res) => {
+  try {
+    const { prompt, materials, apiKey, images } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: 'Descreva o que o slide deve conter.' });
+    }
+
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const { title, html, warning } = await generateSingleSlideHtml({ prompt, materials, apiKey: effectiveApiKey, images });
+    res.json({ success: true, title, html, warning: warning || null });
+  } catch (error) {
+    console.error('Erro na rota generate-single-slide:', error);
+    res.status(500).json({ error: 'Falha ao gerar o slide com IA.' });
   }
 });
 
