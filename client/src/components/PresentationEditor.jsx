@@ -817,8 +817,31 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         handlePasteElement();
       }
     };
+    // Mesma lógica acima, mas pro caso em que o foco está DENTRO do iframe do
+    // slide (ex.: logo depois de clicar num elemento pra selecioná-lo) — ali
+    // o 'paste' nativo dispara no document do IFRAME, não no desta janela, e
+    // o listener acima nunca é chamado. buildEditorScript (PresentationViewer)
+    // intercepta lá dentro e reencaminha pra cá via postMessage; só falta
+    // tratar os 3 formatos que ele manda (mesma prioridade de sempre: bytes
+    // reais de imagem > URL de um <img> achado no HTML colado > elemento
+    // copiado dentro do app).
+    const handleIframePasteMessage = (e) => {
+      const data = e.data;
+      if (!data || data.source !== SLIDE_EDITOR_MESSAGE_SOURCE || atClosingSlide) return;
+      if (data.type === 'paste-image-file') {
+        handlePasteImageFile(data.file);
+      } else if (data.type === 'paste-image-url') {
+        handleInsertMedia({ type: 'image', url: data.url, name: 'Imagem colada' });
+      } else if (data.type === 'paste-fallback' && elementClipboard) {
+        handlePasteElement();
+      }
+    };
     window.addEventListener('paste', handleWindowPaste);
-    return () => window.removeEventListener('paste', handleWindowPaste);
+    window.addEventListener('message', handleIframePasteMessage);
+    return () => {
+      window.removeEventListener('paste', handleWindowPaste);
+      window.removeEventListener('message', handleIframePasteMessage);
+    };
   }, [elementClipboard, atClosingSlide, currentSlide, activeIndex, presentation]);
 
   const handleGroupElement = (neighbor) => {

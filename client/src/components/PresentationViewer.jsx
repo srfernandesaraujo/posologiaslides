@@ -662,6 +662,53 @@ function buildEditorScript(initialSelected, initialCropMode) {
     refreshHandles();
   });
 
+  // Ctrl/Cmd+V DENTRO do iframe — sem isto, colar uma imagem falha sempre que
+  // o foco está no slide (o que acontece depois de qualquer clique nele, ex.
+  // pra selecionar um elemento): o 'paste' nativo dispara no document DESTE
+  // iframe, não no da janela pai, então o listener de lá (PresentationEditor)
+  // nunca recebe nada. Em vez de tratar aqui, encaminha pro pai — ele já sabe
+  // subir a imagem/inserir o elemento copiado. Um File é clonável via
+  // postMessage (mesma origem, allow-same-origin), então segue intacto.
+  // Prioridade: 1) bytes reais de imagem no clipboard do SO; 2) se não houver
+  // (comum ao copiar "imagem" de várias páginas — o navegador só bota um
+  // <img src="..."> no HTML colado, sem os bytes), a URL desse <img>,
+  // inserida como link direto (mesmo caminho da aba "Link" da bibliot. de
+  // mídia, sem upload); 3) por fim, avisa o pai pra tentar colar um ELEMENTO
+  // copiado dentro do próprio app (ver elementClipboard em PresentationEditor).
+  document.addEventListener('paste', function (e) {
+    var tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+    var cd = e.clipboardData;
+    if (!cd) return;
+
+    var items = Array.prototype.slice.call(cd.items || []);
+    var imageItem = null;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file' && items[i].type.indexOf('image/') === 0) { imageItem = items[i]; break; }
+    }
+    if (imageItem) {
+      var file = imageItem.getAsFile();
+      if (file) {
+        e.preventDefault();
+        window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'paste-image-file', file: file }, '*');
+        return;
+      }
+    }
+
+    var html = cd.getData('text/html');
+    var imgMatch = html && html.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (imgMatch) {
+      e.preventDefault();
+      // Serializado como HTML, "&" de uma query string vira "&amp;" — sem
+      // desfazer isso a URL quebra (parâmetros cortados no primeiro &amp;).
+      var imgUrl = imgMatch[1].replace(/&amp;/g, '&');
+      window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'paste-image-url', url: imgUrl }, '*');
+      return;
+    }
+
+    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'paste-fallback' }, '*');
+  });
+
   // Ver comentário de "initialSelected" acima de buildEditorScript: restaura
   // a seleção que existia antes deste (re)carregamento, se o elemento ainda
   // existir no mesmo índice/escopo. Não reenvia 'select' pro pai — o rect
