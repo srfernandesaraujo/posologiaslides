@@ -6,6 +6,30 @@ export function uniqueId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+// Troca todo `id="..."` presente no fragmento por um novo id único (mesmo
+// prefixo, nova parte aleatória) — usado ao COLAR um elemento copiado (ver
+// handlePasteElement em PresentationEditor.jsx). Widgets/gráficos/diagramas
+// (ver widgetCatalog.js/diagramCatalog.js) têm um <script> próprio que
+// referencia o MESMO id várias vezes como texto (não só o atributo), então a
+// troca é uma substituição literal no HTML inteiro — inclusive dentro do
+// <script> — em vez de só renomear o atributo via DOM. Sem isto, colar um
+// gráfico/simulador/flashcards uma segunda vez NO MESMO slide criaria dois
+// elementos com o mesmo id: o script do segundo (document.getElementById)
+// encontraria o elemento do primeiro, e nenhum dos dois funcionaria direito.
+export function regenerateElementIds(html) {
+  const ids = new Set();
+  const idPattern = /\sid="([^"]+)"/g;
+  let match;
+  while ((match = idPattern.exec(html))) ids.add(match[1]);
+
+  let result = html;
+  ids.forEach((oldId) => {
+    const prefix = oldId.split('-')[0] || 'el';
+    result = result.split(oldId).join(uniqueId(prefix));
+  });
+  return result;
+}
+
 // ==========================================================================
 // Manipulação estrutural do HTML do slide — usada pela seleção de elementos
 // no editor (alinhar, mover, agrupar, apagar, editar campos). Roda sempre no

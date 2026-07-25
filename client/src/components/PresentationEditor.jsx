@@ -16,7 +16,7 @@ import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
-  moveElementAt, bringToFrontAt, sendToBackAt, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
+  moveElementAt, bringToFrontAt, sendToBackAt, regenerateElementIds, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
   setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt
 } from '../lib/slideHtmlUtils';
@@ -30,7 +30,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste
 } from 'lucide-react';
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal, onOpenPresentation }) {
@@ -74,6 +74,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // de encerramento virtual, guardado como relatedPresentationId/Title direto
   // no objeto `presentation` (persistido pelo autosave normal).
   const [relatedPickerOpen, setRelatedPickerOpen] = useState(false);
+  // Copiar/colar elemento entre slides — guarda o outerHTML exato do elemento
+  // copiado (inclui data-el-source/config, posição livre, recorte, animação,
+  // já que tudo isso vive como atributo/estilo no próprio nó de topo). Fica só
+  // em memória (React state): não precisa sobreviver a um recarregamento de
+  // página pra atender o pedido ("copiar de um slide, colar em outro").
+  const [elementClipboard, setElementClipboard] = useState(null);
   // Chat de IA: painel flutuante que só aparece quando aberto (não é mais só
   // uma gaveta mobile — em qualquer largura de tela ele fica escondido até
   // ser aberto por este botão ou por "Editar este elemento com IA").
@@ -698,6 +704,51 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     mutateCurrentSlideHtml((html) => (edge === 'front' ? bringToFrontAt : sendToBackAt)(html, selectedEl.index));
   };
 
+  // Copiar/colar entre slides: "copiar" só guarda o outerHTML do elemento
+  // selecionado; "colar" insere no slide ATIVO no momento do clique (pode ser
+  // outro slide — o usuário seleciona o elemento, copia, troca de slide, cola)
+  // via appendIntoRoot, igual a qualquer inserção da Biblioteca de Conteúdo.
+  // Não usa mutateCurrentSlideHtml (que exige `selectedEl` e limpa a seleção)
+  // porque colar não depende de nenhum elemento estar selecionado no destino.
+  const handleCopyElement = () => {
+    if (!selectedEl) return;
+    const html = getElementAt(currentSlide.html, selectedEl.index);
+    if (html) setElementClipboard(html);
+  };
+
+  const handlePasteElement = () => {
+    if (!elementClipboard) return;
+    const pastedHtml = regenerateElementIds(elementClipboard);
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], html: appendIntoRoot(currentSlide.html, pastedHtml) };
+    commit({ ...presentation, slides: updatedSlides });
+  };
+
+  // Atalho de teclado Ctrl/Cmd+C (copiar elemento selecionado) e Ctrl/Cmd+V
+  // (colar no slide ativo) — mesma proteção contra digitação em campo de
+  // texto do atalho de desfazer/refazer acima. Diferente daquele, este efeito
+  // NÃO usa uma lista de dependências estreita: `selectedEl`/`elementClipboard`
+  // mudam a cada seleção/cópia, e um closure "velho" faria Ctrl+C copiar o
+  // elemento errado (ou nada) até a próxima renderização que recriasse o
+  // listener por outro motivo.
+  useEffect(() => {
+    const handleCopyPasteKeydown = (e) => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+      if (!(e.ctrlKey || e.metaKey) || atClosingSlide) return;
+      const key = e.key.toLowerCase();
+      if (key === 'c' && selectedEl) {
+        e.preventDefault();
+        handleCopyElement();
+      } else if (key === 'v' && elementClipboard) {
+        e.preventDefault();
+        handlePasteElement();
+      }
+    };
+    window.addEventListener('keydown', handleCopyPasteKeydown);
+    return () => window.removeEventListener('keydown', handleCopyPasteKeydown);
+  }, [selectedEl, elementClipboard, atClosingSlide, currentSlide, activeIndex, presentation]);
+
   const handleGroupElement = (neighbor) => {
     if (!selectedEl) return;
     mutateCurrentSlideHtml((html) => groupWithNeighborAt(html, selectedEl.index, neighbor));
@@ -1128,6 +1179,14 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               <button className="btn-icon" onClick={() => setShowCodeEditor(!showCodeEditor)} title="Ver / Editar HTML do Slide">
                 <Code size={18} />
               </button>
+              <button
+                className="btn-icon"
+                onClick={handlePasteElement}
+                disabled={!elementClipboard || atClosingSlide}
+                title={elementClipboard ? 'Colar elemento copiado neste slide' : 'Copie um elemento primeiro (botão "Copiar" na barra do elemento selecionado)'}
+              >
+                <ClipboardPaste size={18} />
+              </button>
             </div>
 
             <ToolbarDivider />
@@ -1437,6 +1496,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   {divider}
                   <button className="btn-icon" style={btnStyle} title="Trazer para frente (camadas)" onClick={() => handleLayerElement('front')}><BringToFront size={15} /></button>
                   <button className="btn-icon" style={btnStyle} title="Enviar para trás (camadas)" onClick={() => handleLayerElement('back')}><SendToBack size={15} /></button>
+                  {divider}
+                  <button className="btn-icon" style={btnStyle} title="Copiar elemento (colar em outro slide com o botão da barra principal)" onClick={handleCopyElement}><Copy size={15} /></button>
                   {divider}
                   {grouped ? (
                     <button className="btn-icon" style={btnStyle} title="Desagrupar" onClick={handleUngroupElement}><Rows3 size={15} /></button>
