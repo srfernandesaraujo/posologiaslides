@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateEquivalentImage, generateSlideHtml, generateSingleSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote, generateSlideQuestions, searchWebForPresenter } from '../services/aiService.js';
+import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateEquivalentImage, generateSlideHtml, generateSingleSlideHtml, editSlideWithAi, generateLayoutVariation, generateInfographicFragment, generateClosingQuote, generateSlideQuestions, searchWebForPresenter } from '../services/aiService.js';
 import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
@@ -179,6 +179,35 @@ router.post('/generate-single-slide', async (req, res) => {
   } catch (error) {
     console.error('Erro na rota generate-single-slide:', error);
     res.status(500).json({ error: 'Falha ao gerar o slide com IA.' });
+  }
+});
+
+// Rota 3c: Gerar variações de layout de um elemento (ver LayoutVariationsModal
+// no cliente, botão "Trocar layout" na barra do elemento selecionado) —
+// chamadas SEQUENCIAIS (não Promise.all) de propósito: a free tier do Gemini
+// tem limite de requisições/minuto (ver generateContentWithRetry acima) e
+// disparar várias de uma vez só aumenta a chance de 429 logo de cara.
+router.post('/layout-variations', async (req, res) => {
+  try {
+    const { elementHtml, apiKey, count } = req.body;
+    if (!elementHtml) {
+      return res.status(400).json({ error: 'O HTML do elemento é obrigatório.' });
+    }
+    const effectiveCount = Math.min(Math.max(Number(count) || 3, 1), 4);
+
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const variations = [];
+    let firstWarning = null;
+    for (let i = 0; i < effectiveCount; i++) {
+      const { html, warning } = await generateLayoutVariation({ elementHtml, apiKey: effectiveApiKey, variationIndex: i });
+      variations.push(html);
+      if (warning && !firstWarning) firstWarning = warning;
+    }
+
+    res.json({ success: true, variations, warning: firstWarning });
+  } catch (error) {
+    console.error('Erro na rota layout-variations:', error);
+    res.status(500).json({ error: 'Falha ao gerar variações de layout.' });
   }
 });
 

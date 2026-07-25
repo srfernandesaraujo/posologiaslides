@@ -426,6 +426,60 @@ export async function generateSingleSlideHtml({ prompt, materials, apiKey, image
   }
 }
 
+// Dicas de arranjo distintas por variação — sem isso, 3 chamadas
+// independentes ao mesmo prompt tendem a convergir pra soluções parecidas;
+// cada chamada não vê o resultado das outras (não dá pra pedir "diferente
+// das anteriores" de verdade), então o jeito de garantir DIVERSIDADE real
+// entre as 3 opções é empurrar cada uma explicitamente pra uma direção
+// diferente de arranjo.
+const LAYOUT_VARIATION_HINTS = [
+  'Empilhe as partes verticalmente, uma abaixo da outra, ajustando o peso visual relativo entre elas.',
+  'Organize as partes lado a lado horizontalmente, com uma proporção de larguras diferente da atual.',
+  'Use um arranjo assimétrico, com sobreposição parcial ou fora de uma grade retangular padrão.'
+];
+
+// Gera UMA variação de layout do elemento selecionado (ver LayoutVariationsModal
+// no cliente, que chama esta função 3x com variationIndex 0/1/2) — reaproveita
+// o mesmo prompt "escopado a um elemento" de editSlideWithAi, mas com uma
+// instrução FIXA (reorganizar estrutura preservando conteúdo/cores/animação)
+// em vez de uma instrução livre do usuário.
+export async function generateLayoutVariation({ elementHtml, apiKey, variationIndex = 0 }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+
+  if (!effectiveApiKey) {
+    return { html: elementHtml, warning: 'Nenhuma chave de API do Gemini configurada. Configure sua chave em Configurações para gerar variações de layout de verdade.' };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    const hint = LAYOUT_VARIATION_HINTS[variationIndex % LAYOUT_VARIATION_HINTS.length];
+
+    const prompt = `
+    ${SYSTEM_PROMPT}
+
+    Você vai gerar uma VARIAÇÃO DE LAYOUT do fragmento HTML abaixo — reorganizar a ESTRUTURA/ARRANJO visual (posição relativa das partes, direção do fluxo, proporções), sem mudar o que ele diz nem as cores usadas.
+
+    FRAGMENTO ATUAL:
+    \`\`\`html
+    ${elementHtml}
+    \`\`\`
+
+    Regras obrigatórias:
+    - PRESERVE integralmente: todo o texto/conteúdo (mesmas palavras, mesmos números, mesmos rótulos), todas as cores já usadas (mesmos valores de cor/gradiente), e o atributo "data-el-anim" no elemento raiz (se existir) EXATAMENTE como está — não remova, não altere o valor.
+    - Se o fragmento tiver um elemento raiz com atributo "data-el-source" e/ou "data-el-config", mantenha-os EXATAMENTE como estão.
+    - MUDE apenas a estrutura/arranjo: ${hint}
+    - Retorne APENAS o HTML atualizado deste fragmento — sem comentários, sem markdown, sem explicação.
+    `;
+
+    const result = await generateContentWithRetry(model, prompt);
+    return { html: cleanCodeBlock(result.response.text()) };
+  } catch (error) {
+    console.error(`Erro na API Gemini (Variação de Layout ${variationIndex + 1}):`, error.message);
+    return { html: elementHtml, warning: `Falha ao gerar uma variação de layout (${error.message}).` };
+  }
+}
+
 export async function editSlideWithAi({ currentHtml, instruction, apiKey, materials, images, elementHtml }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
   // `elementHtml` presente: o usuário selecionou um elemento específico do

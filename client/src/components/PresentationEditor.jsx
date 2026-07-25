@@ -8,6 +8,7 @@ import MediaLibraryDrawer from './MediaLibraryDrawer';
 import WidgetLibraryDrawer from './WidgetLibraryDrawer';
 import SlideTemplateGallery from './SlideTemplateGallery';
 import AISingleSlideModal from './AISingleSlideModal';
+import LayoutVariationsModal from './LayoutVariationsModal';
 import RelatedPresentationPicker from './RelatedPresentationPicker';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
@@ -32,7 +33,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle
 } from 'lucide-react';
 
 // O DOM normaliza valores de estilo ao ler de volta (cor hex vira "rgb(...)",
@@ -93,6 +94,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Modal "Novo Slide com IA" (ver AISingleSlideModal) — reaproveita
   // `templateInsertIndex` acima pra guardar onde o slide gerado deve entrar.
   const [aiSingleSlideOpen, setAiSingleSlideOpen] = useState(false);
+  // Modal "Trocar Layout" (ver LayoutVariationsModal) — sempre escopado ao
+  // elemento selecionado no momento em que abre (mesmo `selectedEl` da barra
+  // de ação), não precisa de índice próprio.
+  const [layoutVariationsOpen, setLayoutVariationsOpen] = useState(false);
   // Aula relacionada (ver RelatedPresentationPicker) — link mostrado no slide
   // de encerramento virtual, guardado como relatedPresentationId/Title direto
   // no objeto `presentation` (persistido pelo autosave normal).
@@ -428,6 +433,24 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     commit({ ...presentation, slides: newSlides });
     setAiSingleSlideOpen(false);
     emitSlideChanged(templateInsertIndex);
+  };
+
+  // "Trocar layout" — abre a galeria de variações (LayoutVariationsModal)
+  // escopada ao elemento selecionado; a troca em si (aplicar a variação
+  // escolhida) acontece em handleSelectLayoutVariation, chamada pelo modal.
+  const handleOpenLayoutVariations = () => {
+    if (!selectedEl) return;
+    setLayoutVariationsOpen(true);
+  };
+
+  // Substitui o elemento selecionado pela variação escolhida — mesmo índice,
+  // só troca o HTML (replaceElementAt), igual a como a resposta de um chat
+  // de IA escopado a um elemento é aplicada em handleSendChatMessage. Mantém
+  // a seleção (não usa mutateCurrentSlideHtml) pra continuar editando o
+  // elemento (ex. reaplicar uma animação) sem precisar reclicar nele.
+  const handleSelectLayoutVariation = (html) => {
+    if (!selectedEl) return;
+    updateCurrentSlideHtml((currentHtml) => replaceElementAt(currentHtml, selectedEl.index, html));
   };
 
   const handleSelectRelatedPresentation = (id, title) => {
@@ -1848,6 +1871,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   >
                     <Wand2 size={15} />
                   </button>
+                  {divider}
+                  <button
+                    className="btn-icon"
+                    style={btnStyle}
+                    title="Trocar layout (IA reorganiza a estrutura, mantendo texto/cores/animação)"
+                    onClick={handleOpenLayoutVariations}
+                  >
+                    <Shuffle size={15} />
+                  </button>
                   {elementMeta ? (
                     <>
                       {divider}
@@ -2297,6 +2329,14 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         isOpen={aiSingleSlideOpen}
         onClose={() => setAiSingleSlideOpen(false)}
         onInsert={handleInsertAISlide}
+      />
+
+      {/* Trocar Layout (galeria de variações via IA) */}
+      <LayoutVariationsModal
+        isOpen={layoutVariationsOpen}
+        elementHtml={selectedEl ? getElementAt(currentSlide.html, selectedEl.index) : null}
+        onClose={() => setLayoutVariationsOpen(false)}
+        onSelect={handleSelectLayoutVariation}
       />
 
       {/* Seletor de Aula Relacionada */}
