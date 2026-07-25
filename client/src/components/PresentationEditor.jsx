@@ -1655,16 +1655,20 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             const textStyle = getTextStyleAt(currentSlide.html, selectedEl.index);
             const btnStyle = { width: '30px', height: '30px' };
             const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
-            // `selectedEl.rect` vem em coordenadas do canvas nativo (medidas
-            // dentro do iframe, que sempre resolve contra o 1280x720 fixo —
-            // ver PresentationViewer.jsx/buildEditorScript). Esta barra, por
-            // sua vez, fica fora da camada escalada (canvas-native-layer) E
-            // fora do .zoom-scrollport (que agora pode estar rolado, se o
-            // usuário deu zoom) — por isso a conversão por `effectiveScale`
-            // (canvasScale * zoom) E a subtração da rolagem atual, pra barra
-            // continuar alinhada com o elemento mesmo depois de rolar a visão.
-            const toolbarTop = Math.max(4, selectedEl.rect.top * effectiveScale - 46 - scrollOffset.top);
-            const toolbarLeft = Math.max(4, selectedEl.rect.left * effectiveScale - scrollOffset.left);
+            // Fixa no topo/centro do CANVAS (não mais junto do elemento) —
+            // antes a barra acompanhava `selectedEl.rect`, e um elemento perto
+            // de qualquer borda (principalmente a direita, já que a barra é
+            // larga) empurrava boa parte dos botões pra fora da área visível,
+            // sem como clicar neles. `toolbarCenterX` + `translateX(-50%)` no
+            // estilo (abaixo) centraliza sem precisar medir a largura real da
+            // barra (varia conforme quais botões aparecem pra cada elemento).
+            // Esta barra fica fora da camada escalada (canvas-native-layer) E
+            // fora do .zoom-scrollport (que pode estar rolado, se o usuário
+            // deu zoom) — por isso a conversão por `effectiveScale` (canvasScale
+            // * zoom) E a subtração da rolagem atual, pra continuar alinhada
+            // com o TOPO DO SLIDE (não mais com o elemento) mesmo rolado.
+            const toolbarTop = Math.max(4, 12 - scrollOffset.top);
+            const toolbarCenterX = (SLIDE_NATIVE_WIDTH * effectiveScale) / 2 - scrollOffset.left;
 
             return (
               <>
@@ -1673,7 +1677,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   style={{
                     position: 'absolute',
                     top: `${toolbarTop}px`,
-                    left: `${toolbarLeft}px`,
+                    left: `${toolbarCenterX}px`,
+                    transform: 'translateX(-50%)',
                     zIndex: 40,
                     display: 'flex',
                     alignItems: 'center',
@@ -1764,7 +1769,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     style={{
                       position: 'absolute',
                       top: `${toolbarTop + 40}px`,
-                      left: `${toolbarLeft}px`,
+                      left: `${toolbarCenterX}px`,
+                      transform: 'translateX(-50%)',
                       zIndex: 41,
                       width: '230px',
                       padding: '0.7rem',
@@ -1895,7 +1901,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     style={{
                       position: 'absolute',
                       top: `${toolbarTop + 40}px`,
-                      left: `${toolbarLeft}px`,
+                      left: `${toolbarCenterX}px`,
+                      transform: 'translateX(-50%)',
                       zIndex: 41,
                       width: '230px',
                       padding: '0.7rem',
@@ -1981,7 +1988,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     style={{
                       position: 'absolute',
                       top: `${toolbarTop + 40}px`,
-                      left: `${toolbarLeft}px`,
+                      left: `${toolbarCenterX}px`,
+                      transform: 'translateX(-50%)',
                       zIndex: 41,
                       width: '380px',
                       maxWidth: 'calc(100vw - 2rem)',
