@@ -66,8 +66,8 @@ function imagePlaceholder(hint) {
 function twoColumns(leftHtml, rightHtml, ratio = '1fr 1fr', delayIndex = 1) {
   return `
 <div style="display:grid;grid-template-columns:${ratio};gap:2.5rem;align-items:center;width:100%;${fadeUp(delayIndex)}">
-  <div style="display:flex;flex-direction:column;gap:1rem;">${leftHtml}</div>
-  <div style="display:flex;">${rightHtml}</div>
+  <div style="display:flex;flex-direction:column;gap:1rem;min-width:0;">${leftHtml}</div>
+  <div style="display:flex;flex-direction:column;gap:1rem;min-width:0;">${rightHtml}</div>
 </div>`;
 }
 
