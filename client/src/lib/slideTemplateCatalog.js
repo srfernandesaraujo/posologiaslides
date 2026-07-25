@@ -246,6 +246,59 @@ function buildClinicalCase() {
   );
 }
 
+// Linha de alternativa lettered (A/B/C/D) — usada pelo template "Caso
+// Clínico · Pergunta" pra listar opções de conduta sem virar uma pergunta de
+// múltipla escolha "funcional" de verdade (é só o enunciado visual; a
+// discussão acontece ao vivo com a turma, não tem lógica de resposta certa
+// embutida no slide).
+function optionRow(letter, text, delayIndex) {
+  return `
+<div style="display:flex;align-items:center;gap:0.9rem;padding:0.9rem 1.1rem;border-radius:0.6rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);${fadeUp(delayIndex)}">
+  <div style="width:2rem;height:2rem;flex-shrink:0;border-radius:50%;background:rgba(34,211,238,0.12);border:1px solid rgba(34,211,238,0.35);display:flex;align-items:center;justify-content:center;color:#67e8f9;font-weight:800;font-size:0.9rem;">${letter}</div>
+  <div style="color:#e2e8f0;font-size:0.95rem;font-weight:600;">${text}</div>
+</div>`;
+}
+
+// Variação "Evolução/Continuação" — pra quando o caso já foi apresentado
+// num slide anterior e este só traz o desdobramento (retorno do paciente,
+// resultado de exame pedido, resposta ao tratamento...), sem repetir
+// identificação nem uma tabela de dados nova. Só texto corrido + pergunta.
+function buildClinicalCaseFollowup() {
+  const evolution = 'Paciente retorna após 48 horas com melhora parcial dos sintomas. Refere persistência de dor leve, sem novos sinais de alarme. Exame físico sem alterações significativas em relação à avaliação anterior.';
+  return assemble(
+    `${ROOT_BASE}display:flex;flex-direction:column;gap:1.5rem;padding:3.5rem 4.5rem;justify-content:center;background:${BG.flatDeep};`,
+    [
+      { html: tagChip('Caso Clínico', 'violet', 0) },
+      { html: heading('Evolução do Caso', '2rem', 1) },
+      { html: paragraph(evolution, 2, '1.08rem') },
+      { html: discussionQuestion('O que muda na conduta a partir dessa evolução?', 3) }
+    ]
+  );
+}
+
+// Variação "Pergunta" — vinheta curta seguida de uma pergunta grande em
+// destaque (protagonista do slide, não uma caixinha no rodapé) com
+// alternativas de conduta pra guiar a discussão em turma, sem identificação
+// do paciente nem tabela de exames.
+function buildClinicalCaseQuestion() {
+  const vignette = 'Paciente relata início dos sintomas há 3 dias, com piora progressiva nas últimas horas. Em uso regular das medicações listadas em prontuário.';
+  const options = [
+    ['A', 'Manter a conduta atual e reavaliar em 48 horas'],
+    ['B', 'Ajustar a dose da medicação em uso'],
+    ['C', 'Substituir por outra classe terapêutica'],
+    ['D', 'Encaminhar para avaliação especializada']
+  ];
+  return assemble(
+    `${ROOT_BASE}display:flex;flex-direction:column;gap:1.25rem;padding:3.5rem 4.5rem;justify-content:center;background:${BG.violetCyan};`,
+    [
+      { html: tagChip('Caso Clínico', 'violet', 0) },
+      { html: paragraph(vignette, 1, '1.05rem') },
+      { html: `<p style="font-size:1.6rem;font-weight:800;color:#fff;line-height:1.35;margin:0.15rem 0 0.25rem;max-width:820px;${fadeUp(2)}">Qual seria a conduta mais adequada diante deste quadro?</p>` },
+      { html: `<div style="display:flex;flex-direction:column;gap:0.6rem;width:100%;max-width:680px;">${options.map(([letter, text], i) => optionRow(letter, text, 3 + i)).join('')}</div>` }
+    ]
+  );
+}
+
 function buildComparisonDuel() {
   const side = (title, accent, items) => {
     const a = ACCENTS[accent];
@@ -366,7 +419,9 @@ export const SLIDE_TEMPLATE_CATALOG = [
   { id: 'text-simulator', title: 'Texto + Simulador', description: 'Texto de contexto seguido de um simulador de sliders já funcional.', category: 'Dados', iconName: 'Activity', layoutTag: 'simulador-slider', buildHtml: buildTextSimulator },
   { id: 'only-elements-grid', title: 'Somente Elementos (Grade)', description: 'Grade de cartões, sem bloco de texto corrido — direto ao ponto.', category: 'Elementos', iconName: 'LayoutGrid', layoutTag: 'grade-elementos', buildHtml: buildOnlyElementsGrid },
   { id: 'text-other-elements', title: 'Texto + Outros Elementos', description: 'Texto de um lado, destaque + tabela do outro.', category: 'Conteúdo', iconName: 'StickyNote', layoutTag: 'texto-elementos', buildHtml: buildTextOtherElements },
-  { id: 'clinical-case', title: 'Caso Clínico', description: 'Identificação do paciente, vinheta, dados de exame e pergunta pra discussão em turma.', category: 'Caso Clínico', iconName: 'Stethoscope', layoutTag: 'caso-clinico', buildHtml: buildClinicalCase },
+  { id: 'clinical-case', title: 'Caso Clínico · Completo', description: 'Identificação do paciente, vinheta, dados de exame e pergunta pra discussão em turma.', category: 'Caso Clínico', iconName: 'Stethoscope', layoutTag: 'caso-clinico', buildHtml: buildClinicalCase },
+  { id: 'clinical-case-followup', title: 'Caso Clínico · Evolução', description: 'Continuação de um caso já apresentado — só a evolução do quadro e uma pergunta, sem repetir identificação/exames.', category: 'Caso Clínico', iconName: 'Stethoscope', layoutTag: 'caso-clinico-evolucao', buildHtml: buildClinicalCaseFollowup },
+  { id: 'clinical-case-question', title: 'Caso Clínico · Pergunta', description: 'Vinheta curta com a pergunta de conduta em destaque e alternativas — foco na discussão, sem dados de identificação.', category: 'Caso Clínico', iconName: 'Stethoscope', layoutTag: 'caso-clinico-pergunta', buildHtml: buildClinicalCaseQuestion },
   { id: 'comparison-duel', title: 'Comparação em Duelo', description: 'Dois blocos lado a lado com contraste forte — ideal pra comparar opções.', category: 'Elementos', iconName: 'Columns2', layoutTag: 'comparacao-duelo', buildHtml: buildComparisonDuel },
   { id: 'hero-stat', title: 'Hero de Dado', description: 'Um número gigante como protagonista visual, com contexto mínimo.', category: 'Dados', iconName: 'Hash', layoutTag: 'hero-stat', buildHtml: buildHeroStat },
   { id: 'process-diagram', title: 'Diagrama de Processo', description: 'Etapas numeradas conectadas — mecanismos, vias, sequências.', category: 'Elementos', iconName: 'Workflow', layoutTag: 'diagrama-processo', buildHtml: buildProcessDiagram },
