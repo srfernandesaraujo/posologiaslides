@@ -58,6 +58,41 @@ function materialsBlock(materials) {
   return materials ? `MATERIAL DE REFERÊNCIA FORNECIDO PELO USUÁRIO:\n"""\n${materials}\n"""` : '';
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// O SDK (@google/generative-ai) lança GoogleGenerativeAIFetchError com
+// `.status` e `.errorDetails` (array cru vindo de json.error.details) quando a
+// API REST responde com erro — em 429 de quota, um dos itens costuma ser um
+// RetryInfo com `retryDelay` (ex: "44.263256331s"), que é o tempo que o
+// próprio Google recomenda esperar antes de tentar de novo.
+function extractRetryDelayMs(error) {
+  const retryInfo = error?.errorDetails?.find((d) => d['@type']?.includes('RetryInfo'));
+  const seconds = retryInfo?.retryDelay ? parseFloat(retryInfo.retryDelay) : NaN;
+  return Number.isFinite(seconds) ? Math.ceil(seconds * 1000) : null;
+}
+
+// Wrapper de generateContent com retry específico pra 429 (limite de
+// requisições da free tier do Gemini — ver relato de usuário: importação de
+// PDF faz 1 chamada de outline + 1 por slide + 1 por imagem detectada, e um
+// PDF de ~10 páginas já estoura o limite de 20 no meio da importação). Sem
+// isso, a primeira 429 já derrubava a chamada pro fallback de conteúdo
+// genérico. Espera o tempo sugerido pelo próprio Google (RetryInfo) ou um
+// backoff exponencial se a resposta não trouxer essa informação.
+async function generateContentWithRetry(model, parts, retries = 3) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await model.generateContent(parts);
+    } catch (error) {
+      if (error?.status !== 429 || attempt >= retries) throw error;
+      const delayMs = extractRetryDelayMs(error) ?? Math.min(2 ** attempt * 1000, 15000);
+      console.warn(`Gemini: limite de requisições (429) — tentativa ${attempt + 1}/${retries}, aguardando ${Math.round(delayMs / 1000)}s.`);
+      await sleep(delayMs);
+    }
+  }
+}
+
 export async function generatePresentationOutline({ prompt, materials, numSlides = 5, apiKey, images }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
 
@@ -91,7 +126,7 @@ export async function generatePresentationOutline({ prompt, materials, numSlides
     }
     `;
 
-    const result = await model.generateContent(buildParts(fullPrompt, images));
+    const result = await generateContentWithRetry(model, buildParts(fullPrompt, images));
     const responseText = result.response.text();
     const cleanJson = extractJson(responseText);
     return { outline: JSON.parse(cleanJson) };
@@ -154,7 +189,7 @@ export async function generateOutlineFromSlidePrompts({ theme, materials, numSli
     }
     `;
 
-    const result = await model.generateContent(fullPrompt);
+    const result = await generateContentWithRetry(model, fullPrompt);
     const responseText = result.response.text();
     const cleanJson = extractJson(responseText);
     const outline = JSON.parse(cleanJson);
@@ -231,7 +266,7 @@ export async function generateOutlineFromImport({ pages, pdfBuffer, apiKey }) {
     const parts = pdfBuffer
       ? [fullPrompt, { inlineData: { mimeType: 'application/pdf', data: pdfBuffer.toString('base64') } }]
       : fullPrompt;
-    const result = await model.generateContent(parts);
+    const result = await generateContentWithRetry(model, parts);
     const responseText = result.response.text();
     const cleanJson = extractJson(responseText);
     const outline = JSON.parse(cleanJson);
@@ -268,7 +303,7 @@ export async function generateEquivalentImage({ prompt, apiKey, userId }) {
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
   });
 
-  const result = await model.generateContent(
+  const result = await generateContentWithRetry(model,
     `Crie uma ilustração didática original (não uma foto, um desenho/ilustração vetorial limpo), moderna, com paleta de cores coerente com um slide de apresentação em modo escuro (fundos escuros, cores vibrantes), SEM nenhum texto/letra/número sobreposto na imagem, representando: ${prompt}`
   );
 
@@ -322,7 +357,7 @@ export async function generateSlideHtml({ slideOutline, presentationTitle, index
     - Na ÚLTIMA linha da resposta, adicione um comentário HTML isolado no formato exato <!-- layout: nome-curto-em-kebab-case --> nomeando em 2 a 4 palavras o tratamento visual dominante escolhido (ex: <!-- layout: hero-stat -->, <!-- layout: diagrama-processo -->, <!-- layout: simulador-slider -->). É uso interno, não aparece pro usuário.
     `;
 
-    const result = await model.generateContent(buildParts(fullPrompt, images));
+    const result = await generateContentWithRetry(model, buildParts(fullPrompt, images));
     const responseText = result.response.text();
     const cleaned = cleanCodeBlock(responseText);
     const layoutMatch = cleaned.match(/<!--\s*layout:\s*([a-z0-9-]+)\s*-->/i);
@@ -388,7 +423,7 @@ export async function editSlideWithAi({ currentHtml, instruction, apiKey, materi
     Retorne APENAS o novo HTML completo atualizado.
     `;
 
-    const result = await model.generateContent(buildParts(prompt, images));
+    const result = await generateContentWithRetry(model, buildParts(prompt, images));
     return { html: cleanCodeBlock(result.response.text()) };
   } catch (error) {
     console.error('Erro na API Gemini (Edit Slide):', error.message);
@@ -425,7 +460,7 @@ export async function generateInfographicFragment({ topic, materials, apiKey, im
     - Retorne APENAS o HTML do fragmento — nada de explicação, nada de markdown, nada de \`\`\`.
     `;
 
-    const result = await model.generateContent(buildParts(prompt, images));
+    const result = await generateContentWithRetry(model, buildParts(prompt, images));
     return { html: cleanCodeBlock(result.response.text()) };
   } catch (error) {
     console.error('Erro na API Gemini (Infográfico):', error.message);
@@ -458,7 +493,7 @@ export async function summarizeOpenResponses({ responses, apiKey }) {
     Responda em português, direto, sem introdução nem formatação markdown.
     `;
 
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithRetry(model, prompt);
     return { summary: result.response.text().trim() };
   } catch (error) {
     console.error('Erro na API Gemini (Summarize Responses):', error.message);
@@ -500,7 +535,7 @@ export async function generateClosingQuote({ presentationTitle, description, api
     - Retorne APENAS o texto da frase.
     `;
 
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithRetry(model, prompt);
     const quote = result.response.text().trim().replace(/^["'“]+|["'”]+$/g, '');
     return { quote: quote || fallbackQuote };
   } catch (error) {
@@ -555,7 +590,7 @@ export async function generateSlideQuestions({ slideTitle, slideText, apiKey }) 
     Responda APENAS com as 3 perguntas, uma por linha.
     `;
 
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithRetry(model, prompt);
     const questions = result.response.text()
       .split('\n')
       .map((line) => line.replace(/^[-*\d.)\s]+/, '').replace(/^["'“]+|["'”]+$/g, '').trim())
@@ -601,7 +636,7 @@ export async function searchWebForPresenter({ query, slideContext, apiKey }) {
     const contextLine = slideContext ? `\nContexto (slide em exibição agora na aula): "${slideContext.slice(0, 500)}"` : '';
     const prompt = `Pesquise na web agora e responda em português, de forma direta e factual, à pergunta de um professor durante uma aula: "${query}"${contextLine}\n\nSeja objetivo (2 a 4 frases), cite números/valores concretos quando a busca confirmar algum, e não invente nada que a pesquisa não sustente.`;
 
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithRetry(model, prompt);
     const answer = result.response.text().trim();
     const candidate = result.response.candidates?.[0];
     const grounding = candidate?.groundingMetadata;
