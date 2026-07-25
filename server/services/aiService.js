@@ -171,7 +171,13 @@ export async function generateOutlineFromSlidePrompts({ theme, materials, numSli
 // (gerar o HTML de cada slide) reaproveita generateSlideHtml/o endpoint
 // /api/ai/generate-slides sem nenhuma mudança, já que ambos só recebem um
 // "outline" genérico e não se importam com a origem dele.
-export async function generateOutlineFromImport({ pages, apiKey }) {
+// `pdfBuffer` (opcional) é o arquivo ORIGINAL, além do texto já extraído em
+// `pages` — o Gemini entende PDF nativamente como entrada multimodal, então
+// mandar o arquivo junto permite à IA "ver" fotos/diagramas/gráficos
+// embutidos em cada página, não só ler o texto ao redor deles (ver
+// MAX_INLINE_PDF_BYTES em aiRoutes.js — omitido pra arquivos grandes demais,
+// caindo de volta pro modo só-texto de antes).
+export async function generateOutlineFromImport({ pages, pdfBuffer, apiKey }) {
   const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
 
   if (!effectiveApiKey) {
@@ -185,9 +191,11 @@ export async function generateOutlineFromImport({ pages, apiKey }) {
     const pagesBlock = pages.map((text, i) => `--- Página ${i + 1} ---\n${text}`).join('\n\n');
 
     const fullPrompt = `
-    O usuário está IMPORTANDO uma apresentação existente pra este sistema. Abaixo está o texto extraído de cada página/slide do arquivo original (PDF), na ordem original.
+    O usuário está IMPORTANDO uma apresentação existente pra este sistema. Abaixo está o texto extraído de cada página/slide do arquivo original (PDF), na ordem original.${pdfBuffer ? ' O ARQUIVO PDF ORIGINAL também está anexado a esta mensagem — OLHE as páginas de verdade, não só o texto abaixo: preste atenção em fotos, diagramas, gráficos, ícones e ilustrações embutidos em cada página.' : ''}
 
     REPRODUZA a mesma sequência e conteúdo — NÃO invente slides novos, NÃO pule nenhuma página, mantenha a mesma ordem e a essência de cada uma. A reprodução é do CONTEÚDO/SIGNIFICADO de cada página, NÃO do layout estático do PDF original — o "interactiveElement" de cada slide deve propor uma representação visual moderna e rica, escolhida conforme o que o conteúdo da página realmente é (ex.: diagrama/fluxo anotado para um mecanismo, simulador de sliders para algo quantitativo, hero de dado para uma estatística central, timeline para uma sequência de fases, comparação em duelo para um confronto de opções, citação em destaque tipográfico para uma mensagem-chave, flashcards para pares pergunta/resposta) — NUNCA "colocar o texto da página original dentro de um card genérico".
+    ${pdfBuffer ? `
+    IMAGENS: se a página tiver uma foto/diagrama/ilustração real (não conte ícones decorativos pequenos nem logotipos), preencha "hasImage": true e "imagePrompt" com uma descrição objetiva (2-3 frases, em português) do que essa imagem mostra e por que ela importa pro conteúdo — essa descrição será usada depois pra gerar ou buscar uma imagem equivalente que substitua a original como recurso didático. Se a página não tiver imagem relevante, "hasImage": false e "imagePrompt": null.` : ''}
 
     CONTEÚDO ORIGINAL (uma página por slide):
     """
@@ -205,13 +213,18 @@ export async function generateOutlineFromImport({ pages, apiKey }) {
           "subtitle": "Subtítulo do Slide 1",
           "type": "intro|chart|dashboard|simulator|comparison|conclusion",
           "keyPoints": ["Ponto 1", "Ponto 2", "Ponto 3"],
-          "interactiveElement": "Descrição do elemento interativo que melhor representa o conteúdo original desta página"
+          "interactiveElement": "Descrição do elemento interativo que melhor representa o conteúdo original desta página",
+          "hasImage": false,
+          "imagePrompt": null
         }
       ]
     }
     `;
 
-    const result = await model.generateContent(fullPrompt);
+    const parts = pdfBuffer
+      ? [fullPrompt, { inlineData: { mimeType: 'application/pdf', data: pdfBuffer.toString('base64') } }]
+      : fullPrompt;
+    const result = await model.generateContent(parts);
     const responseText = result.response.text();
     const cleanJson = extractJson(responseText);
     const outline = JSON.parse(cleanJson);
@@ -253,6 +266,7 @@ export async function generateSlideHtml({ slideOutline, presentationTitle, index
     - Pontos Chave: ${JSON.stringify(slideOutline.keyPoints)}
     - Elemento Interativo Solicitado: ${slideOutline.interactiveElement}
     ${previousLayoutTag ? `\n    ATENÇÃO — VARIEDADE: o slide anterior desta mesma apresentação já usou o tratamento visual dominante "${previousLayoutTag}". Este slide é PROIBIDO de repetir esse mesmo tratamento — escolha um diferente da lista da regra 8, coerente com o conteúdo deste slide.` : ''}
+    ${slideOutline.imageUrl ? `\n    IMAGEM: esta página do material original tinha uma foto/diagrama (contexto: "${slideOutline.imagePrompt}") — foi gerada/encontrada uma imagem equivalente pra usar como recurso didático em vez dela. INCLUA-A no slide com <img src="${slideOutline.imageUrl}" alt="..." style="..."/> num lugar de destaque coerente com o tratamento visual escolhido (não a trate como decoração secundária).` : (slideOutline.hasImage && slideOutline.imagePrompt ? `\n    CONTEXTO VISUAL (sem imagem de substituição disponível): a página original tinha uma foto/diagrama mostrando: "${slideOutline.imagePrompt}". Leve isso em conta ao escolher o tratamento visual — por exemplo, recriando a ideia como um diagrama/SVG próprio, em vez de simplesmente ignorar que aquele conteúdo visual existia.` : '')}
 
     Instruções Técnicas:
     - Retorne APENAS o fragmento HTML (com <style> e <script> embutidos se necessário).
