@@ -17,7 +17,7 @@ import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
   moveElementAt, bringToFrontAt, sendToBackAt, regenerateElementIds, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
-  setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setPositionAt, clearPositionAt, isPositionedAt,
+  setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setAllAnimationsAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
@@ -31,7 +31,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, Baseline
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline
 } from 'lucide-react';
 
 // O DOM normaliza valores de estilo ao ler de volta (cor hex vira "rgb(...)",
@@ -99,6 +99,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // em memória (React state): não precisa sobreviver a um recarregamento de
   // página pra atender o pedido ("copiar de um slide, colar em outro").
   const [elementClipboard, setElementClipboard] = useState(null);
+  // Igual acima, mas guarda a lista de entradas de `data-el-anim` de um
+  // elemento (ver getAnimationsAt) pra "copiar animação de um objeto, colar
+  // em outro" — inclusive entre slides diferentes, mesmo espírito.
+  const [animationClipboard, setAnimationClipboard] = useState(null);
   // Chat de IA: painel flutuante que só aparece quando aberto (não é mais só
   // uma gaveta mobile — em qualquer largura de tela ele fica escondido até
   // ser aberto por este botão ou por "Editar este elemento com IA").
@@ -773,7 +777,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleCopyElement = () => {
     if (!selectedEl) return;
     const html = getElementAt(currentSlide.html, selectedEl.index);
-    if (html) setElementClipboard(html);
+    if (!html) return;
+    setElementClipboard(html);
+    // Sobrescreve o clipboard de verdade do SO com uma string vazia: sem
+    // isso, uma imagem copiada de fora do app (print, imagem da internet)
+    // ANTES continuava "ganhando" na hora de colar (handleWindowPaste
+    // prioriza imagem do SO) mesmo depois de copiar um elemento aqui — o
+    // usuário quer que valha sempre o último copiado, e é assim que se
+    // apaga o formato de imagem que ainda estivesse lá. Falha silenciosa se
+    // o navegador negar (fora de foco, sem permissão): não é crítico.
+    navigator.clipboard?.writeText?.('').catch(() => {});
   };
 
   const handlePasteElement = () => {
@@ -964,6 +977,23 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleClearAnimation = () => {
     if (!selectedEl) return;
     updateCurrentSlideHtml((html) => clearAnimationEntryAt(html, selectedEl.index, animCategory));
+  };
+
+  // Copiar/colar animação entre elementos (inclusive de outro slide): guarda
+  // TODAS as entradas do elemento selecionado (entrada + ênfase + saída, se
+  // houver) — "colar" troca o elemento de destino inteiro por essa lista via
+  // setAllAnimationsAt, mesmo espírito de handleCopyElement/handlePasteElement
+  // mas pro efeito, não pro elemento em si.
+  const handleCopyAnimation = () => {
+    if (!selectedEl) return;
+    const entries = getAnimationsAt(currentSlide.html, selectedEl.index);
+    if (!entries.length) return;
+    setAnimationClipboard(entries);
+  };
+
+  const handlePasteAnimation = () => {
+    if (!selectedEl || !animationClipboard) return;
+    updateCurrentSlideHtml((html) => setAllAnimationsAt(html, selectedEl.index, animationClipboard));
   };
 
   // Cor da fonte e família tipográfica do elemento selecionado (painel
@@ -1735,6 +1765,25 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   <button className="btn-icon" style={btnStyle} title="Enviar para trás (camadas)" onClick={() => handleLayerElement('back')}><SendToBack size={15} /></button>
                   {divider}
                   <button className="btn-icon" style={btnStyle} title="Copiar elemento (colar em outro slide com o botão da barra principal)" onClick={handleCopyElement}><Copy size={15} /></button>
+                  {divider}
+                  <button
+                    className="btn-icon"
+                    style={btnStyle}
+                    title={animEntries.length ? 'Copiar animação deste elemento (colar em outro com o botão ao lado)' : 'Este elemento não tem animação pra copiar'}
+                    onClick={handleCopyAnimation}
+                    disabled={!animEntries.length}
+                  >
+                    <ClipboardCopy size={15} />
+                  </button>
+                  <button
+                    className="btn-icon"
+                    style={btnStyle}
+                    title={animationClipboard ? 'Colar animação copiada neste elemento' : 'Copie a animação de um elemento primeiro (botão ao lado)'}
+                    onClick={handlePasteAnimation}
+                    disabled={!animationClipboard}
+                  >
+                    <ClipboardPaste size={15} />
+                  </button>
                   {divider}
                   {grouped ? (
                     <button className="btn-icon" style={btnStyle} title="Desagrupar" onClick={handleUngroupElement}><Rows3 size={15} /></button>

@@ -498,6 +498,20 @@ export function setAnimationEntryAt(html, index, category, { presetId, keyframe,
   return serializeFragment(template);
 }
 
+// Substitui TODAS as entradas de animação do elemento em `index` pela lista
+// dada — usado por "colar animação" (copiar o conjunto de efeitos de um
+// elemento e aplicar em outro, possivelmente em outro slide). Diferente de
+// `setAnimationEntryAt`, que mexe numa categoria de cada vez preservando as
+// outras, aqui o destino fica com exatamente as animações copiadas.
+export function setAllAnimationsAt(html, index, entries) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return html;
+
+  writeAnimationEntries(el, entries.map((entry) => ({ ...entry })));
+  return serializeFragment(template);
+}
+
 export function clearAnimationEntryAt(html, index, category) {
   const template = parseFragment(html);
   const el = getContainer(template).children[index];
