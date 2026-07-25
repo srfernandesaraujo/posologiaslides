@@ -6,6 +6,7 @@ import SlideList from './SlideList';
 import ActiveMethodologiesOverlay from './ActiveMethodologiesOverlay';
 import MediaLibraryDrawer from './MediaLibraryDrawer';
 import WidgetLibraryDrawer from './WidgetLibraryDrawer';
+import SlideTemplateGallery from './SlideTemplateGallery';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
 import ShareLinkModal from './ShareLinkModal';
@@ -63,6 +64,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Em telas compactas (≤1024px), a lista de slides e o chat de IA viram
   // gavetas off-canvas em vez de colunas fixas — abertas/fechadas por aqui.
   const [mobileSlideListOpen, setMobileSlideListOpen] = useState(false);
+  // Galeria de templates (ver SlideTemplateGallery) — `templateInsertIndex`
+  // guarda onde o slide escolhido deve entrar (fim da lista ou logo após uma
+  // miniatura específica), decidido no momento em que a galeria é aberta.
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+  const [templateInsertIndex, setTemplateInsertIndex] = useState(0);
   // Chat de IA: painel flutuante que só aparece quando aberto (não é mais só
   // uma gaveta mobile — em qualquer largura de tela ele fica escondido até
   // ser aberto por este botão ou por "Editar este elemento com IA").
@@ -329,6 +335,23 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     newSlides.splice(insertIndex, 0, newSlide);
     commit({ ...presentation, slides: newSlides });
     emitSlideChanged(insertIndex);
+  };
+
+  // Abre a galeria de templates (ver SlideTemplateGallery/slideTemplateCatalog.js)
+  // guardando ONDE o slide escolhido deve entrar — mesma convenção de índice
+  // do "+" simples acima (fim da lista ou logo após uma miniatura específica).
+  const handleOpenTemplateGallery = (insertIndex) => {
+    setTemplateInsertIndex(insertIndex);
+    setTemplateGalleryOpen(true);
+  };
+
+  const handleSelectTemplate = (html, title) => {
+    const newSlide = { id: `slide-${Date.now()}`, title, html };
+    const newSlides = [...presentation.slides];
+    newSlides.splice(templateInsertIndex, 0, newSlide);
+    commit({ ...presentation, slides: newSlides });
+    setTemplateGalleryOpen(false);
+    emitSlideChanged(templateInsertIndex);
   };
 
   // Mesmo endpoint/fluxo já usado pelo upload de mídia da biblioteca (ver
@@ -887,6 +910,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           }}
           onClose={() => setMobileSlideListOpen(false)}
           onAddSlide={() => handleAddSlideAt(presentation.slides.length)}
+          onAddTemplate={() => handleOpenTemplateGallery(presentation.slides.length)}
           onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
           onDeleteSlide={(idxToDelete) => {
             if (presentation.slides.length <= 1) return;
@@ -1665,6 +1689,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         onInsertWidget={handleInsertWidget}
         editingContext={editingWidgetContext}
         onUpdateElement={handleUpdateWidgetElement}
+      />
+
+      {/* Galeria de Templates de Slide */}
+      <SlideTemplateGallery
+        isOpen={templateGalleryOpen}
+        onClose={() => setTemplateGalleryOpen(false)}
+        onSelectTemplate={handleSelectTemplate}
       />
 
       {/* Modal de Link Público (Compartilhar) */}

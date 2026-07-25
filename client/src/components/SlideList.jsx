@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Plus, Trash2, X, GripVertical } from 'lucide-react';
+import { Plus, Trash2, X, GripVertical, LayoutTemplate } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
 
 // Só monta a prévia real (iframe sandboxed com fontes/Chart.js, ver
@@ -30,7 +30,7 @@ function LazySlidePreview({ html }) {
   );
 }
 
-export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onInsertSlideAfter, onDeleteSlide, onReorderSlides, className = '', onClose }) {
+export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onInsertSlideAfter, onDeleteSlide, onReorderSlides, className = '', onClose }) {
   const listRef = useRef(null);
   // Índice sendo arrastado e índice "bruto" (antes do ajuste de deslocamento,
   // ver handlePointerUp) sobre o qual o ponteiro está no momento — null
@@ -97,6 +97,16 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
           >
             <Plus size={16} />
           </button>
+          {onAddTemplate && (
+            <button
+              className="btn-icon"
+              onClick={onAddTemplate}
+              title="Adicionar Slide a partir de um Template"
+              style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.08)' }}
+            >
+              <LayoutTemplate size={16} />
+            </button>
+          )}
           {onClose && (
             <button
               className="btn-icon mobile-toggle-btn"
