@@ -669,7 +669,11 @@ button.mobile-toggle-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  /* Precisa vencer .floating-toolbar (10000) e .fullscreen-stage (9999) —
+     sem isto, a barra flutuante de navegação/zoom do editor ficava por CIMA
+     de qualquer modal alto o bastante pra chegar perto do rodapé (ex.: a
+     última fileira da galeria de Templates ficava escondida atrás dela). */
+  z-index: 10100;
 }
 
 .modal-card {
