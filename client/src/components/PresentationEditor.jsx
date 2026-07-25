@@ -18,9 +18,10 @@ import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
   moveElementAt, bringToFrontAt, sendToBackAt, regenerateElementIds, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
   setAnimationAt, getAnimationAt, clearAnimationAt, setPositionAt, clearPositionAt, isPositionedAt,
-  setCropAt, clearCropAt, isCroppedAt
+  setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
+import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
 import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closingSlideTemplate';
 import useCanvasFit from '../lib/useCanvasFit';
@@ -30,8 +31,26 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, Baseline
 } from 'lucide-react';
+
+// O DOM normaliza valores de estilo ao ler de volta (cor hex vira "rgb(...)",
+// aspas de font-family podem mudar) — estas duas convertem pra uma forma
+// canônica só pra COMPARAR com as opções do painel "Texto" (swatch ativo,
+// item selecionado no <select> de fonte); o valor de fato aplicado ao slide
+// continua sendo o que `setTextStyleAt` grava, sem passar por aqui.
+function colorToHex(color) {
+  if (!color) return '';
+  if (color.startsWith('#')) return color.toLowerCase();
+  const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (!m) return '';
+  const toHex = (n) => Number(n).toString(16).padStart(2, '0');
+  return `#${toHex(m[1])}${toHex(m[2])}${toHex(m[3])}`;
+}
+
+function normalizeFontValue(value) {
+  return (value || '').replace(/["']/g, '').trim().toLowerCase();
+}
 
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal, onOpenPresentation }) {
   const { user } = useAuth();
@@ -98,6 +117,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Painel "Animar" do elemento selecionado — aberto/fechado + duração/atraso
   // configurados no momento (pré-preenchidos com a animação já aplicada, se houver).
   const [animPanelOpen, setAnimPanelOpen] = useState(false);
+  // Painel "Texto" (cor da fonte + família) do elemento selecionado — mesmo
+  // espírito do animPanelOpen: persiste ao trocar de elemento dentro do mesmo
+  // slide, reseta ao desselecionar/trocar de slide/desfazer.
+  const [textStylePanelOpen, setTextStylePanelOpen] = useState(false);
   // Modo de recorte (aparar bordas) do elemento selecionado — troca as alças
   // de redimensionar por 4 alças de borda no palco (ver PresentationViewer/
   // buildEditorScript). Mesmo espírito do animPanelOpen: persiste ao trocar
@@ -492,6 +515,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       } else if (data.type === 'deselect') {
         setSelectedEl(null);
         setAnimPanelOpen(false);
+        setTextStylePanelOpen(false);
         setCropMode(false);
         setElementHtmlDraft(null);
       } else if (data.type === 'reposition') {
@@ -545,6 +569,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setSelectedEl(null);
     setChatScope(null);
     setAnimPanelOpen(false);
+    setTextStylePanelOpen(false);
     setCropMode(false);
     setElementHtmlDraft(null);
     setTransitionPanelOpen(false);
@@ -575,6 +600,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setSelectedEl(null);
     setChatScope(null);
     setAnimPanelOpen(false);
+    setTextStylePanelOpen(false);
     setElementHtmlDraft(null);
     setTransitionPanelOpen(false);
     setActiveIndex((i) => Math.min(i, restored.slides.length - 1));
@@ -586,6 +612,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setSelectedEl(null);
     setChatScope(null);
     setAnimPanelOpen(false);
+    setTextStylePanelOpen(false);
     setElementHtmlDraft(null);
     setTransitionPanelOpen(false);
     setActiveIndex((i) => Math.min(i, restored.slides.length - 1));
@@ -824,6 +851,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // gerado direto pela IA) num textarea pra edição manual.
   const handleOpenElementHtmlEdit = () => {
     if (!selectedEl) return;
+    setAnimPanelOpen(false);
+    setTextStylePanelOpen(false);
     setElementHtmlDraft(getElementAt(currentSlide.html, selectedEl.index) || '');
   };
 
@@ -865,6 +894,27 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleClearAnimation = () => {
     if (!selectedEl) return;
     updateCurrentSlideHtml((html) => clearAnimationAt(html, selectedEl.index));
+  };
+
+  // Cor da fonte e família tipográfica do elemento selecionado (painel
+  // "Texto") — `updateCurrentSlideHtml` (não `mutateCurrentSlideHtml`) mantém
+  // a seleção e o painel aberto, mesmo espírito do preset de animação: dá pra
+  // testar várias cores/fontes em sequência sem reclicar no elemento.
+  // `debounced` no arrasto do seletor de cor nativo evita um commit de
+  // undo/redo por pixel de matiz percorrido.
+  const handleSetTextColor = (color) => {
+    if (!selectedEl) return;
+    updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { color }), { debounced: true });
+  };
+
+  const handleSetFontFamily = (fontFamily) => {
+    if (!selectedEl) return;
+    updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { fontFamily }));
+  };
+
+  const handleClearTextStyle = () => {
+    if (!selectedEl) return;
+    updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { color: '', fontFamily: '' }));
   };
 
   // Desfaz o arrasto (ver 'reposition' em handleMessage): devolve o elemento
@@ -1535,6 +1585,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             const currentAnim = getAnimationAt(currentSlide.html, selectedEl.index);
             const positioned = isPositionedAt(currentSlide.html, selectedEl.index);
             const cropped = isCroppedAt(currentSlide.html, selectedEl.index);
+            const textStyle = getTextStyleAt(currentSlide.html, selectedEl.index);
             const btnStyle = { width: '30px', height: '30px' };
             const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
             // `selectedEl.rect` vem em coordenadas do canvas nativo (medidas
@@ -1567,6 +1618,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   <button className="btn-icon" style={btnStyle} title="Alinhar à esquerda" onClick={() => handleAlignElement('left')}><AlignLeft size={15} /></button>
                   <button className="btn-icon" style={btnStyle} title="Centralizar" onClick={() => handleAlignElement('center')}><AlignCenter size={15} /></button>
                   <button className="btn-icon" style={btnStyle} title="Alinhar à direita" onClick={() => handleAlignElement('right')}><AlignRight size={15} /></button>
+                  {divider}
+                  <button
+                    className={`btn-icon ${textStylePanelOpen ? 'active' : ''}`}
+                    style={btnStyle}
+                    title="Cor e fonte do texto"
+                    onClick={() => { setAnimPanelOpen(false); setElementHtmlDraft(null); setTextStylePanelOpen((v) => !v); }}
+                  >
+                    <Baseline size={15} />
+                  </button>
                   {divider}
                   <button className="btn-icon" style={btnStyle} title="Mover para cima" onClick={() => handleMoveElement('up')}><ArrowUp size={15} /></button>
                   <button className="btn-icon" style={btnStyle} title="Mover para baixo" onClick={() => handleMoveElement('down')}><ArrowDown size={15} /></button>
@@ -1601,7 +1661,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     className={`btn-icon ${animPanelOpen ? 'active' : ''}`}
                     style={btnStyle}
                     title="Animar elemento"
-                    onClick={() => setAnimPanelOpen((v) => !v)}
+                    onClick={() => { setTextStylePanelOpen(false); setElementHtmlDraft(null); setAnimPanelOpen((v) => !v); }}
                   >
                     <Wand2 size={15} />
                   </button>
@@ -1693,6 +1753,92 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                         onClick={handleClearAnimation}
                       >
                         <Trash2 size={13} /> Remover animação
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {textStylePanelOpen && (
+                  <div
+                    className="glass-panel"
+                    style={{
+                      position: 'absolute',
+                      top: `${toolbarTop + 40}px`,
+                      left: `${toolbarLeft}px`,
+                      zIndex: 41,
+                      width: '230px',
+                      padding: '0.7rem',
+                      background: 'rgba(15, 23, 42, 0.97)'
+                    }}
+                  >
+                    <label style={{ display: 'block', fontSize: '0.68rem', color: '#9ca3af', marginBottom: '0.35rem' }}>Cor do texto</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.4rem', marginBottom: '0.65rem' }}>
+                      {TEXT_COLOR_SWATCHES.map((swatch) => (
+                        <button
+                          key={swatch}
+                          title={swatch}
+                          onClick={() => handleSetTextColor(swatch)}
+                          style={{
+                            width: '22px',
+                            height: '22px',
+                            borderRadius: '50%',
+                            background: swatch,
+                            cursor: 'pointer',
+                            padding: 0,
+                            border: colorToHex(textStyle.color) === swatch ? '2px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.25)'
+                          }}
+                        />
+                      ))}
+                      <label
+                        title="Cor personalizada"
+                        style={{
+                          width: '22px',
+                          height: '22px',
+                          borderRadius: '50%',
+                          cursor: 'pointer',
+                          border: '1px solid rgba(255,255,255,0.25)',
+                          background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)',
+                          position: 'relative',
+                          overflow: 'hidden',
+                          display: 'block'
+                        }}
+                      >
+                        <input
+                          type="color"
+                          value={colorToHex(textStyle.color) || '#ffffff'}
+                          onChange={(e) => handleSetTextColor(e.target.value)}
+                          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', border: 0, padding: 0 }}
+                        />
+                      </label>
+                      {textStyle.color && (
+                        <button className="btn-icon" style={{ width: '22px', height: '22px' }} title="Remover cor (herdar do slide)" onClick={() => handleSetTextColor('')}>
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+
+                    <label style={{ display: 'block', fontSize: '0.68rem', color: '#9ca3af', marginBottom: '0.35rem' }}>Fonte</label>
+                    <select
+                      className="chat-input"
+                      style={{ width: '100%', fontSize: '0.78rem' }}
+                      value={FONT_OPTIONS.find((f) => normalizeFontValue(f.value) === normalizeFontValue(textStyle.fontFamily))?.id || 'default'}
+                      onChange={(e) => {
+                        const opt = FONT_OPTIONS.find((f) => f.id === e.target.value);
+                        handleSetFontFamily(opt ? opt.value : '');
+                      }}
+                    >
+                      {FONT_OPTIONS.map((f) => (
+                        <option key={f.id} value={f.id}>{f.label}</option>
+                      ))}
+                    </select>
+
+                    {(textStyle.color || textStyle.fontFamily) && (
+                      <button
+                        className="btn-icon"
+                        style={{ width: '100%', marginTop: '0.6rem', color: '#f87171', fontSize: '0.75rem', gap: '0.35rem' }}
+                        onClick={handleClearTextStyle}
+                      >
+                        <Trash2 size={13} /> Restaurar padrão
                       </button>
                     )}
                   </div>

@@ -206,6 +206,37 @@ export function setAlignmentAt(html, index, align) {
   return serializeFragment(template);
 }
 
+// Aplica cor de texto e/ou família de fonte ao elemento em `index` — direto
+// no elemento de topo (funciona através do wrapper de alinhamento, já que
+// cor/fonte herdam normalmente pros filhos, igual `setCropAt`/`setAnimationAt`
+// não desembrulham). `color`/`fontFamily` ausentes (undefined) deixam aquele
+// valor intacto; string vazia remove o override (volta a herdar do slide).
+export function setTextStyleAt(html, index, { color, fontFamily } = {}) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return html;
+
+  if (color !== undefined) {
+    if (color) el.style.color = color;
+    else el.style.removeProperty('color');
+  }
+  if (fontFamily !== undefined) {
+    if (fontFamily) el.style.fontFamily = fontFamily;
+    else el.style.removeProperty('font-family');
+  }
+  return serializeFragment(template);
+}
+
+// Lê a cor/fonte aplicadas via `setTextStyleAt` (inline style do próprio
+// elemento) — usada pra pré-preencher o painel "Texto" com o que o elemento
+// selecionado já tem, se houver.
+export function getTextStyleAt(html, index) {
+  const template = parseFragment(html);
+  const el = getContainer(template).children[index];
+  if (!el) return { color: '', fontFamily: '' };
+  return { color: el.style.color || '', fontFamily: el.style.fontFamily || '' };
+}
+
 // Agrupa o elemento em `index` com o vizinho anterior ("prev") ou seguinte
 // ("next") num container flex lado a lado. `ungroupAt` desfaz.
 export function groupWithNeighborAt(html, index, neighbor) {

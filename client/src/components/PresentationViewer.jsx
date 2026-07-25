@@ -831,7 +831,7 @@ export default function PresentationViewer({ htmlContent, editable = false, spot
 <head>
 <meta charset="UTF-8" />
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Geist:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Merriweather:wght@300;400;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
   /* O elemento html fica com overflow:hidden (evita bounce/scrollbar
      duplicada); quem rola é o body — conteúdo gerado pela IA às vezes fica
      mais alto que os 720px nativos do slide (ex.: diagrama interativo +
