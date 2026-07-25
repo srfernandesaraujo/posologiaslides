@@ -1,6 +1,13 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getBucket } from './firebaseAdmin.js';
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+// Modelo com geração de imagem nativa (recurso recente/experimental do
+// Gemini — ver generateEquivalentImage abaixo) — configurável via env porque
+// o nome exato disponível pode mudar; se a chave do usuário não tiver acesso
+// a este modelo específico, a chamada falha e quem usa a função já trata
+// isso como best-effort (sem imagem, mas a importação continua normalmente).
+const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 
 /**
  * Prompt do sistema para geração de slides HTML interativos
@@ -241,6 +248,45 @@ export async function generateOutlineFromImport({ pages, pdfBuffer, apiKey }) {
     console.error('Erro na API Gemini (Import Outline), usando gerador fallback:', error.message);
     return { outline: generateFallbackImportOutline(pages), warning: `Falha ao usar a IA Gemini (${error.message}). Exibindo conteúdo de exemplo.` };
   }
+}
+
+// Gera uma imagem NOVA (não busca uma existente) a partir da descrição de
+// uma foto/diagrama que existia no material original importado (ver
+// "imagePrompt" em generateOutlineFromImport), pra usar como recurso
+// didático equivalente no slide reconstruído. BEST-EFFORT DE PROPÓSITO: quem
+// chama (ver rota /generate-slides em aiRoutes.js) trata qualquer falha daqui
+// (modelo indisponível pra esta chave, resposta sem imagem, erro de rede)
+// como "sem imagem desta vez" — a importação inteira NUNCA trava por causa
+// disto, só o slide específico fica sem a imagem gerada.
+export async function generateEquivalentImage({ prompt, apiKey, userId }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+  if (!effectiveApiKey) throw new Error('Nenhuma chave de API do Gemini configurada.');
+
+  const genAI = new GoogleGenerativeAI(effectiveApiKey);
+  const model = genAI.getGenerativeModel({
+    model: GEMINI_IMAGE_MODEL,
+    generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
+  });
+
+  const result = await model.generateContent(
+    `Crie uma ilustração didática original (não uma foto, um desenho/ilustração vetorial limpo), moderna, com paleta de cores coerente com um slide de apresentação em modo escuro (fundos escuros, cores vibrantes), SEM nenhum texto/letra/número sobreposto na imagem, representando: ${prompt}`
+  );
+
+  const parts = result.response.candidates?.[0]?.content?.parts || [];
+  const imagePart = parts.find((p) => p.inlineData?.data);
+  if (!imagePart) throw new Error('O modelo não retornou uma imagem (resposta só com texto ou vazia).');
+
+  const buffer = Buffer.from(imagePart.inlineData.data, 'base64');
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  const ext = mimeType.split('/')[1] || 'png';
+  const objectPath = `generated-images/${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+  const bucket = getBucket();
+  const file = bucket.file(objectPath);
+  await file.save(buffer, { metadata: { contentType: mimeType }, resumable: false });
+  await file.makePublic();
+
+  return `https://storage.googleapis.com/${bucket.name}/${objectPath}`;
 }
 
 export async function generateSlideHtml({ slideOutline, presentationTitle, index, totalSlides, apiKey, images, previousLayoutTag }) {

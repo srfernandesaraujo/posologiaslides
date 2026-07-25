@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote, generateSlideQuestions, searchWebForPresenter } from '../services/aiService.js';
+import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateEquivalentImage, generateSlideHtml, editSlideWithAi, generateInfographicFragment, generateClosingQuote, generateSlideQuestions, searchWebForPresenter } from '../services/aiService.js';
 import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
@@ -93,6 +93,21 @@ router.post('/generate-slides', async (req, res) => {
       // da apresentação inteira — só cai pra elas se este slide não tiver a sua.
       const perSlideImages = slidesConfig?.[i]?.images;
       const effectiveImages = (perSlideImages && perSlideImages.length) ? perSlideImages : images;
+
+      // Slide importado cuja página original tinha uma foto/diagrama (ver
+      // "hasImage"/"imagePrompt" em generateOutlineFromImport) — tenta gerar
+      // uma imagem equivalente ANTES de montar o HTML, pra generateSlideHtml
+      // já poder embuti-la (ver slideOutline.imageUrl ali). Best-effort: se
+      // falhar (modelo indisponível, sem imagem na resposta, etc.), loga e
+      // segue sem imagem — nunca derruba a importação inteira por isso.
+      if (slideInfo.hasImage && slideInfo.imagePrompt) {
+        try {
+          slideInfo.imageUrl = await generateEquivalentImage({ prompt: slideInfo.imagePrompt, apiKey: effectiveApiKey, userId: req.user.id });
+        } catch (imgError) {
+          console.error(`Falha ao gerar imagem equivalente pro slide ${i + 1}:`, imgError.message);
+        }
+      }
+
       const { html, warning, layoutTag } = await generateSlideHtml({
         slideOutline: slideInfo,
         presentationTitle: outline.title,
