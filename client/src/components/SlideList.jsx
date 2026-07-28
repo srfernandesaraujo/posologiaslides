@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Plus, Trash2, X, GripVertical, LayoutTemplate, Copy, Sparkles } from 'lucide-react';
+import { Plus, Trash2, X, GripVertical, LayoutTemplate, Copy, Sparkles, Code } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
 
 // Só monta a prévia real (iframe sandboxed com fontes/Chart.js, ver
@@ -30,7 +30,7 @@ function LazySlidePreview({ html }) {
   );
 }
 
-export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onReorderSlides, className = '', onClose }) {
+export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onAddSlideWithCode, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onReorderSlides, className = '', onClose }) {
   const listRef = useRef(null);
   // Índice sendo arrastado e índice "bruto" (antes do ajuste de deslocamento,
   // ver handlePointerUp) sobre o qual o ponteiro está no momento — null
@@ -115,6 +115,16 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
               style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.08)' }}
             >
               <Sparkles size={16} />
+            </button>
+          )}
+          {onAddSlideWithCode && (
+            <button
+              className="btn-icon"
+              onClick={onAddSlideWithCode}
+              title="Criar / Inserir Slide por Código (HTML/JSON/Markdown)"
+              style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.08)' }}
+            >
+              <Code size={16} />
             </button>
           )}
           {onClose && (

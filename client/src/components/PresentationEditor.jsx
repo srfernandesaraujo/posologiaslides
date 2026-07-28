@@ -8,6 +8,7 @@ import MediaLibraryDrawer from './MediaLibraryDrawer';
 import WidgetLibraryDrawer from './WidgetLibraryDrawer';
 import SlideTemplateGallery from './SlideTemplateGallery';
 import AISingleSlideModal from './AISingleSlideModal';
+import CodeSlideModal from './CodeSlideModal';
 import LayoutVariationsModal from './LayoutVariationsModal';
 import TableFieldEditor from './TableFieldEditor';
 import RelatedPresentationPicker from './RelatedPresentationPicker';
@@ -96,6 +97,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Modal "Novo Slide com IA" (ver AISingleSlideModal) — reaproveita
   // `templateInsertIndex` acima pra guardar onde o slide gerado deve entrar.
   const [aiSingleSlideOpen, setAiSingleSlideOpen] = useState(false);
+  // Modal "Novo Slide por Código" (ver CodeSlideModal)
+  const [codeSlideOpen, setCodeSlideOpen] = useState(false);
   // Modal "Trocar Layout" (ver LayoutVariationsModal) — sempre escopado ao
   // elemento selecionado no momento em que abre (mesmo `selectedEl` da barra
   // de ação), não precisa de índice próprio.
@@ -450,6 +453,21 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     newSlides.splice(templateInsertIndex, 0, newSlide);
     commit({ ...presentation, slides: newSlides });
     setAiSingleSlideOpen(false);
+    emitSlideChanged(templateInsertIndex);
+  };
+
+  // Modal "Novo Slide por Código" (ver CodeSlideModal)
+  const handleOpenCodeSlide = (insertIndex) => {
+    setTemplateInsertIndex(insertIndex);
+    setCodeSlideOpen(true);
+  };
+
+  const handleInsertCodeSlide = (title, html) => {
+    const newSlide = { id: `slide-${Date.now()}`, title: title || 'Slide por Código', html };
+    const newSlides = [...presentation.slides];
+    newSlides.splice(templateInsertIndex, 0, newSlide);
+    commit({ ...presentation, slides: newSlides });
+    setCodeSlideOpen(false);
     emitSlideChanged(templateInsertIndex);
   };
 
@@ -1317,6 +1335,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           onAddSlide={() => handleAddSlideAt(presentation.slides.length)}
           onAddTemplate={() => handleOpenTemplateGallery(activeIndex + 1)}
           onAddSlideWithAI={() => handleOpenAISingleSlide(activeIndex + 1)}
+          onAddSlideWithCode={() => handleOpenCodeSlide(activeIndex + 1)}
           onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
           onDeleteSlide={(idxToDelete) => {
             if (presentation.slides.length <= 1) return;
@@ -2361,6 +2380,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         isOpen={aiSingleSlideOpen}
         onClose={() => setAiSingleSlideOpen(false)}
         onInsert={handleInsertAISlide}
+      />
+
+      {/* Novo Slide por Código (HTML, JSON, Markdown) */}
+      <CodeSlideModal
+        isOpen={codeSlideOpen}
+        onClose={() => setCodeSlideOpen(false)}
+        onInsert={handleInsertCodeSlide}
       />
 
       {/* Trocar Layout (galeria de variações via IA) */}
