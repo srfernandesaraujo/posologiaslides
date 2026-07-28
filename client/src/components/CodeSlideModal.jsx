@@ -57,20 +57,6 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
   const [activeTab, setActiveTab] = useState('auto'); // 'auto' | 'html' | 'json' | 'markdown'
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
-  if (!isOpen) return null;
-
-  const handleReset = () => {
-    setCode('');
-    setCustomTitle('');
-    setActiveTab('auto');
-    setCopiedPrompt(false);
-  };
-
-  const handleClose = () => {
-    handleReset();
-    onClose();
-  };
-
   // Converte o código bruto inserido para HTML + Título processado
   const processedResult = useMemo(() => {
     const trimmed = code.trim();
@@ -174,6 +160,15 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
 
     return { html: finalHtml, title: extractedTitle, error, format };
   }, [code, customTitle, activeTab]);
+
+  if (!isOpen) return null;
+
+  const handleReset = () => {
+    setCode('');
+    setCustomTitle('');
+    setActiveTab('auto');
+    setCopiedPrompt(false);
+  };
 
   const handleCopyPrompt = () => {
     navigator.clipboard.writeText(AI_PROMPT_TEMPLATE);
