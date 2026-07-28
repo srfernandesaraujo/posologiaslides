@@ -170,6 +170,11 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
     setCopiedPrompt(false);
   };
 
+  const handleClose = () => {
+    handleReset();
+    onClose();
+  };
+
   const handleCopyPrompt = () => {
     navigator.clipboard.writeText(AI_PROMPT_TEMPLATE);
     setCopiedPrompt(true);
