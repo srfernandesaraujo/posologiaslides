@@ -143,6 +143,55 @@ router.post('/generate-slides', async (req, res) => {
   }
 });
 
+// Rota 2b: Gerar UM slide individual durante o fluxo em lote acionado pelo cliente
+router.post('/generate-slide-step', async (req, res) => {
+  try {
+    const { presentationTitle, slideOutline, index, totalSlides, apiKey, images, previousLayoutTag } = req.body;
+    if (!slideOutline) {
+      return res.status(400).json({ error: 'O outline do slide é obrigatório.' });
+    }
+
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const slideInfo = { ...slideOutline };
+
+    if (slideInfo.hasImage && slideInfo.imagePrompt) {
+      try {
+        slideInfo.imageUrl = await generateEquivalentImage({ prompt: slideInfo.imagePrompt, apiKey: effectiveApiKey, userId: req.user.id });
+      } catch (imgError) {
+        console.error(`Falha ao gerar imagem equivalente pro slide ${index}:`, imgError.message);
+      }
+    }
+
+    const { html, warning, layoutTag } = await generateSlideHtml({
+      slideOutline: slideInfo,
+      presentationTitle: presentationTitle || 'Apresentação',
+      index: Number(index) || 1,
+      totalSlides: Number(totalSlides) || 1,
+      apiKey: effectiveApiKey,
+      images,
+      previousLayoutTag
+    });
+
+    const slide = {
+      id: `slide-${index}-${Date.now()}`,
+      index: Number(index),
+      title: slideInfo.title,
+      html
+    };
+
+    res.json({
+      success: true,
+      slide,
+      layoutTag: layoutTag || null,
+      warning: warning || null
+    });
+  } catch (error) {
+    console.error('Erro na rota generate-slide-step:', error);
+    res.status(500).json({ error: 'Falha ao gerar o slide.' });
+  }
+});
+
+
 // Rota 3: Editar slide específico via Prompt do Usuário
 router.post('/edit-slide', async (req, res) => {
   try {

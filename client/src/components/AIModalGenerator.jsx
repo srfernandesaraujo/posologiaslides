@@ -141,22 +141,54 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
     }
   };
 
-  // Etapa 2 (gerar o HTML de cada slide a partir de um outline) é IDÊNTICA
-  // pros dois modos — outline "do zero" e outline importado têm exatamente o
-  // mesmo formato, então esta função é compartilhada.
   const generateSlidesFromOutline = async (outline, images, slidesImagesConfig) => {
-    setLoadingStatus('Construindo código HTML e dashboards interativos...');
-    const slidesRes = await apiFetch('/api/ai/generate-slides', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ outline, apiKey, images, slidesConfig: slidesImagesConfig })
-    });
-    const slidesData = await slidesRes.json();
-    if (!slidesData.success) {
-      throw new Error(slidesData.error || 'Erro ao construir slides.');
+    const total = outline.slides ? outline.slides.length : 0;
+    const generatedSlides = [];
+    let firstWarning = null;
+    let previousLayoutTag = null;
+
+    for (let i = 0; i < total; i++) {
+      const slideOutline = outline.slides[i];
+      setLoadingStatus(`Gerando slide ${i + 1} de ${total}: "${slideOutline.title || 'Slide'}"...`);
+
+      const perSlideImages = slidesImagesConfig?.[i]?.images;
+      const effectiveImages = (perSlideImages && perSlideImages.length) ? perSlideImages : images;
+
+      const res = await apiFetch('/api/ai/generate-slide-step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presentationTitle: outline.title,
+          slideOutline,
+          index: i + 1,
+          totalSlides: total,
+          apiKey,
+          images: effectiveImages,
+          previousLayoutTag
+        })
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || `Erro ao construir o slide ${i + 1}.`);
+      }
+
+      if (data.layoutTag) previousLayoutTag = data.layoutTag;
+      if (data.warning && !firstWarning) firstWarning = data.warning;
+
+      generatedSlides.push(data.slide);
     }
-    return slidesData;
+
+    return {
+      presentation: {
+        title: outline.title,
+        description: outline.description,
+        slides: generatedSlides
+      },
+      warning: firstWarning
+    };
   };
+
 
   const handleSubmitGenerate = async () => {
     if (!prompt.trim()) {
