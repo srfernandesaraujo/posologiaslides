@@ -9,6 +9,8 @@ import WidgetLibraryDrawer from './WidgetLibraryDrawer';
 import SlideTemplateGallery from './SlideTemplateGallery';
 import AISingleSlideModal from './AISingleSlideModal';
 import CodeSlideModal from './CodeSlideModal';
+import SlideBackgroundModal from './SlideBackgroundModal';
+import SlideBrandingModal from './SlideBrandingModal';
 import LayoutVariationsModal from './LayoutVariationsModal';
 import TableFieldEditor from './TableFieldEditor';
 import RelatedPresentationPicker from './RelatedPresentationPicker';
@@ -23,7 +25,8 @@ import {
   moveElementAt, bringToFrontAt, sendToBackAt, regenerateElementIds, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
   setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setAllAnimationsAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt,
-  hasTableAt, getTableRowsAt, setTableRowsAt
+  hasTableAt, getTableRowsAt, setTableRowsAt,
+  getSlideBackground, setSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
@@ -36,7 +39,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck
 } from 'lucide-react';
 
 // O DOM normaliza valores de estilo ao ler de volta (cor hex vira "rgb(...)",
@@ -99,6 +102,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [aiSingleSlideOpen, setAiSingleSlideOpen] = useState(false);
   // Modal "Novo Slide por Código" (ver CodeSlideModal)
   const [codeSlideOpen, setCodeSlideOpen] = useState(false);
+  // Modais de Fundo de Slide e Informações Identificadoras (Branding)
+  const [slideBgModalOpen, setSlideBgModalOpen] = useState(false);
+  const [slideBrandingModalOpen, setSlideBrandingModalOpen] = useState(false);
   // Modal "Trocar Layout" (ver LayoutVariationsModal) — sempre escopado ao
   // elemento selecionado no momento em que abre (mesmo `selectedEl` da barra
   // de ação), não precisa de índice próprio.
@@ -469,6 +475,37 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     commit({ ...presentation, slides: newSlides });
     setCodeSlideOpen(false);
     emitSlideChanged(templateInsertIndex);
+  };
+
+  // Gestão de Cor de Fundo do Slide
+  const handleApplySlideBackgroundCurrent = (bgValue) => {
+    if (!currentSlide) return;
+    const newHtml = setSlideBackground(currentSlide.html, bgValue);
+    const newSlides = presentation.slides.map((s, i) => (i === activeIndex ? { ...s, html: newHtml } : s));
+    commit({ ...presentation, slides: newSlides });
+  };
+
+  const handleApplySlideBackgroundAll = (bgValue) => {
+    const newSlides = presentation.slides.map((s) => ({ ...s, html: setSlideBackground(s.html, bgValue) }));
+    commit({ ...presentation, slides: newSlides });
+  };
+
+  // Gestão de Identificação / Branding do Apresentador (Rodapé)
+  const handleApplyBrandingAll = (brandingData) => {
+    const newSlides = presentation.slides.map((s) => ({ ...s, html: applyBrandingToSlideHtml(s.html, brandingData) }));
+    commit({ ...presentation, slides: newSlides });
+  };
+
+  const handleApplyBrandingCurrent = (brandingData) => {
+    if (!currentSlide) return;
+    const newHtml = applyBrandingToSlideHtml(currentSlide.html, brandingData);
+    const newSlides = presentation.slides.map((s, i) => (i === activeIndex ? { ...s, html: newHtml } : s));
+    commit({ ...presentation, slides: newSlides });
+  };
+
+  const handleRemoveBrandingAll = () => {
+    const newSlides = presentation.slides.map((s) => ({ ...s, html: removeBrandingFromSlideHtml(s.html) }));
+    commit({ ...presentation, slides: newSlides });
   };
 
   // "Trocar layout" — abre a galeria de variações (LayoutVariationsModal)
@@ -1506,6 +1543,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               <button className="btn-icon" onClick={() => setIsWidgetDrawerOpen(!isWidgetDrawerOpen)} title="Inserir Blocos, Layouts e Widgets Interativos">
                 <Puzzle size={18} />
               </button>
+              <button className="btn-icon" onClick={() => setSlideBgModalOpen(true)} title="Alterar Cor de Fundo do Slide Ativo (Cor ou Gradiente)">
+                <Palette size={18} />
+              </button>
+              <button className="btn-icon" onClick={() => setSlideBrandingModalOpen(true)} title="Informações Identificadoras (Aplicar Rodapé/Autor em todos os slides)">
+                <UserCheck size={18} />
+              </button>
               <button
                 className={`btn-icon ${showBranchPanel ? 'active' : ''}`}
                 onClick={() => setShowBranchPanel(!showBranchPanel)}
@@ -2387,6 +2430,24 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         isOpen={codeSlideOpen}
         onClose={() => setCodeSlideOpen(false)}
         onInsert={handleInsertCodeSlide}
+      />
+
+      {/* Alterar Cor de Fundo do Slide */}
+      <SlideBackgroundModal
+        isOpen={slideBgModalOpen}
+        onClose={() => setSlideBgModalOpen(false)}
+        currentSlideHtml={currentSlide?.html}
+        onApplyCurrent={handleApplySlideBackgroundCurrent}
+        onApplyAll={handleApplySlideBackgroundAll}
+      />
+
+      {/* Cadastrar e Aplicar Informações Identificadoras (Rodapé) */}
+      <SlideBrandingModal
+        isOpen={slideBrandingModalOpen}
+        onClose={() => setSlideBrandingModalOpen(false)}
+        onApplyAll={handleApplyBrandingAll}
+        onApplyCurrent={handleApplyBrandingCurrent}
+        onRemoveAll={handleRemoveBrandingAll}
       />
 
       {/* Trocar Layout (galeria de variações via IA) */}

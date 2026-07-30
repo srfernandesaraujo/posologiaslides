@@ -634,3 +634,112 @@ export function appendIntoRoot(html, fragment, meta) {
   container.appendChild(node);
   return serializeFragment(template);
 }
+
+// ==========================================================================
+// Alteração da Cor/Gradiente de Fundo do Slide
+// ==========================================================================
+export function getSlideBackground(html) {
+  const template = parseFragment(html);
+  const rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+  if (!rootEl) return '#0b1220';
+  return rootEl.style.background || rootEl.style.backgroundColor || '#0b1220';
+}
+
+export function setSlideBackground(html, bgValue) {
+  const template = parseFragment(html);
+  let rootEl = template.content.querySelector('.slide-root');
+
+  if (!rootEl) {
+    const container = document.createElement('div');
+    container.className = 'slide-root';
+    container.style.cssText = `display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; position:relative; background:${bgValue};`;
+    container.append(...Array.from(template.content.childNodes));
+    template.content.appendChild(container);
+  } else {
+    rootEl.style.background = bgValue;
+  }
+
+  return serializeFragment(template);
+}
+
+// ==========================================================================
+// Aplicação e Gestão de Rodapé Identificador (Branding do Autor/Curso)
+// ==========================================================================
+export function applyBrandingToSlideHtml(html, branding) {
+  const template = parseFragment(html);
+  let rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+
+  if (!rootEl) {
+    const container = document.createElement('div');
+    container.className = 'slide-root';
+    container.style.cssText = `display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; position:relative; background:#0b1220;`;
+    container.append(...Array.from(template.content.childNodes));
+    template.content.appendChild(container);
+    rootEl = container;
+  }
+
+  if (rootEl.style && !rootEl.style.position) {
+    rootEl.style.position = 'relative';
+  }
+
+  const existing = rootEl.querySelector('[data-slide-branding="true"]');
+  if (existing) existing.remove();
+
+  const { authorName, email, socialMedia, courseName, stylePreset = 'pill' } = branding || {};
+
+  if (!authorName && !email && !socialMedia && !courseName) {
+    return serializeFragment(template);
+  }
+
+  const brandingEl = document.createElement('div');
+  brandingEl.setAttribute('data-slide-branding', 'true');
+
+  const mainParts = [authorName, email, socialMedia].filter(Boolean);
+  const leftText = mainParts.join(' • ');
+  const rightText = courseName || '';
+
+  if (stylePreset === 'minimal') {
+    brandingEl.style.cssText = 'position:absolute; bottom:12px; left:20px; right:20px; display:flex; justify-content:space-between; align-items:center; z-index:90; pointer-events:none; font-family:\'Plus Jakarta Sans\', sans-serif; font-size:0.75rem; color:rgba(255,255,255,0.65); letter-spacing:0.02em;';
+    brandingEl.innerHTML = `
+      <div style="display:flex; align-items:center; gap:0.4rem; background:rgba(0,0,0,0.3); padding:0.25rem 0.65rem; border-radius:0.4rem;">
+        ${leftText}
+      </div>
+      ${rightText ? `<div style="display:flex; align-items:center; gap:0.4rem; background:rgba(0,0,0,0.3); padding:0.25rem 0.65rem; border-radius:0.4rem;">${rightText}</div>` : ''}
+    `;
+  } else if (stylePreset === 'bar') {
+    brandingEl.style.cssText = 'position:absolute; top:0; left:0; right:0; height:32px; padding:0 20px; display:flex; justify-content:space-between; align-items:center; z-index:90; pointer-events:none; font-family:\'Plus Jakarta Sans\', sans-serif; font-size:0.75rem; background:rgba(15, 23, 42, 0.85); border-bottom:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.85);';
+    brandingEl.innerHTML = `
+      <div style="display:flex; align-items:center; gap:0.5rem; font-weight:600;">
+        ${leftText}
+      </div>
+      ${rightText ? `<div style="display:flex; align-items:center; gap:0.5rem; color:#67e8f9; font-weight:700;">${rightText}</div>` : ''}
+    `;
+  } else {
+    // Preset 'pill' (Pill Glassmorphism Elegante - Padrão)
+    brandingEl.style.cssText = 'position:absolute; bottom:14px; left:20px; right:20px; display:flex; justify-content:space-between; align-items:center; z-index:90; pointer-events:none; font-family:\'Plus Jakarta Sans\', sans-serif; font-size:0.75rem;';
+    brandingEl.innerHTML = `
+      <div style="background:rgba(15, 23, 42, 0.65); backdrop-filter:blur(8px); border:1px solid rgba(255,255,255,0.12); padding:0.35rem 0.85rem; border-radius:20px; color:#e2e8f0; display:flex; align-items:center; gap:0.5rem; box-shadow:0 4px 12px rgba(0,0,0,0.25);">
+        ${leftText}
+      </div>
+      ${rightText ? `
+        <div style="background:rgba(34, 211, 238, 0.12); backdrop-filter:blur(8px); border:1px solid rgba(34, 211, 238, 0.25); padding:0.35rem 0.85rem; border-radius:20px; color:#67e8f9; font-weight:700; display:flex; align-items:center; gap:0.4rem; box-shadow:0 4px 12px rgba(0,0,0,0.25);">
+          ${rightText}
+        </div>
+      ` : ''}
+    `;
+  }
+
+  rootEl.appendChild(brandingEl);
+  return serializeFragment(template);
+}
+
+export function removeBrandingFromSlideHtml(html) {
+  const template = parseFragment(html);
+  const rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+  if (rootEl) {
+    const existing = rootEl.querySelector('[data-slide-branding="true"]');
+    if (existing) existing.remove();
+  }
+  return serializeFragment(template);
+}
+
