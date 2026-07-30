@@ -2,18 +2,20 @@ import { useEffect, useRef } from 'react';
 
 // Vídeo mudo minimalista codificado em base64 H.264
 // Utilizado para inibir a hibernação no Safari / macOS / iOS (que ignoram a Wake Lock API pura sem sessão de mídia ativa)
-const SILENT_VIDEO_BASE64 = 'data:video/mp4;base64,AAAAHGZ0eXBpc29tAAAAAGlzb21pc28yYXZjMQAAAAptZGF0AAAAABhnYWlA4AYGkAAACAAgAAACAAAAAABmcmVlAAAALm1vb3YAAABsbXZoZAAAAADawQjA2sEIwAAAA+gAAAAAAAEAAAEAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAABFtZGlhAAAAIG1kaGQAAAAA2sEIwNrBEMAAAAAAAQAAAAAAABVoZGxyAAAAAAB2aWRlAAAAAAAAAAAAAAAAAAAAAAAAY2FwbAAAAABtaW5mAAAAFHZtaGQAAAAAAAABAAAAAAAAAAAAAAAkZGluZgAAABRkcmVmAAAAAAABAAAADHVybCAAAAABAAAAAHRibGsgAAABc3RzZAAAAAAAABFhdmMxAAAAAAABAAAAAQAAAABhdmNDMWBCwB//AAAAKGF2Y2MAAQBCwB//AAAAHWhhbXBhAAAAAGF2YzEAAAABAAAAAQAAAAAAAABic3R0cwAAAAABAAAAAQAAACAAAAAcdHNjemEAAAAAAAEAAAAAGAAAAAAAEHN0c2MAAAAAAAEAAAABAAAAAQAAAAEAAAAcc3RzdocAAAAAAAEAAAAQAAAAAQAAABAAAAA0c3RjbwAAAAABAAAAAEAAAAA=';
+const SILENT_VIDEO_BASE64 = 'data:video/mp4;base64,AAAAHGZ0eXBpc29tAAAAAGlzb21pc28yYXZjMQAAAAptZGF0AAAAABhnYWlA4AYGkAAACAAgAAACAAAAAABmcmVlAAAALm1vb3YAAABsbXZoZAAAAADawQjA2sEIwAAAA+gAAAAAAAEAAAEAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAABFtZGlhAAAAIG1kaGQAAAAA2sEIwNrBEMAAAAAAAQAAAAAAABVoZGxyAAAAAAB2aWRlAAAAAAAAAAAAAAAAAAAAAAAAY2FwbAAAAABtaW5mAAAAFHZtaGQAAAAAAAABAAAAAAAAAAAAAAAkZGluZgAAABRkcmVmAAAAAAABAAAADHVyb CAAAAABAAAAAHRibGsgAAABc3RzZAAAAAAAABFhdmMxAAAAAAABAAAAAQAAAABhdmNDMWBCwB//AAAAKGF2Y2MAAQBCwB//AAAAHWhhbXBhAAAAAGF2YzEAAAABAAAAAQAAAAAAAABic3R0cwAAAAABAAAAAQAAACAAAAAcdHNjemEAAAAAAAEAAAAAGAAAAAAAEHN0c2MAAAAAAAEAAAABAAAAAQAAAAEAAAAcc3RzdocAAAAAAAEAAAAQAAAAAQAAABAAAAA0c3RjbwAAAAABAAAAAEAAAAA=';
 
 /**
- * Hook universal para inibir a hibernação/desligamento da tela.
- * Combina a Screen Wake Lock API nativa com um fallback de sessão de mídia para Safari / macOS / iOS.
+ * Hook de Proteção Quádrupla Anti-Hibernação (Universal para macOS / Safari / iOS / Windows / Chrome)
+ * Combina Wake Lock API + Sessão de Vídeo Mudo + Sessão de Áudio WebKit + Heartbeat de Reativação
  */
 export default function useScreenWakeLock(enabled = true) {
   const wakeLockRef = useRef(null);
   const videoRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const heartbeatIntervalRef = useRef(null);
 
   useEffect(() => {
-    // Cria o elemento de vídeo invisível se ainda não existir
+    // 1. Elemento de vídeo silencioso
     if (!videoRef.current && typeof document !== 'undefined') {
       const video = document.createElement('video');
       video.setAttribute('aria-hidden', 'true');
@@ -29,25 +31,33 @@ export default function useScreenWakeLock(enabled = true) {
 
     const videoEl = videoRef.current;
 
-    if (!enabled) {
-      // Libera WakeLock nativo
+    const stopAllLocks = () => {
       if (wakeLockRef.current) {
         wakeLockRef.current.release().catch(() => {});
         wakeLockRef.current = null;
       }
-      // Pausa e remove o vídeo no Safari
       if (videoEl && !videoEl.paused) {
         videoEl.pause();
-        if (videoEl.parentNode) {
-          videoEl.parentNode.removeChild(videoEl);
-        }
+        if (videoEl.parentNode) videoEl.parentNode.removeChild(videoEl);
       }
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+    };
+
+    if (!enabled) {
+      stopAllLocks();
       return;
     }
 
     let isSubscribed = true;
 
-    // 1. Método Nativo: Screen Wake Lock API (Chrome, Edge, Firefox, Brave)
+    // 2. Trava Nativa: Screen Wake Lock API (Chrome, Edge, Firefox, Brave)
     const requestWakeLock = async () => {
       if ('wakeLock' in navigator) {
         try {
@@ -62,14 +72,12 @@ export default function useScreenWakeLock(enabled = true) {
           } else {
             lock.release().catch(() => {});
           }
-        } catch (err) {
-          // Trata exceções em navegadores restritivos
-        }
+        } catch (err) {}
       }
     };
 
-    // 2. Método Fallback Mídia para Safari / macOS / iOS (reproduz vídeo em loop mudo de 1px)
-    const startSafariWakeLock = () => {
+    // 3. Trava de Vídeo para Safari / macOS
+    const startVideoLock = () => {
       if (videoEl) {
         if (!videoEl.parentNode) {
           document.body.appendChild(videoEl);
@@ -78,18 +86,50 @@ export default function useScreenWakeLock(enabled = true) {
       }
     };
 
-    requestWakeLock();
-    startSafariWakeLock();
+    // 4. Trava de Áudio WebKit para macOS / Safari (Cria sessão de áudio inaudível para forçar prevenção de hibernação pelo SO)
+    const startAudioLock = () => {
+      try {
+        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtxClass && !audioCtxRef.current) {
+          const ctx = new AudioCtxClass();
+          if (ctx.state === 'suspended') {
+            ctx.resume().catch(() => {});
+          }
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          gain.gain.value = 0.00001; // Inaudível mas mantém a sessão de mídia ativa no macOS
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          audioCtxRef.current = ctx;
+        } else if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+          audioCtxRef.current.resume().catch(() => {});
+        }
+      } catch (err) {}
+    };
 
-    // Reativa as travas quando a aba/janela volta a ficar visível
+    const activateAllLocks = () => {
+      requestWakeLock();
+      startVideoLock();
+      startAudioLock();
+    };
+
+    activateAllLocks();
+
+    // 5. Heartbeat periódico a cada 20 segundos para re-confirmar as travas contra timeout do macOS
+    heartbeatIntervalRef.current = setInterval(() => {
+      if (enabled && isSubscribed) {
+        if (!wakeLockRef.current) requestWakeLock();
+        if (videoEl && videoEl.paused) startVideoLock();
+        if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+          audioCtxRef.current.resume().catch(() => {});
+        }
+      }
+    }, 20000);
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && enabled) {
-        if (!wakeLockRef.current) {
-          requestWakeLock();
-        }
-        if (videoEl && videoEl.paused) {
-          startSafariWakeLock();
-        }
+        activateAllLocks();
       }
     };
 
@@ -98,16 +138,7 @@ export default function useScreenWakeLock(enabled = true) {
     return () => {
       isSubscribed = false;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (wakeLockRef.current) {
-        wakeLockRef.current.release().catch(() => {});
-        wakeLockRef.current = null;
-      }
-      if (videoEl && !videoEl.paused) {
-        videoEl.pause();
-        if (videoEl.parentNode) {
-          videoEl.parentNode.removeChild(videoEl);
-        }
-      }
+      stopAllLocks();
     };
   }, [enabled]);
 }
