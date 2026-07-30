@@ -67,9 +67,17 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
     let extractedTitle = customTitle.trim();
     let finalHtml = '';
     let error = null;
+    let warning = null;
     let format = activeTab;
 
     try {
+      // Detecção de código React / JSX (ex.: export default function App, import React, className=, etc.)
+      const isReactJsx = trimmed.includes('import React') || trimmed.includes('export default function') || (trimmed.includes('className=') && trimmed.includes('return'));
+
+      if (isReactJsx) {
+        warning = 'Código React (JSX) detectado. O criador de slides necessita de HTML/CSS/JS nativo. Variáveis como {currentCase.title} não funcionam sem compilação.';
+      }
+
       // 1. Tentar como JSON se começar com '{' ou o tab for JSON
       if ((activeTab === 'json' || activeTab === 'auto') && trimmed.startsWith('{')) {
         try {
@@ -137,6 +145,12 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
         format = 'html';
         finalHtml = trimmed;
 
+        // Se for React JSX, limpa automaticamente className -> class e comentários JSX
+        if (isReactJsx) {
+          finalHtml = finalHtml.replace(/className=/g, 'class=');
+          finalHtml = finalHtml.replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+        }
+
         // Se o HTML não incluir <div class="slide-root", embrulha automaticamente
         if (!finalHtml.includes('class="slide-root"') && !finalHtml.includes("class='slide-root'")) {
           finalHtml = `<div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">${finalHtml}</div>`;
@@ -158,7 +172,7 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
       extractedTitle = 'Slide por Código';
     }
 
-    return { html: finalHtml, title: extractedTitle, error, format };
+    return { html: finalHtml, title: extractedTitle, error, warning, format };
   }, [code, customTitle, activeTab]);
 
   if (!isOpen) return null;
@@ -312,6 +326,12 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
                 </span>
               )}
             </div>
+
+            {processedResult.warning && (
+              <div style={{ fontSize: '0.75rem', color: '#fbbf24', background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.25)', padding: '0.45rem 0.75rem', borderRadius: '0.4rem', marginBottom: '0.5rem' }}>
+                ⚠️ {processedResult.warning}
+              </div>
+            )}
 
             <div
               style={{
