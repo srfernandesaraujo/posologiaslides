@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import PresentationViewer from './PresentationViewer';
 import { TRANSITION_DEFAULTS, resolveTransition } from '../lib/transitionCatalog';
 import { apiFetch } from '../lib/api';
+import useScreenWakeLock from '../lib/useScreenWakeLock';
 import { Clock, Eye, Sparkles, Search, ChevronRight, ChevronLeft, Lightbulb, MessageSquare, X, Loader2, ExternalLink } from 'lucide-react';
 
 // Extrai só o texto legível do HTML do slide (sem tags/CSS/JS) — usado como
@@ -34,6 +35,9 @@ export default function PresenterWindow({
   // Copiloto IA: Sugestões de perguntas instigantes baseadas no slide
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
+
+  // Inibe a hibernação e desligamento da tela enquanto a Visão do Apresentador estiver aberta
+  useScreenWakeLock(true);
 
   const currentSlide = atClosingSlide ? closingSlide : (slides[currentIndex] || { title: 'Slide Atual', html: '' });
   const nextSlide = atClosingSlide ? null : (slides[currentIndex + 1] || null);

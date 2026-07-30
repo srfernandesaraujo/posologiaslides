@@ -35,6 +35,7 @@ import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closi
 import useCanvasFit from '../lib/useCanvasFit';
 import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDIT_RANGE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
 import useUndoHistory from '../lib/useUndoHistory';
+import useScreenWakeLock from '../lib/useScreenWakeLock';
 import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
@@ -608,6 +609,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
+
+  // Inibe a hibernação e o desligamento da tela enquanto estiver em modo Tela Cheia
+  useScreenWakeLock(isFullscreen);
 
   // Rola o chat até o fim sempre que uma mensagem nova ou o indicador de
   // "digitando" aparece — sem isso o feedback de carregamento podia ficar

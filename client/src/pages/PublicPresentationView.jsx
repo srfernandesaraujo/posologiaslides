@@ -6,6 +6,7 @@ import useCanvasFit from '../lib/useCanvasFit';
 import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE } from '../lib/canvasConstants';
 import { resolveTransition } from '../lib/transitionCatalog';
 import { apiFetch } from '../lib/api';
+import useScreenWakeLock from '../lib/useScreenWakeLock';
 
 // Visualizador público só-visualização: alvo de rota de /view/:shareId (ver
 // App.jsx), fora da parede de login do Firebase — busca a apresentação via
@@ -46,6 +47,8 @@ export default function PublicPresentationView({ shareId }) {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
+
+  useScreenWakeLock(isFullscreen);
 
   const toggleFullscreen = () => {
     if (!stageRef.current) return;
