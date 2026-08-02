@@ -18,6 +18,7 @@ function flattenTree(folders) {
 
 export default function RelatedPresentationPicker({ isOpen, onClose, currentPresentationId, currentRelated, onSelect, onClear }) {
   const [items, setItems] = useState([]);
+  const [folderName, setFolderName] = useState('');
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -27,10 +28,37 @@ export default function RelatedPresentationPicker({ isOpen, onClose, currentPres
     apiFetch('/api/presentations/tree')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success) setItems(flattenTree(data.folders));
+        if (data.success) {
+          const folders = data.folders || [];
+          let currentFolder = null;
+
+          if (currentPresentationId) {
+            for (const folder of folders) {
+              const hasCurrent = (folder.subfolders || []).some((sub) =>
+                (sub.presentations || []).some((p) => p.id === currentPresentationId)
+              );
+              if (hasCurrent) {
+                currentFolder = folder;
+                break;
+              }
+            }
+          }
+
+          if (currentFolder) {
+            setFolderName(currentFolder.name);
+            const flat = [];
+            (currentFolder.subfolders || []).forEach((sub) => {
+              (sub.presentations || []).forEach((p) => flat.push({ id: p.id, title: p.title }));
+            });
+            setItems(flat);
+          } else {
+            setFolderName('');
+            setItems(flattenTree(folders));
+          }
+        }
       })
       .finally(() => setLoading(false));
-  }, [isOpen]);
+  }, [isOpen, currentPresentationId]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -51,7 +79,9 @@ export default function RelatedPresentationPicker({ isOpen, onClose, currentPres
             </div>
             <div>
               <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>Aula Relacionada</h2>
-              <p style={{ fontSize: '0.8rem', color: '#9ca3af', margin: 0 }}>Aparece como link no slide de encerramento</p>
+              <p style={{ fontSize: '0.8rem', color: '#9ca3af', margin: 0 }}>
+                {folderName ? `Aulas da pasta: ${folderName}` : 'Aparece como link no slide de encerramento'}
+              </p>
             </div>
           </div>
           <button className="btn-icon" onClick={onClose}><X size={18} /></button>
@@ -82,7 +112,9 @@ export default function RelatedPresentationPicker({ isOpen, onClose, currentPres
         <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
           {loading && <div style={{ fontSize: '0.8rem', color: '#6b7280', textAlign: 'center', padding: '1rem' }}>Carregando...</div>}
           {!loading && filtered.length === 0 && (
-            <div style={{ fontSize: '0.8rem', color: '#6b7280', textAlign: 'center', padding: '1rem' }}>Nenhuma outra apresentação encontrada.</div>
+            <div style={{ fontSize: '0.8rem', color: '#6b7280', textAlign: 'center', padding: '1rem' }}>
+              {folderName ? `Nenhuma outra apresentação encontrada na pasta "${folderName}".` : 'Nenhuma outra apresentação encontrada.'}
+            </div>
           )}
           {filtered.map((p) => (
             <button
