@@ -1873,3 +1873,102 @@ button.mobile-toggle-btn {
   .landing-nav { padding: 1rem 1.25rem; }
   .landing-section { padding: 3.5rem 1.25rem; }
 }
+
+/* ==========================================================================
+   Visualização em Arquivos (Estilo macOS Finder) na Biblioteca
+   ========================================================================== */
+.library-finder-table {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.finder-table-header {
+  display: grid;
+  grid-template-columns: 2.5fr 1.5fr 1.2fr 120px;
+  padding: 0.75rem 1.25rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border-glass);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.finder-table-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.finder-file-row {
+  display: grid;
+  grid-template-columns: 2.5fr 1.5fr 1.2fr 120px;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.finder-file-row:last-child {
+  border-bottom: none;
+}
+
+.finder-file-row:hover {
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.finder-file-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.finder-file-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.finder-folder-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.finder-col.col-date {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.finder-col.col-actions {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: flex-end;
+}
+
+@media (max-width: 768px) {
+  .finder-table-header,
+  .finder-file-row {
+    grid-template-columns: 2fr 1fr 100px;
+  }
+  .finder-col.col-date {
+    display: none;
+  }
+}
+

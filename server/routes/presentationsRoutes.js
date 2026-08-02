@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   getFolderTree, getPresentation, savePresentation, deletePresentation, setFavorite, touchPresentation,
-  createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder
+  createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder, renamePresentation
 } from '../services/store.js';
 
 const router = express.Router();
@@ -29,6 +29,19 @@ router.post('/', async (req, res) => {
 
   const saved = await savePresentation({ id, title, description, slides, relatedPresentationId, relatedPresentationTitle }, req.user.id);
   res.json({ success: true, presentation: saved });
+});
+
+// Renomeia apenas o título da apresentação
+router.patch('/:id/title', async (req, res) => {
+  const { title } = req.body;
+  if (!title || !title.trim()) {
+    return res.status(400).json({ error: 'title é obrigatório.' });
+  }
+  const updated = await renamePresentation(req.params.id, req.user.id, title);
+  if (!updated) {
+    return res.status(404).json({ error: 'Apresentação não encontrada.' });
+  }
+  res.json({ success: true, presentation: updated });
 });
 
 // Marca/desmarca uma apresentação como favorita

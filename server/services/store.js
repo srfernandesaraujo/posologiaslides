@@ -258,6 +258,16 @@ export async function setFavorite(id, userId, favorite) {
   return serializePresentation(id, { ...snap.data(), favorite: !!favorite });
 }
 
+export async function renamePresentation(id, userId, title) {
+  const ref = presentationsRef(userId).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const now = Date.now();
+  await ref.update({ title: title.trim(), updatedAt: now });
+  return serializePresentation(id, { ...snap.data(), title: title.trim(), updatedAt: now });
+}
+
+
 export async function touchPresentation(id, userId) {
   const ref = presentationsRef(userId).doc(id);
   const snap = await ref.get();

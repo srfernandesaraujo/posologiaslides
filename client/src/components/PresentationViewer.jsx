@@ -1036,6 +1036,27 @@ export default function PresentationViewer({ htmlContent, editable = false, spot
   body::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.55); }
   body { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.35) transparent; }
 
+  /* Suporte a barra de rolagem forçada/destacada no slide */
+  .slide-root[data-scrollable="true"],
+  body[data-scrollable="true"] {
+    overflow-y: auto !important;
+    max-height: 100% !important;
+  }
+  .slide-root[data-scrollable="true"]::-webkit-scrollbar,
+  body[data-scrollable="true"]::-webkit-scrollbar {
+    width: 8px !important;
+  }
+  .slide-root[data-scrollable="true"]::-webkit-scrollbar-track,
+  body[data-scrollable="true"]::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2) !important;
+  }
+  .slide-root[data-scrollable="true"]::-webkit-scrollbar-thumb,
+  body[data-scrollable="true"]::-webkit-scrollbar-thumb {
+    background: rgba(56, 189, 248, 0.6) !important;
+    border-radius: 999px !important;
+  }
+
+
   /* Biblioteca de animações aplicáveis a um elemento via o painel "Animar" do
      editor (ver client/src/lib/animationCatalog.js) — sempre presente (não só
      em modo editável): a animação é conteúdo real do slide e precisa tocar

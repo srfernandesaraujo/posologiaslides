@@ -26,7 +26,8 @@ import {
   setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setAllAnimationsAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt,
   hasTableAt, getTableRowsAt, setTableRowsAt,
-  getSlideBackground, setSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml
+  getSlideBackground, setSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml,
+  getSlideScrollable, setSlideScrollable
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
@@ -40,7 +41,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText
 } from 'lucide-react';
 
 // O DOM normaliza valores de estilo ao ler de volta (cor hex vira "rgb(...)",
@@ -144,6 +145,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // uma gaveta mobile — em qualquer largura de tela ele fica escondido até
   // ser aberto por este botão ou por "Editar este elemento com IA").
   const [chatOpen, setChatOpen] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+
+  const handleSaveTitle = () => {
+    setIsEditingTitle(false);
+    if (titleDraft.trim() && titleDraft.trim() !== presentation?.title) {
+      commit({ ...presentation, title: titleDraft.trim() });
+    }
+  };
 
   // Elemento de topo selecionado no slide (clique dentro do iframe editável)
   // — { index, scope, rect } | null. `scope` distingue filhos de ".slide-root"
@@ -288,6 +298,18 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         title: 'Slide Inicial',
         html: '<div style="color:white; padding:2rem;">Nenhum slide gerado ainda.</div>'
       };
+
+  const isCurrentSlideScrollable = currentSlide ? getSlideScrollable(currentSlide.html) : false;
+
+  const handleToggleSlideScrollable = () => {
+    if (atClosingSlide || !currentSlide) return;
+    const nextScrollable = !isCurrentSlideScrollable;
+    const nextHtml = setSlideScrollable(currentSlide.html, nextScrollable);
+    const updatedSlides = presentation.slides.map((s, idx) =>
+      idx === activeIndex ? { ...s, html: nextHtml } : s
+    );
+    commit({ ...presentation, slides: updatedSlides });
+  };
 
   // Centraliza a troca de slide ativo: atualiza o estado local e avisa a
   // sessão ao vivo (se houver) do novo índice E do tipo de interatividade
@@ -1431,9 +1453,36 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               >
                 <Menu size={18} />
               </button>
-              <h1 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f3f4f6' }}>
-                {presentation.title} <span style={{ fontSize: '0.85rem', fontWeight: 400, color: '#9ca3af' }}>({atClosingSlide ? 'Encerramento' : `${activeIndex + 1}/${presentation.slides.length}`})</span>
-              </h1>
+              {isEditingTitle ? (
+                <form
+                  onSubmit={(e) => { e.preventDefault(); handleSaveTitle(); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <input
+                    type="text"
+                    autoFocus
+                    className="chat-input"
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onBlur={handleSaveTitle}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveTitle();
+                      if (e.key === 'Escape') setIsEditingTitle(false);
+                    }}
+                    style={{ fontSize: '0.95rem', fontWeight: 700, padding: '0.2rem 0.5rem', width: '240px' }}
+                  />
+                </form>
+              ) : (
+                <h1
+                  onClick={() => { setIsEditingTitle(true); setTitleDraft(presentation.title || ''); }}
+                  title="Clique para renomear a apresentação"
+                  style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f3f4f6', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <span>{presentation.title}</span>
+                  <Pencil size={13} style={{ opacity: 0.6 }} />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 400, color: '#9ca3af' }}>({atClosingSlide ? 'Encerramento' : `${activeIndex + 1}/${presentation.slides.length}`})</span>
+                </h1>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '0.5rem', columnGap: '0.6rem', alignItems: 'center' }}>
@@ -1552,6 +1601,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               </button>
               <button className="btn-icon" onClick={() => setSlideBrandingModalOpen(true)} title="Informações Identificadoras (Aplicar Rodapé/Autor em todos os slides)">
                 <UserCheck size={18} />
+              </button>
+              <button
+                className={`btn-icon ${isCurrentSlideScrollable ? 'active' : ''}`}
+                onClick={handleToggleSlideScrollable}
+                disabled={atClosingSlide}
+                title={isCurrentSlideScrollable ? "Desativar barra de rolagem no slide" : "Ativar barra de rolagem no slide (Permite rolar o conteúdo caso ultrapasse a tela)"}
+                style={isCurrentSlideScrollable ? { background: 'rgba(56, 189, 248, 0.18)', color: '#38bdf8' } : undefined}
+              >
+                <ScrollText size={18} />
               </button>
               <button
                 className={`btn-icon ${showBranchPanel ? 'active' : ''}`}

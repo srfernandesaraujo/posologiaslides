@@ -4,7 +4,7 @@ import { apiFetch } from '../lib/api';
 import {
   Presentation, Search, Sparkles, Settings, Star, MoreHorizontal,
   Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut, Menu, X,
-  Plus, Check, FolderInput
+  Plus, Check, FolderInput, LayoutGrid, List, FileText, Pencil
 } from 'lucide-react';
 
 // Mesmas cores já usadas em outros pontos do app (quiz, trilha de decisão) —
@@ -86,6 +86,31 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
   const [activeFolderId, setActiveFolderId] = useState(null);
   // Em telas compactas (≤1024px) o rail lateral vira uma gaveta off-canvas
   const [isRailOpen, setIsRailOpen] = useState(false);
+
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('posologia_library_viewmode') || 'grid');
+  const [renamingPresentation, setRenamingPresentation] = useState(null);
+
+  const handleToggleViewMode = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('posologia_library_viewmode', mode);
+  };
+
+  const handleRenamePresentationSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!renamingPresentation || !renamingPresentation.title.trim()) return;
+    const { id, title } = renamingPresentation;
+    setRenamingPresentation(null);
+    try {
+      await apiFetch(`/api/presentations/${id}/title`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title.trim() })
+      });
+      loadTree();
+    } catch {
+      alert('Não foi possível renomear a apresentação.');
+    }
+  };
 
   // Linha inline de criar/renomear pasta: { mode: 'create'|'rename', id, name, color } ou null
   const [folderForm, setFolderForm] = useState(null);
@@ -365,16 +390,45 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
           </div>
         </div>
 
-        <div className="library-tabs">
-          {tabs.map((tab) => (
+        <div className="library-tabs-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+          <div className="library-tabs" style={{ marginBottom: 0 }}>
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={`library-tab ${activeTab === tab.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                <tab.icon size={14} /> {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="library-view-switcher" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'rgba(255,255,255,0.04)', padding: '0.25rem', borderRadius: '0.5rem', border: '1px solid var(--border-glass)' }}>
             <button
-              key={tab.id}
-              className={`library-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              className={`btn-icon ${viewMode === 'grid' ? 'active' : ''}`}
+              onClick={() => handleToggleViewMode('grid')}
+              title="Visualização em Grade / Ícones"
+              style={{
+                width: '30px', height: '30px', borderRadius: '0.35rem',
+                background: viewMode === 'grid' ? 'var(--accent-primary)' : 'transparent',
+                color: viewMode === 'grid' ? '#000' : 'var(--text-dim)'
+              }}
             >
-              <tab.icon size={14} /> {tab.label}
+              <LayoutGrid size={15} />
             </button>
-          ))}
+            <button
+              className={`btn-icon ${viewMode === 'finder' ? 'active' : ''}`}
+              onClick={() => handleToggleViewMode('finder')}
+              title="Visualização em Arquivos (Estilo Finder da Apple)"
+              style={{
+                width: '30px', height: '30px', borderRadius: '0.35rem',
+                background: viewMode === 'finder' ? 'var(--accent-primary)' : 'transparent',
+                color: viewMode === 'finder' ? '#000' : 'var(--text-dim)'
+              }}
+            >
+              <List size={15} />
+            </button>
+          </div>
         </div>
 
         {loading && (
@@ -393,56 +447,180 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
           </div>
         )}
 
-        <div className="library-grid">
-          {visiblePresentations.map((p) => (
-            <div key={p.id} className="library-card" onClick={() => onOpenPresentation(p.id)}>
-              <SlideThumbnail html={p.firstSlideHtml} />
-
-              <button
-                className={`library-card-star ${p.favorite ? 'active' : ''}`}
-                onClick={(e) => toggleFavorite(e, p)}
-                title={p.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
-              >
-                <Star size={14} fill={p.favorite ? 'currentColor' : 'none'} />
-              </button>
-
-              <div className="library-card-body">
-                <div className="library-card-title">{p.title}</div>
-                <div className="library-card-meta">{p.folderName}</div>
-                <div className="library-card-footer">
-                  <span>{formatRelativeTime(p.updatedAt) ? `Editado ${formatRelativeTime(p.updatedAt)}` : ''}</span>
-                  <div style={{ display: 'flex', gap: '0.2rem' }}>
-                    <div style={{ position: 'relative' }}>
-                      <button
-                        className="library-card-delete"
-                        onClick={(e) => { e.stopPropagation(); setMoveMenuFor(moveMenuFor === p.id ? null : p.id); }}
-                        title="Mover para pasta"
-                      >
-                        <FolderInput size={13} />
-                      </button>
-                      {moveMenuFor === p.id && (
-                        <>
-                          <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setMoveMenuFor(null); }} />
-                          <div className="library-folder-menu" onClick={(e) => e.stopPropagation()} style={{ bottom: '100%', right: 0, top: 'auto', marginBottom: '0.3rem' }}>
-                            {folders.filter((f) => f.id !== p.folderId).map((f) => (
-                              <button key={f.id} onClick={(e) => handleMoveToFolder(e, p.id, f.id)}>
-                                <Folder size={12} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
-                                {f.name}
-                              </button>
-                            ))}
-                          </div>
-                        </>
+        {!loading && visiblePresentations.length > 0 && (
+          viewMode === 'finder' ? (
+            <div className="library-finder-table">
+              <div className="finder-table-header">
+                <div className="finder-col col-name">Nome do Arquivo</div>
+                <div className="finder-col col-folder">Disciplina / Pasta</div>
+                <div className="finder-col col-date">Última Modificação</div>
+                <div className="finder-col col-actions" style={{ textAlign: 'right' }}>Ações</div>
+              </div>
+              <div className="finder-table-body">
+                {visiblePresentations.map((p) => (
+                  <div key={p.id} className="finder-file-row" onClick={() => onOpenPresentation(p.id)}>
+                    <div className="finder-col col-name" style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                      <div className="finder-file-icon">
+                        <FileText size={18} color={p.folderColor || '#38bdf8'} />
+                      </div>
+                      {renamingPresentation?.id === p.id ? (
+                        <form onSubmit={handleRenamePresentationSubmit} onClick={(e) => e.stopPropagation()} style={{ flex: 1 }}>
+                          <input
+                            type="text"
+                            autoFocus
+                            className="chat-input"
+                            value={renamingPresentation.title}
+                            onChange={(e) => setRenamingPresentation({ ...renamingPresentation, title: e.target.value })}
+                            onBlur={handleRenamePresentationSubmit}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') setRenamingPresentation(null);
+                            }}
+                            style={{ fontSize: '0.85rem', padding: '0.2rem 0.4rem', width: '100%' }}
+                          />
+                        </form>
+                      ) : (
+                        <span className="finder-file-title">{p.title}</span>
                       )}
                     </div>
-                    <button className="library-card-delete" onClick={(e) => handleDelete(e, p)} title="Excluir">
-                      <Trash2 size={13} />
-                    </button>
+                    <div className="finder-col col-folder">
+                      <span className="finder-folder-badge" style={{ borderColor: `${p.folderColor || '#38bdf8'}44`, background: `${p.folderColor || '#38bdf8'}15`, color: p.folderColor || '#38bdf8' }}>
+                        <Folder size={12} color={p.folderColor || '#38bdf8'} style={{ marginRight: '0.35rem', verticalAlign: '-1px' }} />
+                        {p.folderName}
+                      </span>
+                    </div>
+                    <div className="finder-col col-date">
+                      {formatRelativeTime(p.updatedAt) ? `Editado ${formatRelativeTime(p.updatedAt)}` : 'Recente'}
+                    </div>
+                    <div className="finder-col col-actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className={`btn-icon ${p.favorite ? 'active' : ''}`}
+                        onClick={(e) => toggleFavorite(e, p)}
+                        title={p.favorite ? 'Remover dos favoritos' : 'Favoritar'}
+                        style={{ width: '28px', height: '28px' }}
+                      >
+                        <Star size={13} fill={p.favorite ? '#fbbf24' : 'none'} color={p.favorite ? '#fbbf24' : 'currentColor'} />
+                      </button>
+                      <button
+                        className="btn-icon"
+                        onClick={(e) => { e.stopPropagation(); setRenamingPresentation({ id: p.id, title: p.title }); }}
+                        title="Renomear"
+                        style={{ width: '28px', height: '28px' }}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <div style={{ position: 'relative', display: 'inline-block' }}>
+                        <button
+                          className="btn-icon"
+                          onClick={(e) => { e.stopPropagation(); setMoveMenuFor(moveMenuFor === p.id ? null : p.id); }}
+                          title="Mover para pasta"
+                          style={{ width: '28px', height: '28px' }}
+                        >
+                          <FolderInput size={13} />
+                        </button>
+                        {moveMenuFor === p.id && (
+                          <>
+                            <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setMoveMenuFor(null); }} />
+                            <div className="library-folder-menu" onClick={(e) => e.stopPropagation()} style={{ top: '100%', right: 0, marginTop: '0.3rem' }}>
+                              {folders.filter((f) => f.id !== p.folderId).map((f) => (
+                                <button key={f.id} onClick={(e) => handleMoveToFolder(e, p.id, f.id)}>
+                                  <Folder size={12} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
+                                  {f.name}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <button
+                        className="btn-icon danger"
+                        onClick={(e) => handleDelete(e, p)}
+                        title="Excluir"
+                        style={{ width: '28px', height: '28px' }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
+          ) : (
+            <div className="library-grid">
+              {visiblePresentations.map((p) => (
+                <div key={p.id} className="library-card" onClick={() => onOpenPresentation(p.id)}>
+                  <SlideThumbnail html={p.firstSlideHtml} />
+
+                  <button
+                    className={`library-card-star ${p.favorite ? 'active' : ''}`}
+                    onClick={(e) => toggleFavorite(e, p)}
+                    title={p.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+                  >
+                    <Star size={14} fill={p.favorite ? 'currentColor' : 'none'} />
+                  </button>
+
+                  <div className="library-card-body">
+                    {renamingPresentation?.id === p.id ? (
+                      <form onSubmit={handleRenamePresentationSubmit} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          autoFocus
+                          className="chat-input"
+                          value={renamingPresentation.title}
+                          onChange={(e) => setRenamingPresentation({ ...renamingPresentation, title: e.target.value })}
+                          onBlur={handleRenamePresentationSubmit}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') setRenamingPresentation(null);
+                          }}
+                          style={{ fontSize: '0.9rem', fontWeight: 600, padding: '0.2rem 0.4rem', width: '100%', marginBottom: '0.3rem' }}
+                        />
+                      </form>
+                    ) : (
+                      <div className="library-card-title">{p.title}</div>
+                    )}
+                    <div className="library-card-meta">{p.folderName}</div>
+                    <div className="library-card-footer">
+                      <span>{formatRelativeTime(p.updatedAt) ? `Editado ${formatRelativeTime(p.updatedAt)}` : ''}</span>
+                      <div style={{ display: 'flex', gap: '0.2rem' }}>
+                        <button
+                          className="library-card-delete"
+                          onClick={(e) => { e.stopPropagation(); setRenamingPresentation({ id: p.id, title: p.title }); }}
+                          title="Renomear"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            className="library-card-delete"
+                            onClick={(e) => { e.stopPropagation(); setMoveMenuFor(moveMenuFor === p.id ? null : p.id); }}
+                            title="Mover para pasta"
+                          >
+                            <FolderInput size={13} />
+                          </button>
+                          {moveMenuFor === p.id && (
+                            <>
+                              <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setMoveMenuFor(null); }} />
+                              <div className="library-folder-menu" onClick={(e) => e.stopPropagation()} style={{ bottom: '100%', right: 0, top: 'auto', marginBottom: '0.3rem' }}>
+                                {folders.filter((f) => f.id !== p.folderId).map((f) => (
+                                  <button key={f.id} onClick={(e) => handleMoveToFolder(e, p.id, f.id)}>
+                                    <Folder size={12} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
+                                    {f.name}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <button className="library-card-delete" onClick={(e) => handleDelete(e, p)} title="Excluir">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
       </main>
     </div>
   );

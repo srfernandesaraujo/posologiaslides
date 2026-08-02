@@ -743,3 +743,42 @@ export function removeBrandingFromSlideHtml(html) {
   return serializeFragment(template);
 }
 
+// ==========================================================================
+// Gestão de Barra de Rolagem no Slide
+// ==========================================================================
+export function getSlideScrollable(html) {
+  if (!html) return false;
+  const template = parseFragment(html);
+  const rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+  if (!rootEl) return false;
+  return rootEl.getAttribute('data-scrollable') === 'true' || rootEl.style.overflowY === 'auto';
+}
+
+export function setSlideScrollable(html, scrollable) {
+  if (!html) return html;
+  const template = parseFragment(html);
+  let rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+
+  if (!rootEl) {
+    const container = document.createElement('div');
+    container.className = 'slide-root';
+    container.style.cssText = `display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; position:relative; background:#0b1220;`;
+    container.append(...Array.from(template.content.childNodes));
+    template.content.appendChild(container);
+    rootEl = container;
+  }
+
+  if (scrollable) {
+    rootEl.setAttribute('data-scrollable', 'true');
+    rootEl.style.overflowY = 'auto';
+  } else {
+    rootEl.removeAttribute('data-scrollable');
+    if (rootEl.style.overflowY === 'auto') {
+      rootEl.style.overflowY = '';
+    }
+  }
+
+  return serializeFragment(template);
+}
+
+
