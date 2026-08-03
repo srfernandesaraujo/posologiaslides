@@ -4,7 +4,8 @@ import { apiFetch } from '../lib/api';
 import {
   Presentation, Search, Sparkles, Settings, Star, MoreHorizontal,
   Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut, Menu, X,
-  Plus, Check, FolderInput, LayoutGrid, List, FileText, Pencil
+  Plus, Check, FolderInput, LayoutGrid, List, FileText, Pencil,
+  ArrowUpDown, ChevronUp, ChevronDown
 } from 'lucide-react';
 
 // Mesmas cores já usadas em outros pontos do app (quiz, trilha de decisão) —
@@ -88,11 +89,25 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
   const [isRailOpen, setIsRailOpen] = useState(false);
 
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('posologia_library_viewmode') || 'grid');
+  const [sortBy, setSortBy] = useState(() => localStorage.getItem('posologia_library_sortby') || 'date_desc');
   const [renamingPresentation, setRenamingPresentation] = useState(null);
 
   const handleToggleViewMode = (mode) => {
     setViewMode(mode);
     localStorage.setItem('posologia_library_viewmode', mode);
+  };
+
+  const handleSortChange = (newSort) => {
+    setSortBy(newSort);
+    localStorage.setItem('posologia_library_sortby', newSort);
+  };
+
+  const handleHeaderSortClick = (field) => {
+    if (field === 'name') {
+      handleSortChange(sortBy === 'name_asc' ? 'name_desc' : 'name_asc');
+    } else if (field === 'date') {
+      handleSortChange(sortBy === 'date_desc' ? 'date_asc' : 'date_desc');
+    }
   };
 
   const handleRenamePresentationSubmit = async (e) => {
@@ -146,9 +161,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
     if (activeTab === 'favoritos') {
       list = list.filter((p) => p.favorite);
     } else if (activeTab === 'recentes') {
-      list = list.filter((p) => p.lastOpenedAt).sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
-    } else {
-      list = [...list].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      list = list.filter((p) => p.lastOpenedAt);
     }
 
     if (search.trim()) {
@@ -156,8 +169,27 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
       list = list.filter((p) => p.title.toLowerCase().includes(q));
     }
 
-    return list;
-  }, [allPresentations, activeTab, activeFolderId, search]);
+    return [...list].sort((a, b) => {
+      switch (sortBy) {
+        case 'name_asc':
+          return a.title.localeCompare(b.title, 'pt-BR', { sensitivity: 'base' });
+        case 'name_desc':
+          return b.title.localeCompare(a.title, 'pt-BR', { sensitivity: 'base' });
+        case 'date_asc':
+          return (a.updatedAt || 0) - (b.updatedAt || 0);
+        case 'date_desc':
+          return (b.updatedAt || 0) - (a.updatedAt || 0);
+        case 'created_asc':
+          return (a.createdAt || 0) - (b.createdAt || 0);
+        case 'created_desc':
+          return (b.createdAt || 0) - (a.createdAt || 0);
+        case 'recentes':
+          return (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0);
+        default:
+          return (b.updatedAt || 0) - (a.updatedAt || 0);
+      }
+    });
+  }, [allPresentations, activeTab, activeFolderId, search, sortBy]);
 
   const toggleFavorite = async (e, p) => {
     e.stopPropagation();
@@ -403,31 +435,58 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
             ))}
           </div>
 
-          <div className="library-view-switcher" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'rgba(255,255,255,0.04)', padding: '0.25rem', borderRadius: '0.5rem', border: '1px solid var(--border-glass)' }}>
-            <button
-              className={`btn-icon ${viewMode === 'grid' ? 'active' : ''}`}
-              onClick={() => handleToggleViewMode('grid')}
-              title="Visualização em Grade / Ícones"
-              style={{
-                width: '30px', height: '30px', borderRadius: '0.35rem',
-                background: viewMode === 'grid' ? 'var(--accent-primary)' : 'transparent',
-                color: viewMode === 'grid' ? '#000' : 'var(--text-dim)'
-              }}
-            >
-              <LayoutGrid size={15} />
-            </button>
-            <button
-              className={`btn-icon ${viewMode === 'finder' ? 'active' : ''}`}
-              onClick={() => handleToggleViewMode('finder')}
-              title="Visualização em Arquivos (Estilo Finder da Apple)"
-              style={{
-                width: '30px', height: '30px', borderRadius: '0.35rem',
-                background: viewMode === 'finder' ? 'var(--accent-primary)' : 'transparent',
-                color: viewMode === 'finder' ? '#000' : 'var(--text-dim)'
-              }}
-            >
-              <List size={15} />
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.04)', padding: '0.25rem 0.6rem', borderRadius: '0.5rem', border: '1px solid var(--border-glass)' }}>
+              <ArrowUpDown size={14} color="var(--accent-primary)" />
+              <span style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 600 }}>Classificar:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => handleSortChange(e.target.value)}
+                style={{
+                  background: 'transparent',
+                  color: '#e2e8f0',
+                  border: 'none',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  outline: 'none'
+                }}
+              >
+                <option value="name_asc" style={{ background: '#0f172a' }}>Nome (A - Z)</option>
+                <option value="name_desc" style={{ background: '#0f172a' }}>Nome (Z - A)</option>
+                <option value="date_desc" style={{ background: '#0f172a' }}>Mais recentes (Modificação)</option>
+                <option value="date_asc" style={{ background: '#0f172a' }}>Mais antigos (Modificação)</option>
+                <option value="created_desc" style={{ background: '#0f172a' }}>Mais recentes (Inserção)</option>
+                <option value="created_asc" style={{ background: '#0f172a' }}>Mais antigos (Inserção)</option>
+              </select>
+            </div>
+
+            <div className="library-view-switcher" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'rgba(255,255,255,0.04)', padding: '0.25rem', borderRadius: '0.5rem', border: '1px solid var(--border-glass)' }}>
+              <button
+                className={`btn-icon ${viewMode === 'grid' ? 'active' : ''}`}
+                onClick={() => handleToggleViewMode('grid')}
+                title="Visualização em Grade / Ícones"
+                style={{
+                  width: '30px', height: '30px', borderRadius: '0.35rem',
+                  background: viewMode === 'grid' ? 'var(--accent-primary)' : 'transparent',
+                  color: viewMode === 'grid' ? '#000' : 'var(--text-dim)'
+                }}
+              >
+                <LayoutGrid size={15} />
+              </button>
+              <button
+                className={`btn-icon ${viewMode === 'finder' ? 'active' : ''}`}
+                onClick={() => handleToggleViewMode('finder')}
+                title="Visualização em Arquivos (Estilo Finder da Apple)"
+                style={{
+                  width: '30px', height: '30px', borderRadius: '0.35rem',
+                  background: viewMode === 'finder' ? 'var(--accent-primary)' : 'transparent',
+                  color: viewMode === 'finder' ? '#000' : 'var(--text-dim)'
+                }}
+              >
+                <List size={15} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -451,9 +510,29 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
           viewMode === 'finder' ? (
             <div className="library-finder-table">
               <div className="finder-table-header">
-                <div className="finder-col col-name">Nome do Arquivo</div>
+                <div
+                  className="finder-col col-name"
+                  onClick={() => handleHeaderSortClick('name')}
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', userSelect: 'none' }}
+                  title="Ordenar por Nome"
+                >
+                  <span>Nome do Arquivo</span>
+                  {sortBy === 'name_asc' && <ChevronUp size={14} color="var(--accent-primary)" />}
+                  {sortBy === 'name_desc' && <ChevronDown size={14} color="var(--accent-primary)" />}
+                  {sortBy !== 'name_asc' && sortBy !== 'name_desc' && <ArrowUpDown size={12} style={{ opacity: 0.35 }} />}
+                </div>
                 <div className="finder-col col-folder">Disciplina / Pasta</div>
-                <div className="finder-col col-date">Última Modificação</div>
+                <div
+                  className="finder-col col-date"
+                  onClick={() => handleHeaderSortClick('date')}
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', userSelect: 'none' }}
+                  title="Ordenar por Data de Modificação"
+                >
+                  <span>Última Modificação</span>
+                  {sortBy === 'date_asc' && <ChevronUp size={14} color="var(--accent-primary)" />}
+                  {sortBy === 'date_desc' && <ChevronDown size={14} color="var(--accent-primary)" />}
+                  {sortBy !== 'date_asc' && sortBy !== 'date_desc' && <ArrowUpDown size={12} style={{ opacity: 0.35 }} />}
+                </div>
                 <div className="finder-col col-actions" style={{ textAlign: 'right' }}>Ações</div>
               </div>
               <div className="finder-table-body">

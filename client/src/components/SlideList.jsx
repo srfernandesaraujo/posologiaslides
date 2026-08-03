@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Plus, Trash2, X, GripVertical, LayoutTemplate, Copy, Sparkles, Code } from 'lucide-react';
+import { Plus, Trash2, X, GripVertical, LayoutTemplate, Copy, Sparkles, Code, Eye, EyeOff } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
 
 // Só monta a prévia real (iframe sandboxed com fontes/Chart.js, ver
@@ -30,7 +30,7 @@ function LazySlidePreview({ html }) {
   );
 }
 
-export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onAddSlideWithCode, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onReorderSlides, className = '', onClose }) {
+export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onAddSlideWithCode, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onToggleHideSlide, onReorderSlides, className = '', onClose }) {
   const listRef = useRef(null);
   // Índice sendo arrastado e índice "bruto" (antes do ajuste de deslocamento,
   // ver handlePointerUp) sobre o qual o ponteiro está no momento — null
@@ -71,7 +71,7 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
     if (dragIndex === null) return;
     e.currentTarget.releasePointerCapture?.(e.pointerId);
     if (overIndex !== null && overIndex !== dragIndex) {
-      // `overIndex` foi calculado contra a lista ainda intacta ("insira antes
+      // `overIndex` foi calculated contra a lista ainda intacta ("insira antes
       // deste índice"); ao remover o slide arrastado, tudo que vinha depois
       // dele desloca uma posição pra trás — por isso o -1 quando o destino é
       // depois da origem, pra `onReorderSlides` receber a posição final real.
@@ -147,14 +147,35 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
           className={[
             'slide-thumbnail',
             activeIndex === idx ? 'active' : '',
+            slide.hidden ? 'is-hidden-slide' : '',
             dragIndex === idx ? 'dragging' : '',
             dragIndex !== null && dragIndex !== idx && overIndex === idx ? 'drop-before' : '',
             dragIndex !== null && dragIndex !== idx && overIndex === idx + 1 && idx === slides.length - 1 ? 'drop-after' : ''
           ].filter(Boolean).join(' ')}
+          style={slide.hidden ? { opacity: 0.75 } : {}}
           onClick={() => onSelectSlide(idx)}
         >
-          <div className="slide-thumb-preview">
+          <div className="slide-thumb-preview" style={{ position: 'relative' }}>
             <LazySlidePreview html={slide.html} />
+
+            {slide.hidden && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(15, 23, 42, 0.75)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.2rem',
+                color: '#f87171',
+                pointerEvents: 'none',
+                zIndex: 2
+              }}>
+                <EyeOff size={22} />
+                <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Oculto</span>
+              </div>
+            )}
 
             <span className="slide-thumb-num">#{idx + 1}</span>
 
@@ -171,6 +192,31 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
               <GripVertical size={18} />
             </button>
 
+            {onToggleHideSlide && (
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleHideSlide(idx);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: '4px',
+                  left: '4px',
+                  width: '22px',
+                  height: '22px',
+                  opacity: slide.hidden ? 1 : 0.6,
+                  background: slide.hidden ? 'rgba(239, 68, 68, 0.4)' : 'rgba(0, 0, 0, 0.5)',
+                  color: slide.hidden ? '#f87171' : '#fff',
+                  zIndex: 3
+                }}
+                title={slide.hidden ? "Slide oculto — Clicar para exibir na apresentação" : "Ocultar slide na apresentação"}
+              >
+                {slide.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
+            )}
+
             {onDuplicateSlide && (
               <button
                 className="btn-icon"
@@ -184,7 +230,8 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
                   right: slides.length > 1 ? '30px' : '4px',
                   width: '22px',
                   height: '22px',
-                  opacity: 0.6
+                  opacity: 0.6,
+                  zIndex: 3
                 }}
                 title="Duplicar Slide"
               >
@@ -205,7 +252,8 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
                   right: '4px',
                   width: '22px',
                   height: '22px',
-                  opacity: 0.6
+                  opacity: 0.6,
+                  zIndex: 3
                 }}
                 title="Excluir Slide"
               >
@@ -214,8 +262,9 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
             )}
           </div>
 
-          <div className="slide-thumb-caption">
-            {slide.title || `Slide ${idx + 1}`}
+          <div className="slide-thumb-caption" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>{slide.title || `Slide ${idx + 1}`}</span>
+            {slide.hidden && <span style={{ color: '#f87171', fontSize: '0.7rem', fontWeight: 700 }}>(Oculto)</span>}
           </div>
 
           {onInsertSlideAfter && (

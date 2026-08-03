@@ -411,9 +411,20 @@ function buildConclusionRecap() {
   );
 }
 
+function buildAcademicCalendar() {
+  return assemble(
+    `${ROOT_BASE}display:flex;flex-direction:column;gap:1.25rem;padding:3.5rem 4.5rem;justify-content:center;background:${BG.violetCyan};`,
+    [
+      { html: tagChip('Planejamento Acadêmico', 'violet', 0) },
+      { html: widgetHtml('academic-calendar'), source: 'interativos:academic-calendar', config: {} }
+    ]
+  );
+}
+
 export const SLIDE_TEMPLATE_CATALOG = [
   { id: 'title-center', title: 'Título Centralizado', description: 'Capa ou abertura de seção — título grande no meio, com tag e subtítulo.', category: 'Título', iconName: 'Type', layoutTag: 'titulo-central', buildHtml: buildTitleCenter },
   { id: 'title-top-content', title: 'Título no Topo + Lista', description: 'Cabeçalho no alto seguido de uma lista de pontos-chave.', category: 'Título', iconName: 'Heading1', layoutTag: 'titulo-topo', buildHtml: buildTitleTopContent },
+  { id: 'academic-calendar', title: 'Cronograma · Calendário Acadêmico', description: 'Calendário interativo para exibir o cronograma das aulas e avaliações aos alunos.', category: 'Conteúdo', iconName: 'CalendarDays', layoutTag: 'cronograma-calendario', buildHtml: buildAcademicCalendar },
   { id: 'text-image', title: 'Texto + Imagem', description: 'Texto de um lado, área reservada para foto/diagrama do outro.', category: 'Conteúdo', iconName: 'Image', layoutTag: 'texto-imagem', buildHtml: buildTextImage },
   { id: 'text-chart', title: 'Texto + Gráfico', description: 'Texto explicativo ao lado de um gráfico já funcional (Chart.js).', category: 'Dados', iconName: 'BarChart3', layoutTag: 'texto-grafico', buildHtml: buildTextChart },
   { id: 'text-simulator', title: 'Texto + Simulador', description: 'Texto de contexto seguido de um simulador de sliders já funcional.', category: 'Dados', iconName: 'Activity', layoutTag: 'simulador-slider', buildHtml: buildTextSimulator },

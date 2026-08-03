@@ -590,16 +590,39 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     handleChangeHotspotConfig({ x, y });
   };
 
+  const handleToggleHideSlide = (idxToToggle) => {
+    const newSlides = [...presentation.slides];
+    if (!newSlides[idxToToggle]) return;
+    newSlides[idxToToggle] = { ...newSlides[idxToToggle], hidden: !newSlides[idxToToggle].hidden };
+    commit({ ...presentation, slides: newSlides });
+  };
+
   const handleNext = () => {
     if (atClosingSlide) return;
-    if (activeIndex < presentation.slides.length - 1) {
-      emitSlideChanged(activeIndex + 1);
+    if (isFullscreen) {
+      let nextIdx = -1;
+      for (let i = activeIndex + 1; i < presentation.slides.length; i++) {
+        if (!presentation.slides[i].hidden) {
+          nextIdx = i;
+          break;
+        }
+      }
+      if (nextIdx !== -1) {
+        emitSlideChanged(nextIdx);
+      } else {
+        setAtClosingSlide(true);
+        if (socket) {
+          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null });
+        }
+      }
     } else {
-      // Último slide real: avança pro slide de encerramento virtual (nunca
-      // gravado em presentation.slides — ver `currentSlide` acima).
-      setAtClosingSlide(true);
-      if (socket) {
-        socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null });
+      if (activeIndex < presentation.slides.length - 1) {
+        emitSlideChanged(activeIndex + 1);
+      } else {
+        setAtClosingSlide(true);
+        if (socket) {
+          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null });
+        }
       }
     }
   };
@@ -609,8 +632,21 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       setAtClosingSlide(false);
       return;
     }
-    if (activeIndex > 0) {
-      emitSlideChanged(activeIndex - 1);
+    if (isFullscreen) {
+      let prevIdx = -1;
+      for (let i = activeIndex - 1; i >= 0; i--) {
+        if (!presentation.slides[i].hidden) {
+          prevIdx = i;
+          break;
+        }
+      }
+      if (prevIdx !== -1) {
+        emitSlideChanged(prevIdx);
+      }
+    } else {
+      if (activeIndex > 0) {
+        emitSlideChanged(activeIndex - 1);
+      }
     }
   };
 
@@ -1400,6 +1436,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           onAddSlideWithAI={() => handleOpenAISingleSlide(activeIndex + 1)}
           onAddSlideWithCode={() => handleOpenCodeSlide(activeIndex + 1)}
           onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
+          onToggleHideSlide={handleToggleHideSlide}
           onDeleteSlide={(idxToDelete) => {
             if (presentation.slides.length <= 1) return;
             const newSlides = presentation.slides.filter((_, i) => i !== idxToDelete);

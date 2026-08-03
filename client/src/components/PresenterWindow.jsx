@@ -40,7 +40,8 @@ export default function PresenterWindow({
   useScreenWakeLock(true);
 
   const currentSlide = atClosingSlide ? closingSlide : (slides[currentIndex] || { title: 'Slide Atual', html: '' });
-  const nextSlide = atClosingSlide ? null : (slides[currentIndex + 1] || null);
+  const nextNonHiddenIndex = slides.findIndex((s, i) => i > currentIndex && !s.hidden);
+  const nextSlide = atClosingSlide ? null : (nextNonHiddenIndex !== -1 ? slides[nextNonHiddenIndex] : null);
   const activeTransition = atClosingSlide ? TRANSITION_DEFAULTS : resolveTransition(currentSlide?.transition);
 
   // Timer da Apresentação

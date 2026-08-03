@@ -357,6 +357,173 @@ function buildBeforeAfter(config = {}) {
 </script>`;
 }
 
+function buildAcademicCalendar(config = {}) {
+  const uid = uniqueId('calendar-schedule');
+  const title = (config.title || 'Cronograma da Disciplina').trim();
+  const initialYear = Number(config.year) || 2026;
+  const initialMonth = Math.max(1, Math.min(12, Number(config.month) || 8));
+  const rawEvents = (config.events || '05 | Apresentação da Disciplina e Introdução | Aula\n12 | Farmacocinética e Posologia | Aula\n19 | Farmacodinâmica Aplicada | Aula\n26 | Avaliação Parcial (P1) | Prova').trim();
+  const jsonEvents = JSON.stringify(rawEvents);
+
+  return `
+<div id="${uid}" style="margin:1rem 0;padding:1.5rem;border-radius:1rem;background:rgba(15,23,42,0.65);border:1px solid rgba(167,139,250,0.3);box-shadow:0 10px 30px rgba(0,0,0,0.4);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;gap:1rem;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:0.6rem;">
+      <div style="width:2.2rem;height:2.2rem;border-radius:0.5rem;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.3);display:flex;align-items:center;justify-content:center;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c4b5fd" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </div>
+      <div>
+        <div style="font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#c4b5fd;">Cronograma Acadêmico</div>
+        <div style="font-size:1.1rem;font-weight:800;color:#fff;">${title}</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:0.5rem;background:rgba(255,255,255,0.05);padding:0.35rem 0.6rem;border-radius:0.6rem;border:1px solid rgba(255,255,255,0.1);">
+      <select id="${uid}-month-select" style="background:transparent;color:#38bdf8;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;outline:none;padding:0.2rem;">
+        <option value="1" style="background:#0f172a;color:#fff;" ${initialMonth === 1 ? 'selected' : ''}>Janeiro</option>
+        <option value="2" style="background:#0f172a;color:#fff;" ${initialMonth === 2 ? 'selected' : ''}>Fevereiro</option>
+        <option value="3" style="background:#0f172a;color:#fff;" ${initialMonth === 3 ? 'selected' : ''}>Março</option>
+        <option value="4" style="background:#0f172a;color:#fff;" ${initialMonth === 4 ? 'selected' : ''}>Abril</option>
+        <option value="5" style="background:#0f172a;color:#fff;" ${initialMonth === 5 ? 'selected' : ''}>Maio</option>
+        <option value="6" style="background:#0f172a;color:#fff;" ${initialMonth === 6 ? 'selected' : ''}>Junho</option>
+        <option value="7" style="background:#0f172a;color:#fff;" ${initialMonth === 7 ? 'selected' : ''}>Julho</option>
+        <option value="8" style="background:#0f172a;color:#fff;" ${initialMonth === 8 ? 'selected' : ''}>Agosto</option>
+        <option value="9" style="background:#0f172a;color:#fff;" ${initialMonth === 9 ? 'selected' : ''}>Setembro</option>
+        <option value="10" style="background:#0f172a;color:#fff;" ${initialMonth === 10 ? 'selected' : ''}>Outubro</option>
+        <option value="11" style="background:#0f172a;color:#fff;" ${initialMonth === 11 ? 'selected' : ''}>Novembro</option>
+        <option value="12" style="background:#0f172a;color:#fff;" ${initialMonth === 12 ? 'selected' : ''}>Dezembro</option>
+      </select>
+      <select id="${uid}-year-select" style="background:transparent;color:#c4b5fd;border:none;font-weight:700;font-size:0.9rem;cursor:pointer;outline:none;padding:0.2rem;">
+        ${[2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => `<option value="${y}" style="background:#0f172a;color:#fff;" ${y === initialYear ? 'selected' : ''}>${y}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:1.5rem;align-items:start;">
+    <div style="background:rgba(0,0,0,0.3);padding:1rem;border-radius:0.75rem;border:1px solid rgba(255,255,255,0.06);">
+      <div style="display:grid;grid-template-columns:repeat(7, 1fr);gap:0.3rem;text-align:center;font-size:0.72rem;font-weight:800;color:#94a3b8;margin-bottom:0.6rem;">
+        <div>DOM</div><div>SEG</div><div>TER</div><div>QUA</div><div>QUI</div><div>SEX</div><div>SÁB</div>
+      </div>
+      <div id="${uid}-grid" style="display:grid;grid-template-columns:repeat(7, 1fr);gap:0.35rem;">
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.6rem;">
+      <div style="font-size:0.75rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8;margin-bottom:0.2rem;">
+        Eventos e Atividades Agendadas
+      </div>
+      <div id="${uid}-events-list" style="display:flex;flex-direction:column;gap:0.5rem;">
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var monthSelect = document.getElementById('${uid}-month-select');
+  var yearSelect = document.getElementById('${uid}-year-select');
+  var grid = document.getElementById('${uid}-grid');
+  var eventsList = document.getElementById('${uid}-events-list');
+
+  var rawEventsText = ${jsonEvents};
+  function parseEvents() {
+    var map = {};
+    var list = [];
+    var lines = rawEventsText.split('\\n');
+    lines.forEach(function (line) {
+      var parts = line.split('|').map(function (s) { return s.trim(); });
+      if (parts.length >= 2) {
+        var dayNum = parseInt(parts[0], 10);
+        var title = parts[1];
+        var type = parts[2] || 'Aula';
+        if (!isNaN(dayNum)) {
+          map[dayNum] = { title: title, type: type };
+          list.push({ day: dayNum, title: title, type: type });
+        }
+      }
+    });
+    return { map: map, list: list };
+  }
+
+  var eventsData = parseEvents();
+
+  function renderCalendar() {
+    if (!grid || !eventsList) return;
+    var month = parseInt(monthSelect.value, 10) - 1;
+    var year = parseInt(yearSelect.value, 10);
+
+    var firstDay = new Date(year, month, 1).getDay();
+    var daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    grid.innerHTML = '';
+    for (var i = 0; i < firstDay; i++) {
+      var emptyCell = document.createElement('div');
+      emptyCell.style.height = '2.2rem';
+      grid.appendChild(emptyCell);
+    }
+
+    for (var d = 1; d <= daysInMonth; d++) {
+      var cell = document.createElement('div');
+      var event = eventsData.map[d];
+      var isWeekend = (firstDay + d - 1) % 7 === 0 || (firstDay + d - 1) % 7 === 6;
+
+      cell.style.height = '2.2rem';
+      cell.style.display = 'flex';
+      cell.style.flexDirection = 'column';
+      cell.style.alignItems = 'center';
+      cell.style.justifyContent = 'center';
+      cell.style.borderRadius = '0.4rem';
+      cell.style.fontSize = '0.82rem';
+      cell.style.fontWeight = '700';
+      cell.style.position = 'relative';
+      cell.style.background = event ? 'rgba(34,211,238,0.2)' : (isWeekend ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)');
+      cell.style.border = event ? '1px solid rgba(34,211,238,0.6)' : '1px solid rgba(255,255,255,0.06)';
+      cell.style.color = event ? '#67e8f9' : (isWeekend ? '#64748b' : '#e2e8f0');
+
+      cell.textContent = d;
+
+      if (event) {
+        var dot = document.createElement('div');
+        dot.style.width = '5px';
+        dot.style.height = '5px';
+        dot.style.borderRadius = '50%';
+        dot.style.background = event.type === 'Prova' ? '#f87171' : (event.type === 'Entrega' ? '#fbbf24' : '#22d3ee');
+        dot.style.marginTop = '2px';
+        cell.appendChild(dot);
+      }
+
+      grid.appendChild(cell);
+    }
+
+    eventsList.innerHTML = '';
+    if (eventsData.list.length === 0) {
+      eventsList.innerHTML = '<div style="font-size:0.8rem;color:#64748b;font-style:italic;">Nenhum evento cadastrado para este mês.</div>';
+    } else {
+      eventsData.list.forEach(function (ev) {
+        var item = document.createElement('div');
+        item.style.display = 'flex';
+        item.style.alignItems = 'center';
+        item.style.gap = '0.75rem';
+        item.style.padding = '0.6rem 0.8rem';
+        item.style.borderRadius = '0.5rem';
+        item.style.background = 'rgba(255,255,255,0.03)';
+        item.style.border = '1px solid rgba(255,255,255,0.08)';
+
+        var badgeBg = ev.type === 'Prova' ? 'rgba(239,68,68,0.15)' : (ev.type === 'Entrega' ? 'rgba(251,191,36,0.15)' : 'rgba(34,211,238,0.15)');
+        var badgeFg = ev.type === 'Prova' ? '#f87171' : (ev.type === 'Entrega' ? '#fcd34d' : '#67e8f9');
+
+        item.innerHTML = '<div style="font-weight:800;font-size:0.9rem;min-width:1.8rem;text-align:center;background:' + badgeBg + ';color:' + badgeFg + ';padding:0.2rem 0.4rem;border-radius:0.3rem;">' + ev.day + '</div>' +
+          '<div style="flex:1;min-width:0;"><div style="font-size:0.85rem;font-weight:700;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + ev.title + '</div></div>' +
+          '<div style="font-size:0.7rem;font-weight:800;text-transform:uppercase;padding:0.2rem 0.5rem;border-radius:999px;background:' + badgeBg + ';color:' + badgeFg + ';">' + ev.type + '</div>';
+
+        eventsList.appendChild(item);
+      });
+    }
+  }
+
+  monthSelect.addEventListener('change', renderCalendar);
+  yearSelect.addEventListener('change', renderCalendar);
+  renderCalendar();
+})();
+</script>`;
+}
+
 export const WIDGET_CATALOG = [
   {
     id: 'dose-simulator',
@@ -429,5 +596,23 @@ export const WIDGET_CATALOG = [
       { key: 'afterLabel', label: 'Rótulo "Depois"', type: 'text', default: 'Depois' }
     ],
     buildHtml: buildBeforeAfter
+  },
+  {
+    id: 'academic-calendar',
+    title: 'Cronograma · Calendário Acadêmico',
+    description: 'Calendário de aulas e compromissos com seletor de mês e ano para apresentar aos alunos.',
+    iconName: 'CalendarDays',
+    configFields: [
+      { key: 'title', label: 'Título do Cronograma', type: 'text', default: 'Cronograma da Disciplina' },
+      { key: 'year', label: 'Ano inicial', type: 'number', default: 2026, min: 2020, max: 2035 },
+      { key: 'month', label: 'Mês inicial (1 a 12)', type: 'number', default: 8, min: 1, max: 12 },
+      {
+        key: 'events',
+        label: 'Compromissos — "Dia | Título | Tipo (Aula/Prova/Entrega)" por linha',
+        type: 'textarea',
+        default: '05 | Apresentação da Disciplina e Introdução | Aula\n12 | Farmacocinética e Posologia | Aula\n19 | Farmacodinâmica Aplicada | Aula\n26 | Avaliação Parcial (P1) | Prova'
+      }
+    ],
+    buildHtml: buildAcademicCalendar
   }
 ];

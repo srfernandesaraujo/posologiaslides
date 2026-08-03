@@ -76,7 +76,7 @@ export default function PublicPresentationView({ shareId }) {
     );
   }
 
-  const slides = presentation.slides || [];
+  const slides = (presentation.slides || []).filter((s) => !s.hidden);
   const currentSlide = slides[activeIndex] || { html: '<div style="color:#9ca3af;padding:2rem;">Sem slides.</div>' };
   const currentTransition = resolveTransition(currentSlide.transition);
 
