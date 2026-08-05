@@ -4,8 +4,8 @@
 // na caixa real disponível — ver useCanvasFit.js. Isso garante que o mesmo
 // slide fique visualmente idêntico nos dois modos, e que widgets com altura
 // mínima (ex. gráficos Chart.js) nunca sejam espremidos por uma tela pequena.
-export const SLIDE_NATIVE_WIDTH = 1280;
-export const SLIDE_NATIVE_HEIGHT = 720;
+export const SLIDE_NATIVE_WIDTH = 1920;
+export const SLIDE_NATIVE_HEIGHT = 1080;
 
 // Faixa inferior (em px reais, não escalados) sempre reservada e nunca
 // ocupada pelo conteúdo do slide, para a barra de ferramentas flutuante

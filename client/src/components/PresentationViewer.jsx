@@ -24,7 +24,7 @@ import { ANIMATION_PRESETS } from '../lib/animationCatalog';
  * (ex. "assistir no YouTube").
  *
  * reloadKey: o palco (edição e apresentação) renderiza o slide sempre no mesmo
- * canvas nativo fixo (1280x720, ver lib/canvasConstants.js + lib/useCanvasFit.js)
+ * canvas nativo fixo (1920x1080, ver lib/canvasConstants.js + lib/useCanvasFit.js)
  * e só ajusta a escala visual via CSS transform — como transform numa ancestral
  * nunca muda o tamanho de layout resolvido de um iframe (só como ele é pintado),
  * o documento interno do iframe sempre mede o mesmo tamanho de container em
@@ -1016,10 +1016,10 @@ export default function PresentationViewer({ htmlContent, editable = false, spot
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Geist:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Merriweather:wght@300;400;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
   /* O elemento html fica com overflow:hidden (evita bounce/scrollbar
      duplicada); quem rola é o body — conteúdo gerado pela IA às vezes fica
-     mais alto que os 720px nativos do slide (ex.: diagrama interativo +
+     mais alto que os 1080px nativos do slide (ex.: diagrama interativo +
      painel de detalhes que só aparece ao clicar), e antes esse excesso era
      cortado em silêncio, sem nenhuma forma de ver o resto. overflow-x
-     continua hidden (o slide é sempre 1280px de largura, não deveria haver
+     continua hidden (o slide é sempre 1920px de largura, não deveria haver
      conteúdo largo demais por design). Isto NÃO afeta o overflow:hidden que
      elementos internos já usam de propósito pra recorte/máscara (ex.: crop
      de imagem em blockCatalog.js, slider antes/depois em widgetCatalog.js)

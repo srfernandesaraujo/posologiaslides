@@ -222,7 +222,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [attachLinkUrl, setAttachLinkUrl] = useState('');
   const [attachLoading, setAttachLoading] = useState(false);
 
-  // Canvas nativo fixo (1280x720) escalado via CSS transform pra caber na
+  // Canvas nativo fixo (1920x1080) escalado via CSS transform pra caber na
   // caixa real do palco — mesma matemática de layout em edição e apresentação
   // (só o multiplicador `scale` muda entre os dois modos). `bottomReserve`
   // garante uma faixa inferior sempre livre pra PresentationControls nunca
