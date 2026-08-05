@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { Code, X, Copy, Check, Sparkles, Plus, FileCode, FileJson, FileText, RefreshCw, AlertCircle } from 'lucide-react';
+import React, { useState, useMemo, useRef } from 'react';
+import { Code, X, Copy, Check, Sparkles, Plus, FileCode, FileJson, FileText, RefreshCw, AlertCircle, FolderUp, Loader2 } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
+import { bundleLocalFiles } from '../lib/fileBundler';
 
 // Prompt recomendado para copiar e colar em IAs externas (ChatGPT, Claude, Gemini, DeepSeek, etc.)
 const AI_PROMPT_TEMPLATE = `Atue como um designer de slides profissional. Gere o código HTML para 1 slide de apresentação sobre o seguinte tema:
@@ -56,6 +57,9 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
   const [customTitle, setCustomTitle] = useState('');
   const [activeTab, setActiveTab] = useState('auto'); // 'auto' | 'html' | 'json' | 'markdown'
   const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [bundling, setBundling] = useState(false);
+  const [bundleMessage, setBundleMessage] = useState(null); // { type: 'success' | 'error', text }
+  const bundleInputRef = useRef(null);
 
   // Converte o código bruto inserido para HTML + Título processado
   const processedResult = useMemo(() => {
@@ -206,6 +210,7 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
     setCustomTitle('');
     setActiveTab('auto');
     setCopiedPrompt(false);
+    setBundleMessage(null);
   };
 
   const handleClose = () => {
@@ -217,6 +222,37 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
     navigator.clipboard.writeText(AI_PROMPT_TEMPLATE);
     setCopiedPrompt(true);
     setTimeout(() => setCopiedPrompt(false), 2500);
+  };
+
+  // Página exportada de outra ferramenta (ex.: Antigravity) com HTML + CSS +
+  // JS + imagens em arquivos SEPARADOS — colar só o .html deixa o slide sem
+  // estilo/interatividade (os outros arquivos não existem aqui dentro). Este
+  // botão deixa selecionar TODOS os arquivos de uma vez e o bundleLocalFiles
+  // (ver lib/fileBundler.js) junta tudo num fragmento só, com CSS/JS inline e
+  // imagens em base64 — o mesmo trabalho que antes precisava ser feito à mão.
+  const handleBundleFilesSelected = async (e) => {
+    const fileList = e.target.files;
+    if (!fileList || !fileList.length) return;
+    setBundling(true);
+    setBundleMessage(null);
+    try {
+      const result = await bundleLocalFiles(fileList);
+      if (result.error) {
+        setBundleMessage({ type: 'error', text: result.error });
+      } else {
+        setCode(result.html);
+        setActiveTab('html');
+        setBundleMessage({
+          type: 'success',
+          text: `"${result.htmlFileName}" combinado com ${result.usedFiles} arquivo(s) local(is) num bloco só — confira a prévia e clique em "Inserir Slide".`
+        });
+      }
+    } catch (err) {
+      setBundleMessage({ type: 'error', text: 'Erro ao processar os arquivos: ' + err.message });
+    } finally {
+      setBundling(false);
+      e.target.value = ''; // permite selecionar os mesmos arquivos de novo depois, se precisar
+    }
   };
 
   const handleInsert = () => {
@@ -279,16 +315,53 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
             </button>
           </div>
 
-          <button
-            className="btn-icon"
-            style={{ width: 'auto', padding: '0.35rem 0.75rem', fontSize: '0.78rem', gap: '0.4rem', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.25)' }}
-            onClick={handleCopyPrompt}
-            title="Copiar instrução pronta para colar no ChatGPT/Claude e pedir a geração do slide"
-          >
-            {copiedPrompt ? <Check size={14} color="#34d399" /> : <Sparkles size={14} />}
-            {copiedPrompt ? 'Prompt Copiado!' : 'Copiar Prompt para IAs'}
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <input
+              ref={bundleInputRef}
+              type="file"
+              multiple
+              accept=".html,.htm,.css,.js,.mjs,image/*"
+              onChange={handleBundleFilesSelected}
+              style={{ display: 'none' }}
+            />
+            <button
+              className="btn-icon"
+              style={{ width: 'auto', padding: '0.35rem 0.75rem', fontSize: '0.78rem', gap: '0.4rem', background: 'rgba(167, 139, 250, 0.12)', color: '#a78bfa', border: '1px solid rgba(167, 139, 250, 0.25)' }}
+              onClick={() => bundleInputRef.current?.click()}
+              disabled={bundling}
+              title="Selecione o .html principal junto com seus .css/.js/imagens locais — tudo vira um bloco só, autocontido"
+            >
+              {bundling ? <Loader2 size={14} className="animate-spin" /> : <FolderUp size={14} />}
+              {bundling ? 'Juntando arquivos...' : 'Importar HTML+CSS+JS+Imagens'}
+            </button>
+            <button
+              className="btn-icon"
+              style={{ width: 'auto', padding: '0.35rem 0.75rem', fontSize: '0.78rem', gap: '0.4rem', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.25)' }}
+              onClick={handleCopyPrompt}
+              title="Copiar instrução pronta para colar no ChatGPT/Claude e pedir a geração do slide"
+            >
+              {copiedPrompt ? <Check size={14} color="#34d399" /> : <Sparkles size={14} />}
+              {copiedPrompt ? 'Prompt Copiado!' : 'Copiar Prompt para IAs'}
+            </button>
+          </div>
         </div>
+
+        {bundleMessage && (
+          <div
+            style={{
+              fontSize: '0.78rem',
+              color: bundleMessage.type === 'error' ? '#f87171' : '#6ee7b7',
+              background: bundleMessage.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+              border: `1px solid ${bundleMessage.type === 'error' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}`,
+              padding: '0.5rem 0.75rem',
+              borderRadius: '0.4rem',
+              marginBottom: '0.75rem',
+              flexShrink: 0
+            }}
+          >
+            {bundleMessage.text}
+          </div>
+        )}
 
         {/* Título opcional */}
         <div style={{ marginBottom: '0.75rem', flexShrink: 0 }}>
