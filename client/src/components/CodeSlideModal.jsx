@@ -74,9 +74,23 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
       // Detecção de código React / JSX (ex.: export default function App, import React, className=, etc.)
       const isReactJsx = trimmed.includes('import React') || trimmed.includes('export default function') || (trimmed.includes('className=') && trimmed.includes('return'));
 
+      // Detecção de referência a arquivo local externo (ex.: <link href="styles.css">,
+      // <script src="app.js">, <image href="foto.jpg">) — comum em páginas exportadas de
+      // ferramentas como o Antigravity, que geram HTML + CSS + JS em arquivos separados.
+      // Aqui só entra o HTML colado; sem o conteúdo desses arquivos embutido diretamente
+      // (CSS em <style>, JS em <script>, imagem em base64), o slide fica sem estilo e sem
+      // interatividade — o mesmo HTML "cru" que dispara este aviso.
+      const externalAssetPattern = /\b(?:href|src)\s*=\s*["'](?!https?:\/\/|\/\/|data:|#)[^"']+\.(?:css|js|mjs|jpe?g|png|gif|webp|svg)["']/i;
+      const hasExternalLocalAssets = externalAssetPattern.test(trimmed);
+
+      const warnings = [];
       if (isReactJsx) {
-        warning = 'Código React (JSX) detectado. O criador de slides necessita de HTML/CSS/JS nativo. Variáveis como {currentCase.title} não funcionam sem compilação.';
+        warnings.push('Código React (JSX) detectado. O criador de slides necessita de HTML/CSS/JS nativo. Variáveis como {currentCase.title} não funcionam sem compilação.');
       }
+      if (hasExternalLocalAssets) {
+        warnings.push('Este HTML referencia um arquivo local externo (ex.: styles.css, app.js, uma imagem) que não será carregado aqui. Cole o CONTEÚDO desses arquivos direto no código: CSS dentro de uma tag <style>, JS dentro de uma tag <script>, e imagens como base64 (data:image/...;base64,...).');
+      }
+      if (warnings.length) warning = warnings.join(' ');
 
       // 1. Tentar como JSON se começar com '{' ou o tab for JSON
       if ((activeTab === 'json' || activeTab === 'auto') && trimmed.startsWith('{')) {
