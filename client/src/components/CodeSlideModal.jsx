@@ -8,14 +8,14 @@ const AI_PROMPT_TEMPLATE = `Atue como um designer de slides profissional. Gere o
 [INSIRA SEU TEMA AQUI]
 
 REGRAS DE FORMATAÇÃO DO CÓDIGO HTML:
-1. O elemento raiz DEVE ser: <div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">...</div>
+1. O elemento raiz DEVE ser: <div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:flex-start; height:100%; padding:2.5rem; color:#f3f4f6; text-align:left; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">...</div>
 2. Use gradientes modernos, cores vibrantes (ex.: #22d3ee, #a78bfa, #34d399) e boas margens.
 3. Se desejar usar cards em grade, use: <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:1.2rem; width:100%; max-width:900px; margin-top:1.5rem;">
 4. Forneça APENAS o código HTML dentro do container .slide-root (sem markdown \`\`\`html, sem <html> ou <body>).`;
 
 // Modelos de exemplo pré-prontos
 const EXAMPLES = {
-  html: `<div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">
+  html: `<div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:flex-start; height:100%; padding:2.5rem; color:#f3f4f6; text-align:left; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">
   <span style="font-size:0.85rem; font-weight:700; text-transform:uppercase; tracking:0.1em; color:#67e8f9; background:rgba(34,211,238,0.1); padding:0.35rem 0.8rem; border-radius:1rem; margin-bottom:1rem;">
     Módulo Especial
   </span>
@@ -155,7 +155,7 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
         });
         if (inList) mdHtml += '</ul>';
 
-        finalHtml = `<div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">${mdHtml}</div>`;
+        finalHtml = `<div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:flex-start; height:100%; padding:2.5rem; color:#f3f4f6; text-align:left; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">${mdHtml}</div>`;
       }
 
       // 3. Fallback ou processamento padrão HTML
@@ -181,7 +181,7 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
         // rolando até o fim pra cima.
         const hasSlideRootClass = /class\s*=\s*["'][^"']*\bslide-root\b[^"']*["']/.test(finalHtml);
         if (!hasSlideRootClass) {
-          finalHtml = `<div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">${finalHtml}</div>`;
+          finalHtml = `<div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:flex-start; height:100%; padding:2.5rem; color:#f3f4f6; text-align:left; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">${finalHtml}</div>`;
         }
 
         // Tentar extrair título das tags h1 ou h2 do HTML caso não tenha sido preenchido

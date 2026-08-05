@@ -202,7 +202,7 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
                 }}
                 style={{
                   position: 'absolute',
-                  top: '4px',
+                  bottom: '4px',
                   left: '4px',
                   width: '22px',
                   height: '22px',
