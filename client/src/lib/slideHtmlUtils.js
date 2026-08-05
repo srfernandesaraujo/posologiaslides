@@ -781,4 +781,60 @@ export function setSlideScrollable(html, scrollable) {
   return serializeFragment(template);
 }
 
+// ==========================================================================
+// Reescala de slide feito pro tamanho ANTIGO do canvas (ver mudança de
+// SLIDE_NATIVE_WIDTH/HEIGHT em lib/canvasConstants.js, 1280x720 -> 1920x1080)
+// ==========================================================================
+// Embrulha ".slide-root" (conteúdo interno intocado) numa caixa do tamanho
+// ANTIGO e aplica um CSS transform:scale proporcional ao aumento — em vez de
+// reescrever cada font-size/padding/gap um por um (frágil: precisaria
+// entender toda unidade usada), a caixa antiga escalada PREENCHE o canvas
+// novo do jeito que o slide "deveria" ter sido desenhado desde o início,
+// preservando todas as proporções internas exatamente como estavam.
+// `.slide-root` continua com `height:100%`, que agora resolve contra a altura
+// da caixa antiga (o novo pai imediato), não mais contra o canvas inteiro —
+// por isso não precisa reescrever esse valor também. Idempotente: chamar de
+// novo com o slide já escalado não aninha um segundo wrapper (ver
+// isSlideScaledToCanvas).
+export function scaleSlideToCanvas(html, fromWidth, fromHeight, toWidth, toHeight) {
+  if (!html) return html;
+  const template = parseFragment(html);
+  // O atributo de marcação vai no WRAPPER (criado abaixo), não em ".slide-root"
+  // — checar a presença dele em QUALQUER elemento do fragmento (não só no
+  // próprio rootEl) evita aninhar um segundo wrapper se esta função for
+  // chamada de novo num slide já escalado.
+  if (template.content.querySelector('[data-native-scaled="true"]')) return html;
+  const rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+  if (!rootEl) return html;
+
+  const scaleX = toWidth / fromWidth;
+  const scaleY = toHeight / fromHeight;
+
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('data-native-scaled', 'true');
+  wrapper.style.cssText = `width:${fromWidth}px; height:${fromHeight}px; transform: scale(${scaleX}, ${scaleY}); transform-origin: top left;`;
+
+  rootEl.replaceWith(wrapper);
+  wrapper.appendChild(rootEl);
+
+  return serializeFragment(template);
+}
+
+// Desfaz scaleSlideToCanvas: devolve ".slide-root" pro lugar de antes (fora
+// do wrapper de escala), sem alterar nada do conteúdo interno.
+export function unscaleSlideFromCanvas(html) {
+  if (!html) return html;
+  const template = parseFragment(html);
+  const wrapper = template.content.querySelector('[data-native-scaled="true"]');
+  if (!wrapper || !wrapper.firstElementChild) return html;
+  wrapper.replaceWith(wrapper.firstElementChild);
+  return serializeFragment(template);
+}
+
+export function isSlideScaledToCanvas(html) {
+  if (!html) return false;
+  const template = parseFragment(html);
+  return !!template.content.querySelector('[data-native-scaled="true"]');
+}
+
 

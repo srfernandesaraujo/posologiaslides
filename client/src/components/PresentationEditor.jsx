@@ -27,7 +27,8 @@ import {
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt,
   hasTableAt, getTableRowsAt, setTableRowsAt,
   getSlideBackground, setSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml,
-  getSlideScrollable, setSlideScrollable
+  getSlideScrollable, setSlideScrollable,
+  scaleSlideToCanvas, unscaleSlideFromCanvas, isSlideScaledToCanvas
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
@@ -41,8 +42,15 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2
 } from 'lucide-react';
+
+// Tamanho do canvas ANTES da migração pra 1920x1080 (ver lib/canvasConstants.js)
+// — slides antigos (a maioria da biblioteca do usuário até 2026-08-05) foram
+// desenhados assumindo esta resolução; usado só por handleToggleNativeScale
+// pra calcular o fator de escala, não é mais o tamanho ativo do canvas.
+const LEGACY_SLIDE_WIDTH = 1280;
+const LEGACY_SLIDE_HEIGHT = 720;
 
 // O DOM normaliza valores de estilo ao ler de volta (cor hex vira "rgb(...)",
 // aspas de font-family podem mudar) — estas duas convertem pra uma forma
@@ -305,6 +313,25 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     if (atClosingSlide || !currentSlide) return;
     const nextScrollable = !isCurrentSlideScrollable;
     const nextHtml = setSlideScrollable(currentSlide.html, nextScrollable);
+    const updatedSlides = presentation.slides.map((s, idx) =>
+      idx === activeIndex ? { ...s, html: nextHtml } : s
+    );
+    commit({ ...presentation, slides: updatedSlides });
+  };
+
+  const isCurrentSlideNativeScaled = currentSlide ? isSlideScaledToCanvas(currentSlide.html) : false;
+
+  // Slide feito pro tamanho antigo do canvas (1280x720, ver LEGACY_SLIDE_*
+  // acima) ficando pequeno/desconfigurado dentro do canvas atual, maior (ver
+  // SLIDE_NATIVE_WIDTH/HEIGHT) — em vez de reescrever fonte/espaçamento um por
+  // um, embrulha o conteúdo intocado numa caixa do tamanho antigo escalada
+  // pra caber no tamanho atual (ver scaleSlideToCanvas). Clicar de novo com o
+  // slide já ajustado desfaz (volta pro tamanho original, sem escala).
+  const handleToggleNativeScale = () => {
+    if (atClosingSlide || !currentSlide) return;
+    const nextHtml = isCurrentSlideNativeScaled
+      ? unscaleSlideFromCanvas(currentSlide.html)
+      : scaleSlideToCanvas(currentSlide.html, LEGACY_SLIDE_WIDTH, LEGACY_SLIDE_HEIGHT, SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT);
     const updatedSlides = presentation.slides.map((s, idx) =>
       idx === activeIndex ? { ...s, html: nextHtml } : s
     );
@@ -1647,6 +1674,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 style={isCurrentSlideScrollable ? { background: 'rgba(56, 189, 248, 0.18)', color: '#38bdf8' } : undefined}
               >
                 <ScrollText size={18} />
+              </button>
+              <button
+                className={`btn-icon ${isCurrentSlideNativeScaled ? 'active' : ''}`}
+                onClick={handleToggleNativeScale}
+                disabled={atClosingSlide}
+                title={isCurrentSlideNativeScaled ? "Desfazer ajuste de tamanho (voltar ao original)" : "Ajustar conteúdo pro tamanho atual do slide (corrige texto/elementos pequenos após aumento do canvas)"}
+                style={isCurrentSlideNativeScaled ? { background: 'rgba(167, 139, 250, 0.18)', color: '#a78bfa' } : undefined}
+              >
+                <Maximize2 size={18} />
               </button>
               <button
                 className={`btn-icon ${showBranchPanel ? 'active' : ''}`}
