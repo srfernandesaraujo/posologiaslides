@@ -165,8 +165,18 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
           finalHtml = finalHtml.replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
         }
 
-        // Se o HTML não incluir <div class="slide-root", embrulha automaticamente
-        if (!finalHtml.includes('class="slide-root"') && !finalHtml.includes("class='slide-root'")) {
+        // Se o HTML não incluir um elemento com a classe "slide-root", embrulha
+        // automaticamente. Casa "slide-root" como QUALQUER uma das classes do
+        // atributo (ex.: class="slide-root app-container dark-theme"), não só
+        // como valor exato — um HTML colado que já declara slide-root junto de
+        // outras classes próprias (comum em páginas com CSS/JS embutidos, ver
+        // fluxo de import do Antigravity) não deve ser embrulhado de novo: a
+        // div extra centraliza o conteúdo (justify-content/align-items:center)
+        // dentro dos 720px do slide, e conteúdo bem mais alto que isso fica com
+        // o topo empurrado pra fora da área rolável — parece "sumido" mesmo
+        // rolando até o fim pra cima.
+        const hasSlideRootClass = /class\s*=\s*["'][^"']*\bslide-root\b[^"']*["']/.test(finalHtml);
+        if (!hasSlideRootClass) {
           finalHtml = `<div class="slide-root" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; background:#0b1220; font-family:'Plus Jakarta Sans', sans-serif;">${finalHtml}</div>`;
         }
 
