@@ -16,10 +16,14 @@ function fileExt(name) {
 }
 
 // Nome "puro" do arquivo (sem pasta) — o HTML original referencia esses
-// arquivos por caminho relativo (ex.: "assets/app.js", "./styles.css"), mas o
-// que importa pra casar com o arquivo selecionado no <input> é só o nome
-// final, não o caminho (o navegador não expõe a estrutura de pastas de uma
-// seleção multi-arquivo comum, só de um <input webkitdirectory>).
+// arquivos por caminho relativo (ex.: "images/foo.png", "./styles.css"), mas
+// o que importa pra casar com o arquivo selecionado é só o nome final, não o
+// caminho inteiro. Isso vale tanto pra uma seleção multi-arquivo comum
+// (sem estrutura de pastas) quanto pra uma pasta inteira selecionada via
+// <input webkitdirectory> (ver bundleFolderInputRef em CodeSlideModal.jsx),
+// que expõe file.webkitRelativePath com as subpastas (ex.: "images/foo.png")
+// — descartamos essas subpastas de propósito, senão "images/foo.png" no
+// markup não casaria com o arquivo cujo relativePath é "meuprojeto/images/foo.png".
 function baseName(pathOrName) {
   return pathOrName.split(/[\\/]/).pop();
 }

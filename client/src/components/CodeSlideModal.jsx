@@ -60,6 +60,7 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
   const [bundling, setBundling] = useState(false);
   const [bundleMessage, setBundleMessage] = useState(null); // { type: 'success' | 'error', text }
   const bundleInputRef = useRef(null);
+  const bundleFolderInputRef = useRef(null);
 
   // Converte o código bruto inserido para HTML + Título processado
   const processedResult = useMemo(() => {
@@ -230,6 +231,10 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
   // botão deixa selecionar TODOS os arquivos de uma vez e o bundleLocalFiles
   // (ver lib/fileBundler.js) junta tudo num fragmento só, com CSS/JS inline e
   // imagens em base64 — o mesmo trabalho que antes precisava ser feito à mão.
+  // Usado tanto pelo <input> de arquivos soltos quanto pelo <input
+  // webkitdirectory> de pasta inteira (bundleFolderInputRef) — em ambos os
+  // casos o resultado é um FileList comum, então o mesmo handler serve pros
+  // dois (bundleLocalFiles já lida com file.webkitRelativePath quando presente).
   const handleBundleFilesSelected = async (e) => {
     const fileList = e.target.files;
     if (!fileList || !fileList.length) return;
@@ -324,6 +329,20 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
               onChange={handleBundleFilesSelected}
               style={{ display: 'none' }}
             />
+            {/* Seleção de arquivos soltos não permite escolher uma pasta (ex.:
+                "images/") junto dos arquivos no mesmo diálogo — por isso este
+                segundo input usa webkitdirectory: escolhendo a pasta-mãe do
+                projeto, TODOS os arquivos são incluídos recursivamente
+                (inclusive os que estão dentro de subpastas de imagens). */}
+            <input
+              ref={bundleFolderInputRef}
+              type="file"
+              webkitdirectory=""
+              directory=""
+              multiple
+              onChange={handleBundleFilesSelected}
+              style={{ display: 'none' }}
+            />
             <button
               className="btn-icon"
               style={{ width: 'auto', padding: '0.35rem 0.75rem', fontSize: '0.78rem', gap: '0.4rem', background: 'rgba(167, 139, 250, 0.12)', color: '#a78bfa', border: '1px solid rgba(167, 139, 250, 0.25)' }}
@@ -332,7 +351,17 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
               title="Selecione o .html principal junto com seus .css/.js/imagens locais — tudo vira um bloco só, autocontido"
             >
               {bundling ? <Loader2 size={14} className="animate-spin" /> : <FolderUp size={14} />}
-              {bundling ? 'Juntando arquivos...' : 'Importar HTML+CSS+JS+Imagens'}
+              {bundling ? 'Juntando arquivos...' : 'Importar Arquivos'}
+            </button>
+            <button
+              className="btn-icon"
+              style={{ width: 'auto', padding: '0.35rem 0.75rem', fontSize: '0.78rem', gap: '0.4rem', background: 'rgba(52, 211, 153, 0.12)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.25)' }}
+              onClick={() => bundleFolderInputRef.current?.click()}
+              disabled={bundling}
+              title="Selecione a pasta inteira do projeto (ex.: com uma subpasta 'images/') — todos os arquivos dentro, incluindo os de subpastas, são incluídos automaticamente"
+            >
+              {bundling ? <Loader2 size={14} className="animate-spin" /> : <FolderUp size={14} />}
+              {bundling ? 'Juntando arquivos...' : 'Importar Pasta Inteira'}
             </button>
             <button
               className="btn-icon"
