@@ -324,7 +324,13 @@ button.mobile-toggle-btn {
   padding: 1.5rem;
   background: radial-gradient(circle at center, #111827 0%, #080c14 100%);
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  /* auto (não mais hidden): com o painel de anotações do apresentador
+     (ver PresentationEditor.jsx, notesPanelOpen) aberto, o total de altura
+     do palco pode passar do espaço disponível em telas mais baixas — sem
+     scroll aqui, o painel ficava cortado em silêncio, sem nenhum jeito de
+     ver o que foi digitado. */
+  overflow-y: auto;
 }
 
 .presentation-stage {

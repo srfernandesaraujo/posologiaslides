@@ -42,7 +42,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2, StickyNote
 } from 'lucide-react';
 
 // Tamanho do canvas ANTES da migração pra 1920x1080 (ver lib/canvasConstants.js)
@@ -99,6 +99,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [showPresenterWindow, setShowPresenterWindow] = useState(false);
+  // Painel de anotações do apresentador (como o painel de notas do
+  // PowerPoint), embaixo do canvas — fechado por padrão pra não encolher o
+  // slide em telas mais baixas logo de cara; o usuário liga quando precisa.
+  const [notesPanelOpen, setNotesPanelOpen] = useState(false);
   // Em telas compactas (≤1024px), a lista de slides e o chat de IA viram
   // gavetas off-canvas em vez de colunas fixas — abertas/fechadas por aqui.
   const [mobileSlideListOpen, setMobileSlideListOpen] = useState(false);
@@ -411,6 +415,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], correctAnswer: answer || undefined };
     commit({ ...presentation, slides: updatedSlides });
+  };
+
+  // Anotações do apresentador para o slide atual (painel embaixo do canvas,
+  // ver notesPanelOpen) — commitDebounced porque roda a cada tecla digitada,
+  // igual ao restante dos campos de texto livre desta lista.
+  const handleChangeSlideNotes = (text) => {
+    if (atClosingSlide) return;
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], notes: text };
+    commitDebounced({ ...presentation, slides: updatedSlides });
   };
 
   // commitDebounced: cobre tanto digitação contínua (URL da imagem, raio) quanto
@@ -1425,6 +1439,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         onNext={handleNext}
         onPrev={handlePrev}
         onClose={() => setShowPresenterWindow(false)}
+        speakerNotes={currentSlide.notes}
       />
     );
   }
@@ -1727,6 +1742,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               <button className="btn-icon" onClick={() => setIsReportOpen(true)} title="Relatórios da sessão">
                 <BarChart3 size={18} />
               </button>
+              {!atClosingSlide && (
+                <button
+                  className={`btn-icon ${notesPanelOpen ? 'active' : ''}`}
+                  onClick={() => setNotesPanelOpen((v) => !v)}
+                  title={notesPanelOpen ? 'Ocultar anotações do apresentador' : 'Mostrar anotações do apresentador (visíveis só pra você)'}
+                  style={currentSlide.notes ? { color: '#38bdf8' } : undefined}
+                >
+                  <StickyNote size={18} />
+                </button>
+              )}
               <button
                 className={`btn-icon ${chatOpen ? 'active' : ''}`}
                 onClick={() => setChatOpen((v) => !v)}
@@ -2426,6 +2451,26 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             onZoomReset={handleZoomReset}
           />
         </div>
+
+        {/* Anotações do Apresentador (como o painel de notas do PowerPoint) —
+            fora de .presentation-stage de propósito: aquele elemento é
+            escalado/recortado pro tamanho do canvas (aspect-ratio 16:9), não
+            é um lugar pra encaixar um bloco de altura variável. */}
+        {!isFullscreen && !atClosingSlide && notesPanelOpen && (
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '1100px', marginTop: '0.75rem', padding: '0.75rem 1rem', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem', fontSize: '0.78rem', fontWeight: 700, color: '#9ca3af' }}>
+              <StickyNote size={14} /> Anotações do Apresentador (visíveis só pra você, não aparecem pros alunos)
+            </div>
+            <textarea
+              className="chat-input"
+              value={currentSlide.notes || ''}
+              onChange={(e) => handleChangeSlideNotes(e.target.value)}
+              placeholder="Ex.: reforçar o ponto X, lembrar de citar o estudo Y..."
+              rows={3}
+              style={{ width: '100%', resize: 'vertical', fontSize: '0.85rem', boxSizing: 'border-box' }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Sidebar Direita (Chat de IA) */}

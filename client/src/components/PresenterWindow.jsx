@@ -181,8 +181,8 @@ export default function PresenterWindow({
             <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#38bdf8', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <MessageSquare size={16} /> Notas do Orador para este Slide
             </h4>
-            <p style={{ fontSize: '0.88rem', color: '#d1d5db', lineHeight: 1.6, margin: 0 }}>
-              {speakerNotes || 'Resalte a importância do cálculo posológico. Destaque o ponto em verde no gráfico para a plateia.'}
+            <p style={{ fontSize: '0.88rem', color: speakerNotes ? '#d1d5db' : '#6b7280', lineHeight: 1.6, margin: 0, fontStyle: speakerNotes ? 'normal' : 'italic' }}>
+              {speakerNotes || 'Nenhuma anotação para este slide.'}
             </p>
           </div>
         </div>
