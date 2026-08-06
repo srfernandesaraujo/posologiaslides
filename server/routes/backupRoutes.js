@@ -1,24 +1,29 @@
 import express from 'express';
-import { buildDriveClient, DriveTokenExpiredError } from '../services/googleDriveClient.js';
-import { createBackup, restoreBackup, listBackups, UnsupportedBackupVersionError } from '../services/backupService.js';
+import multer from 'multer';
+import os from 'os';
+import fs from 'fs';
+import {
+  createBackup, restoreBackup, UnsupportedBackupVersionError, InvalidBackupFileError
+} from '../services/backupService.js';
+import { consumeDownload } from '../services/downloadRegistry.js';
 import { getBucket } from '../services/firebaseAdmin.js';
 
 const router = express.Router();
 
-// Autorização do Drive é POR REQUISIÇÃO, separada do `Authorization: Bearer
-// <firebaseIdToken>` que o `requireAuth` já verifica (ver server/index.js) —
-// o backend nunca persiste esse token, só usa na hora de cada chamada à
-// Drive API (ver client/src/lib/googleDriveAuth.js: token de vida curta,
-// pedido sob demanda, não guardado em disco/Firestore).
-function getDriveAccessToken(req) {
-  return req.headers['x-google-access-token'] || null;
-}
+// Upload do .zip de backup escolhido no computador do usuário pra restaurar
+// — direto em disco (os.tmpdir()), não em memória: o zip de uma conta com
+// bastante mídia pode passar de dezenas/centenas de MB, e memoryStorage
+// significaria segurar esse buffer inteiro na RAM do processo Node só pra
+// depois escrever em disco de qualquer forma (unzipper.Open.file precisa de
+// um caminho). Limite generoso (bem maior que os 50MB de mídia avulsa, ver
+// materialsRoutes.js) porque aqui é o backup da conta INTEIRA de uma vez.
+const uploadBackup = multer({
+  storage: multer.diskStorage({ destination: os.tmpdir() }),
+  limits: { fileSize: 500 * 1024 * 1024 }
+});
 
 function errorToEvent(err) {
-  if (err instanceof DriveTokenExpiredError) {
-    return { type: 'error', code: err.code, message: err.message };
-  }
-  if (err instanceof UnsupportedBackupVersionError) {
+  if (err instanceof UnsupportedBackupVersionError || err instanceof InvalidBackupFileError) {
     return { type: 'error', code: err.code, message: err.message };
   }
   return { type: 'error', code: 'internal_error', message: 'Erro inesperado ao processar o backup.' };
@@ -26,12 +31,11 @@ function errorToEvent(err) {
 
 // NDJSON (uma linha JSON por evento de progresso) via chunked transfer, em
 // vez de "dispara job + endpoint de status/polling" — menos infraestrutura
-// nova pra um botão manual de uso ocasional, e não depende de bufferizar a
-// resposta inteira até o fim (backup/restore de contas com bastante mídia
-// pode levar minutos). Precisa ser iniciado ANTES de qualquer erro possível
-// no meio da operação, porque depois de `writeHead` não dá mais pra trocar o
-// status HTTP — por isso os erros de validação de entrada (token/fileId
-// ausente) respondem como JSON comum, só o corpo da operação em si é NDJSON.
+// nova pra uma ação manual de uso ocasional, e dá feedback de progresso sem
+// precisar bufferizar a resposta inteira (contas com bastante mídia podem
+// levar um tempo pra empacotar/restaurar). Precisa ser iniciado ANTES de
+// qualquer erro possível no meio da operação, porque depois de `writeHead`
+// não dá mais pra trocar o status HTTP.
 function startNdjsonStream(res) {
   res.writeHead(200, {
     'Content-Type': 'application/x-ndjson',
@@ -41,32 +45,11 @@ function startNdjsonStream(res) {
   return (evt) => res.write(JSON.stringify(evt) + '\n');
 }
 
-router.get('/list', async (req, res) => {
-  const accessToken = getDriveAccessToken(req);
-  if (!accessToken) return res.status(400).json({ error: 'Token de acesso do Google Drive ausente.' });
-
-  try {
-    const driveClient = buildDriveClient(accessToken);
-    const { folderId, backups } = await listBackups({ driveClient });
-    res.json({ success: true, folderId, backups });
-  } catch (err) {
-    if (err instanceof DriveTokenExpiredError) {
-      return res.status(401).json({ error: err.message, code: err.code });
-    }
-    console.error('Falha ao listar backups do Drive:', err);
-    res.status(500).json({ error: 'Falha ao listar backups do Drive.' });
-  }
-});
-
 router.post('/create', async (req, res) => {
-  const accessToken = getDriveAccessToken(req);
-  if (!accessToken) return res.status(400).json({ error: 'Token de acesso do Google Drive ausente.' });
-
   const emit = startNdjsonStream(res);
   try {
-    const driveClient = buildDriveClient(accessToken);
     const bucket = getBucket();
-    await createBackup({ userId: req.user.id, user: req.user, driveClient, bucket, onEvent: emit });
+    await createBackup({ userId: req.user.id, user: req.user, bucket, onEvent: emit });
   } catch (err) {
     console.error('Falha ao criar backup:', err);
     emit(errorToEvent(err));
@@ -75,17 +58,32 @@ router.post('/create', async (req, res) => {
   }
 });
 
-router.post('/restore', async (req, res) => {
-  const accessToken = getDriveAccessToken(req);
-  const { fileId } = req.body || {};
-  if (!accessToken) return res.status(400).json({ error: 'Token de acesso do Google Drive ausente.' });
-  if (!fileId) return res.status(400).json({ error: 'fileId é obrigatório.' });
+// Download de uso único do zip gerado por /create (ver downloadRegistry.js)
+// — rota separada (não devolvida já no POST /create) porque a resposta de
+// /create é NDJSON (texto, evento a evento) e o arquivo final é binário; não
+// dá pra misturar os dois numa resposta HTTP só.
+router.get('/download/:downloadId', async (req, res) => {
+  const entry = consumeDownload(req.params.downloadId, req.user.id);
+  if (!entry) {
+    return res.status(404).json({ error: 'Backup não encontrado (talvez já baixado ou expirado — gere um novo).' });
+  }
+  res.download(entry.filePath, entry.fileName, (err) => {
+    fs.promises.unlink(entry.filePath).catch(() => {});
+    if (err && !res.headersSent) {
+      res.status(500).json({ error: 'Falha ao enviar o arquivo de backup.' });
+    }
+  });
+});
+
+router.post('/restore', uploadBackup.single('backupFile'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nenhum arquivo de backup enviado.' });
+  }
 
   const emit = startNdjsonStream(res);
   try {
-    const driveClient = buildDriveClient(accessToken);
     const bucket = getBucket();
-    await restoreBackup({ userId: req.user.id, fileId, driveClient, bucket, onEvent: emit });
+    await restoreBackup({ userId: req.user.id, zipFilePath: req.file.path, bucket, onEvent: emit });
   } catch (err) {
     console.error('Falha ao restaurar backup:', err);
     emit(errorToEvent(err));

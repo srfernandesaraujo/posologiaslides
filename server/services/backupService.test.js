@@ -1,8 +1,3 @@
-// Testes de integração LEVE: a única coisa "fake" é a fronteira HTTP real
-// (o objeto `drive` do googleapis e o `bucket` do Storage) — o resto
-// (googleDriveClient.js, backupManifest.js, o próprio backupService.js) roda
-// código de verdade, incluindo escrita/leitura real de zip em os.tmpdir().
-// `store` (Firestore) é stubado via o parâmetro de injeção de backupService.
 // backupService.js importa store.js (default de injeção de dependência) que
 // por sua vez importa firebaseAdmin.js — este SÓ instancia o Admin SDK no
 // carregamento do módulo (nenhuma chamada de rede, ver getBucket() lazy em
@@ -11,10 +6,13 @@
 import 'dotenv/config';
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { Readable, PassThrough } from 'stream';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
 import { ZipArchive } from 'archiver';
-import { createBackup, restoreBackup, UnsupportedBackupVersionError } from './backupService.js';
-import { DriveTokenExpiredError } from './googleDriveClient.js';
+import { createBackup, restoreBackup, UnsupportedBackupVersionError, InvalidBackupFileError } from './backupService.js';
+import { consumeDownload } from './downloadRegistry.js';
 
 function fakeBucketNoMedia() {
   return {
@@ -36,111 +34,96 @@ function fakeStoreWithOnePresentation() {
   };
 }
 
-async function drainBody(body) {
-  if (!body) return;
-  for await (const _chunk of body) { /* descarta */ }
-}
-
 describe('createBackup', () => {
-  test('caminho feliz: monta o zip e sobe pro Drive (sem mídia)', async () => {
+  test('caminho feliz: monta o zip localmente e registra pra download (sem mídia)', async () => {
     const events = [];
-    const driveClient = {
-      files: {
-        list: async () => ({ data: { files: [] } }), // pasta de backup não existe ainda
-        create: async (req) => {
-          if (req.requestBody?.mimeType === 'application/vnd.google-apps.folder') {
-            return { data: { id: 'folder-123' } };
-          }
-          await drainBody(req.media?.body);
-          return { data: { id: 'file-abc', name: req.requestBody.name, size: '42' } };
-        }
-      }
-    };
-
     const result = await createBackup({
       userId: 'u1',
       user: { id: 'u1', email: 'a@b.com', name: 'Ana' },
-      driveClient,
       bucket: fakeBucketNoMedia(),
       store: fakeStoreWithOnePresentation(),
       onEvent: (evt) => events.push(evt)
     });
 
-    assert.equal(result.id, 'file-abc');
+    assert.ok(result.downloadId);
+    assert.match(result.fileName, /^posologia-backup-.*\.zip$/);
+    assert.ok(result.size > 0);
+
     const doneEvent = events.find((e) => e.type === 'done');
     assert.ok(doneEvent, 'deveria emitir um evento "done"');
-    assert.equal(doneEvent.fileId, 'file-abc');
+    assert.equal(doneEvent.downloadId, result.downloadId);
     assert.ok(events.some((e) => e.stage === 'reading_data'));
-    assert.ok(events.some((e) => e.stage === 'uploading'));
+    assert.ok(events.some((e) => e.stage === 'packaging'));
+
+    // O arquivo registrado precisa existir de fato em disco, pronto pra
+    // GET /api/backup/download/:id servir (ver backupRoutes.js).
+    const entry = consumeDownload(result.downloadId, 'u1');
+    assert.ok(entry, 'downloadId deveria estar registrado');
+    assert.ok(fs.existsSync(entry.filePath));
+    await fs.promises.unlink(entry.filePath).catch(() => {});
   });
 
-  test('propaga DriveTokenExpiredError quando a Drive API devolve 401', async () => {
-    const driveClient = {
-      files: {
-        list: async () => { const err = new Error('unauthorized'); err.code = 401; throw err; },
-        create: async () => { throw new Error('não deveria chegar aqui'); }
-      }
-    };
+  test('downloadId só é resgatável pelo mesmo usuário que gerou o backup', async () => {
+    const result = await createBackup({
+      userId: 'u1',
+      user: { id: 'u1' },
+      bucket: fakeBucketNoMedia(),
+      store: fakeStoreWithOnePresentation(),
+      onEvent: () => {}
+    });
 
-    await assert.rejects(
-      () => createBackup({
-        userId: 'u1',
-        user: { id: 'u1' },
-        driveClient,
-        bucket: fakeBucketNoMedia(),
-        store: fakeStoreWithOnePresentation(),
-        onEvent: () => {}
-      }),
-      DriveTokenExpiredError
-    );
+    assert.equal(consumeDownload(result.downloadId, 'u2-outro-usuario'), null);
+    // ainda resgatável pelo dono de verdade (a chamada acima não devia ter consumido)
+    const entry = consumeDownload(result.downloadId, 'u1');
+    assert.ok(entry);
+    await fs.promises.unlink(entry.filePath).catch(() => {});
   });
 });
 
 // Monta um zip de verdade em memória (mesma lib usada em produção,
-// backupService.js) pra simular o download de um backup existente do Drive.
-async function buildZipBuffer(entries) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    const pass = new PassThrough();
-    pass.on('data', (c) => chunks.push(c));
-    pass.on('end', () => resolve(Buffer.concat(chunks)));
-    pass.on('error', reject);
-
+// backupService.js) e escreve num arquivo temporário — restoreBackup agora
+// recebe sempre um caminho local (upload multipart do usuário, ver
+// backupRoutes.js), não baixa de lugar nenhum.
+async function writeZipFile(entries) {
+  const filePath = path.join(os.tmpdir(), `test-restore-${crypto.randomUUID()}.zip`);
+  await new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(filePath);
     const archive = new ZipArchive();
     archive.on('error', reject);
-    archive.pipe(pass);
+    output.on('close', resolve);
+    output.on('error', reject);
+    archive.pipe(output);
     for (const [name, content] of entries) archive.append(content, { name });
     archive.finalize();
   });
-}
-
-function fakeDownloadDriveClient(zipBuffer) {
-  return {
-    files: {
-      get: async () => ({ data: Readable.from(zipBuffer) })
-    }
-  };
+  return filePath;
 }
 
 describe('restoreBackup', () => {
+  test('manifest.json ausente no zip: erro tipado', async () => {
+    const zipFilePath = await writeZipFile([['outra-coisa.txt', 'oi']]);
+    await assert.rejects(
+      () => restoreBackup({
+        userId: 'u2', zipFilePath, bucket: fakeBucketNoMedia(), store: fakeStoreWithOnePresentation(), onEvent: () => {}
+      }),
+      InvalidBackupFileError
+    );
+    assert.equal(fs.existsSync(zipFilePath), false, 'o arquivo temporário deveria ter sido limpo mesmo com erro');
+  });
+
   test('formatVersion desconhecido: erro tipado, não tenta processar', async () => {
     const manifest = { formatVersion: 2, folders: [], presentations: [], media: [] };
-    const zipBuffer = await buildZipBuffer([['manifest.json', JSON.stringify(manifest)]]);
+    const zipFilePath = await writeZipFile([['manifest.json', JSON.stringify(manifest)]]);
 
     await assert.rejects(
       () => restoreBackup({
-        userId: 'u2',
-        fileId: 'file-abc',
-        driveClient: fakeDownloadDriveClient(zipBuffer),
-        bucket: fakeBucketNoMedia(),
-        store: fakeStoreWithOnePresentation(),
-        onEvent: () => {}
+        userId: 'u2', zipFilePath, bucket: fakeBucketNoMedia(), store: fakeStoreWithOnePresentation(), onEvent: () => {}
       }),
       UnsupportedBackupVersionError
     );
   });
 
-  test('caminho feliz sem mídia: recria pasta e apresentação via store injetado', async () => {
+  test('caminho feliz sem mídia: recria pasta e apresentação via store injetado, e limpa o zip temporário', async () => {
     const manifest = {
       formatVersion: 1,
       folders: [{ id: 'f1', name: 'Farmaco', color: '#38bdf8' }],
@@ -150,7 +133,7 @@ describe('restoreBackup', () => {
       }],
       media: []
     };
-    const zipBuffer = await buildZipBuffer([['manifest.json', JSON.stringify(manifest)]]);
+    const zipFilePath = await writeZipFile([['manifest.json', JSON.stringify(manifest)]]);
 
     const createdFolders = [];
     const createdPresentations = [];
@@ -168,8 +151,7 @@ describe('restoreBackup', () => {
     const events = [];
     const result = await restoreBackup({
       userId: 'u2',
-      fileId: 'file-abc',
-      driveClient: fakeDownloadDriveClient(zipBuffer),
+      zipFilePath,
       bucket: fakeBucketNoMedia(),
       store,
       onEvent: (evt) => events.push(evt)
@@ -182,5 +164,6 @@ describe('restoreBackup', () => {
     assert.equal(createdPresentations[0].subfolderId, 'new-sf1');
     assert.equal(createdPresentations[0].data.title, 'Aula 1');
     assert.ok(events.some((e) => e.type === 'done'));
+    assert.equal(fs.existsSync(zipFilePath), false, 'o zip temporário do upload deveria ter sido apagado após o restore');
   });
 });

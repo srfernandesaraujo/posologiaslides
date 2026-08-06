@@ -1,9 +1,15 @@
 // Orquestração do backup/restore: liga a leitura do Firestore/Storage
-// (store.js/firebaseAdmin.js) com o Drive (googleDriveClient.js) e o formato
-// puro do manifest (backupManifest.js). driveClient/bucket são recebidos
-// como PARÂMETROS (não construídos aqui dentro) de propósito — permite testar
-// com stubs (ver backupService.test.js), sem depender de rede ou credenciais
-// reais do Google/Firebase.
+// (store.js/firebaseAdmin.js) com o formato puro do manifest
+// (backupManifest.js) e o registro de downloads temporários
+// (downloadRegistry.js). `bucket` é recebido como PARÂMETRO (não construído
+// aqui dentro) de propósito — permite testar com um stub (ver
+// backupService.test.js), sem depender de credenciais reais do Firebase.
+//
+// Sem API do Google Drive: "Fazer Backup" gera um .zip local (disco do
+// servidor) que o usuário baixa pelo navegador e guarda onde quiser;
+// "Restaurar" recebe de volta um .zip que o usuário escolheu do próprio
+// computador (upload multipart, ver backupRoutes.js) — nenhuma conta externa
+// nem OAuth envolvidos.
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -13,10 +19,7 @@ import unzipper from 'unzipper';
 import {
   buildManifest, isSupportedFormatVersion, rewriteSlidesMedia, computeRestoreObjectPath
 } from './backupManifest.js';
-import {
-  findOrCreateBackupFolder, listBackups as listDriveBackups, buildBackupFileName,
-  uploadZipFile, downloadFileToPath
-} from './googleDriveClient.js';
+import { registerDownload } from './downloadRegistry.js';
 import * as defaultStore from './store.js';
 
 const MEDIA_PREFIX = (userId) => `media/${userId}/`;
@@ -27,6 +30,14 @@ export class UnsupportedBackupVersionError extends Error {
     super(`Formato de backup não suportado (versão ${version}). Este backup foi gerado por uma versão mais nova do app.`);
     this.name = 'UnsupportedBackupVersionError';
     this.code = 'unsupported_backup_version';
+  }
+}
+
+export class InvalidBackupFileError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'InvalidBackupFileError';
+    this.code = 'invalid_backup_file';
   }
 }
 
@@ -45,6 +56,11 @@ async function mapWithConcurrency(items, limit, fn) {
 
 function tmpZipPath(prefix) {
   return path.join(os.tmpdir(), `${prefix}-${crypto.randomUUID()}.zip`);
+}
+
+function buildBackupFileName(date = new Date()) {
+  const stamp = date.toISOString().replace(/[:.]/g, '-');
+  return `posologia-backup-${stamp}.zip`;
 }
 
 function formatRestoreStamp(date) {
@@ -76,7 +92,11 @@ async function listUserMediaFiles(bucket, userId) {
   ];
 }
 
-export async function createBackup({ userId, user, driveClient, bucket, onEvent = () => {}, store = defaultStore }) {
+// Gera o zip localmente e registra pra download (ver downloadRegistry.js) —
+// não apaga o arquivo no final: a posse dele passa pro registro, que só o
+// remove quando o cliente efetivamente baixar (ou depois de expirar, se
+// nunca baixar). Em caso de erro ANTES de registrar, aí sim limpa.
+export async function createBackup({ userId, user, bucket, onEvent = () => {}, store = defaultStore }) {
   const emit = (evt) => onEvent(evt);
   const zipPath = tmpZipPath('posologia-backup');
 
@@ -132,38 +152,30 @@ export async function createBackup({ userId, user, driveClient, bucket, onEvent 
       archive.finalize();
     });
 
-    emit({ type: 'progress', stage: 'uploading', bytesUploaded: 0 });
-    const folderId = await findOrCreateBackupFolder(driveClient);
     const fileName = buildBackupFileName();
-    const uploaded = await uploadZipFile(driveClient, folderId, fileName, zipPath, (bytesUploaded, totalBytes) => {
-      emit({ type: 'progress', stage: 'uploading', bytesUploaded, totalBytes });
-    });
+    const size = fs.statSync(zipPath).size;
+    const downloadId = registerDownload({ filePath: zipPath, userId, fileName });
 
-    emit({ type: 'done', success: true, fileId: uploaded.id, fileName: uploaded.name, size: uploaded.size });
-    return uploaded;
-  } finally {
-    fs.promises.unlink(zipPath).catch(() => {});
+    emit({ type: 'done', success: true, downloadId, fileName, size });
+    return { downloadId, fileName, size };
+  } catch (err) {
+    await fs.promises.unlink(zipPath).catch(() => {});
+    throw err;
   }
 }
 
-export async function listBackups({ driveClient }) {
-  const folderId = await findOrCreateBackupFolder(driveClient);
-  const backups = await listDriveBackups(driveClient, folderId);
-  return { folderId, backups };
-}
-
-export async function restoreBackup({ userId, fileId, driveClient, bucket, onEvent = () => {}, store = defaultStore }) {
+// `zipFilePath` já existe em disco quando chega aqui — vem do upload
+// multipart do usuário (multer, ver backupRoutes.js), não é baixado de
+// nenhum lugar. Sempre limpo no final: é um upload temporário, não algo que
+// precise sobreviver além desta chamada.
+export async function restoreBackup({ userId, zipFilePath, bucket, onEvent = () => {}, store = defaultStore }) {
   const emit = (evt) => onEvent(evt);
-  const zipPath = tmpZipPath('posologia-restore');
 
   try {
-    emit({ type: 'progress', stage: 'downloading' });
-    await downloadFileToPath(driveClient, fileId, zipPath);
-
     emit({ type: 'progress', stage: 'reading_manifest' });
-    const zip = await unzipper.Open.file(zipPath);
+    const zip = await unzipper.Open.file(zipFilePath);
     const manifestEntry = zip.files.find((f) => f.path === 'manifest.json');
-    if (!manifestEntry) throw new Error('Arquivo de backup inválido: manifest.json não encontrado.');
+    if (!manifestEntry) throw new InvalidBackupFileError('Arquivo de backup inválido: manifest.json não encontrado dentro do zip.');
     const manifest = JSON.parse((await manifestEntry.buffer()).toString('utf-8'));
     if (!isSupportedFormatVersion(manifest.formatVersion)) {
       throw new UnsupportedBackupVersionError(manifest.formatVersion);
@@ -216,6 +228,6 @@ export async function restoreBackup({ userId, fileId, driveClient, bucket, onEve
     emit({ type: 'done', success: true, ...result });
     return result;
   } finally {
-    fs.promises.unlink(zipPath).catch(() => {});
+    await fs.promises.unlink(zipFilePath).catch(() => {});
   }
 }
