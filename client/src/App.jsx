@@ -36,6 +36,7 @@ export default function App() {
   const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
 
   const autosaveTimerRef = useRef(null);
+  const autosaveAbortRef = useRef(null);
   const lastSavedJsonRef = useRef(null);
 
   // Autosave: persiste a apresentação no servidor sempre que ela muda, com debounce
@@ -47,11 +48,24 @@ export default function App() {
 
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(async () => {
+      // Cancela um autosave anterior ainda em voo antes de disparar este —
+      // sem isso, dois POSTs concorrentes podem chegar ao servidor fora de
+      // ordem (rede lenta, renovação de token do Firebase no meio do
+      // caminho) e o mais antigo, chegando por ÚLTIMO, sobrescreve o
+      // Firestore com uma lista de slides desatualizada (savePresentation faz
+      // `ref.update()`, substituição total do array `slides`, sem checagem
+      // de versão — ver server/services/store.js). Isso já causou slides
+      // recém-inseridos (e até slides preexistentes) sumirem depois de
+      // salvar.
+      if (autosaveAbortRef.current) autosaveAbortRef.current.abort();
+      const controller = new AbortController();
+      autosaveAbortRef.current = controller;
       try {
         const res = await apiFetch('/api/presentations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(presentation)
+          body: JSON.stringify(presentation),
+          signal: controller.signal
         });
         const data = await res.json();
         if (data.success) {
@@ -62,8 +76,10 @@ export default function App() {
           }
           setLibraryRefreshKey((k) => k + 1);
         }
-      } catch {
-        // Falha de rede no autosave: mantém as alterações apenas localmente por ora
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          // Falha de rede no autosave: mantém as alterações apenas localmente por ora
+        }
       }
     }, AUTOSAVE_DEBOUNCE_MS);
 

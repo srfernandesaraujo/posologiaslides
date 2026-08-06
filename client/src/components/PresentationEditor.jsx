@@ -78,6 +78,20 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // usando os setters normais, esses não fazem parte do histórico.
   const { commit, commitDebounced, undo, redo, canUndo, canRedo } = useUndoHistory(presentation, setPresentation);
   const [activeIndex, setActiveIndex] = useState(0);
+  // Refs "sempre frescas" — usadas só por handlers que continuam depois de um
+  // `await` (upload de mídia, resposta da IA no chat): a variável `presentation`/
+  // `activeIndex` capturada por closure nesses handlers é a versão de QUANDO
+  // o handler começou, não a atual. Se o usuário inserir/editar outros slides
+  // por outro caminho (síncrono) enquanto isso, commitar `{ ...presentation,
+  // slides: X }` construído a partir da closure antiga sobrescreve — e
+  // descarta — essas mudanças concorrentes (bug relatado: slides recém-
+  // inseridos, e até um slide preexistente, somem depois do autosave). Ler
+  // destas refs no momento do commit em vez da variável capturada resolve,
+  // sem afetar handlers síncronos (a ref já está em dia nesse caso).
+  const presentationRef = useRef(presentation);
+  const activeIndexRef = useRef(activeIndex);
+  useEffect(() => { presentationRef.current = presentation; }, [presentation]);
+  useEffect(() => { activeIndexRef.current = activeIndex; }, [activeIndex]);
   // Slide de encerramento virtual: exibido ao avançar a partir do último
   // slide real, nunca é gravado em presentation.slides (ver handleNext /
   // currentSlide abaixo).
@@ -428,12 +442,17 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   };
 
   // commitDebounced: cobre tanto digitação contínua (URL da imagem, raio) quanto
-  // o clique de marcar o ponto certo na miniatura — todos passam por aqui.
+  // o clique de marcar o ponto certo na miniatura — todos passam por aqui,
+  // inclusive depois de um `await` (upload da imagem do hotspot, ver
+  // handleUploadHotspotImage), por isso lê das refs "sempre frescas" (ver
+  // presentationRef acima) em vez de `presentation`/`activeIndex` direto.
   const handleChangeHotspotConfig = (patch) => {
-    const updatedSlides = [...presentation.slides];
-    const prevConfig = updatedSlides[activeIndex].hotspotConfig || { imageUrl: '', x: null, y: null, radius: 10 };
-    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], hotspotConfig: { ...prevConfig, ...patch } };
-    commitDebounced({ ...presentation, slides: updatedSlides });
+    const latestPresentation = presentationRef.current;
+    const latestIndex = activeIndexRef.current;
+    const updatedSlides = [...latestPresentation.slides];
+    const prevConfig = updatedSlides[latestIndex].hotspotConfig || { imageUrl: '', x: null, y: null, radius: 10 };
+    updatedSlides[latestIndex] = { ...updatedSlides[latestIndex], hotspotConfig: { ...prevConfig, ...patch } };
+    commitDebounced({ ...latestPresentation, slides: updatedSlides });
   };
 
   // Distribuir 100 Pontos: pergunta livre + rótulo de cada uma das 4 opções
@@ -927,12 +946,20 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       mediaTag = `<div style="position: relative; width: 100%; aspect-ratio: 16/9; margin: 1rem 0; border-radius: 0.5rem; overflow: hidden;"><iframe src="${media.url}" style="position:absolute; top:0; left:0; width:100%; height:100%; border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe></div>`;
     }
 
-    const updatedSlides = [...presentation.slides];
-    updatedSlides[activeIndex] = {
-      ...updatedSlides[activeIndex],
-      html: appendIntoRoot(currentSlide.html, mediaTag)
+    // Lê o estado mais recente (não a variável `presentation`/`activeIndex`
+    // capturada por closure): chamado tanto de forma síncrona (clique na
+    // Biblioteca de Mídias) quanto depois de um `await` (colar imagem via
+    // Ctrl+V, ver handlePasteImageFile) — no segundo caso, `presentation`
+    // pode já estar desatualizada se o usuário mexeu em outros slides
+    // enquanto o upload rodava.
+    const latestPresentation = presentationRef.current;
+    const latestIndex = activeIndexRef.current;
+    const updatedSlides = [...latestPresentation.slides];
+    updatedSlides[latestIndex] = {
+      ...updatedSlides[latestIndex],
+      html: appendIntoRoot(updatedSlides[latestIndex].html, mediaTag)
     };
-    commit({ ...presentation, slides: updatedSlides });
+    commit({ ...latestPresentation, slides: updatedSlides });
     setIsMediaDrawerOpen(false);
   };
 
@@ -1376,6 +1403,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     const userText = chatInput;
     const attachmentsSent = chatAttachments;
     const scopeAtSend = chatScope;
+    // Fixa QUAL slide está sendo editado (por id, não por índice numérico) —
+    // a resposta da IA só chega depois de vários segundos, tempo em que o
+    // usuário pode navegar pra outro slide ou inserir/remover slides antes
+    // deste, o que mudaria o índice numérico sem mudar o slide em si.
+    const targetSlideId = currentSlide.id;
     setChatInput('');
     setChatAttachments([]);
     setChatScope(null);
@@ -1401,24 +1433,37 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       const data = await res.json();
 
       if (data.success && data.newHtml) {
-        // Com escopo: a resposta é só o fragmento do elemento selecionado —
-        // substitui apenas ele, preservando o resto do slide intacto.
-        const updatedHtml = scopeAtSend
-          ? replaceElementAt(currentSlide.html, scopeAtSend.index, data.newHtml)
-          : data.newHtml;
-        const updatedSlides = [...presentation.slides];
-        updatedSlides[activeIndex] = {
-          ...updatedSlides[activeIndex],
-          html: updatedHtml
-        };
-        commit({ ...presentation, slides: updatedSlides });
-        const successText = scopeAtSend
-          ? `✨ Elemento selecionado atualizado com sucesso!`
-          : `✨ Slide #${activeIndex + 1} atualizado com sucesso!`;
-        setChatMessages(prev => [
-          ...prev,
-          { sender: 'ai', text: data.warning ? `${successText}\n⚠️ ${data.warning}` : successText }
-        ]);
+        // Lê o estado mais recente (não `presentation`/`activeIndex`
+        // capturados por closure antes do await acima) e localiza o slide
+        // alvo pelo id fixado no início — o usuário pode ter navegado,
+        // inserido ou reordenado slides enquanto a IA respondia; usar o
+        // array desatualizado sobrescreveria (e descartaria) essas mudanças.
+        const latestPresentation = presentationRef.current;
+        const targetIndex = latestPresentation.slides.findIndex((s) => s.id === targetSlideId);
+
+        if (targetIndex === -1) {
+          setChatMessages(prev => [...prev, { sender: 'ai', text: '⚠️ O slide que estava sendo editado não existe mais (foi apagado enquanto a IA respondia).' }]);
+        } else {
+          const baseHtml = latestPresentation.slides[targetIndex].html;
+          // Com escopo: a resposta é só o fragmento do elemento selecionado —
+          // substitui apenas ele, preservando o resto do slide intacto.
+          const updatedHtml = scopeAtSend
+            ? replaceElementAt(baseHtml, scopeAtSend.index, data.newHtml)
+            : data.newHtml;
+          const updatedSlides = [...latestPresentation.slides];
+          updatedSlides[targetIndex] = {
+            ...updatedSlides[targetIndex],
+            html: updatedHtml
+          };
+          commit({ ...latestPresentation, slides: updatedSlides });
+          const successText = scopeAtSend
+            ? `✨ Elemento selecionado atualizado com sucesso!`
+            : `✨ Slide #${targetIndex + 1} atualizado com sucesso!`;
+          setChatMessages(prev => [
+            ...prev,
+            { sender: 'ai', text: data.warning ? `${successText}\n⚠️ ${data.warning}` : successText }
+          ]);
+        }
       } else {
         throw new Error(data.error || 'Falha ao atualizar.');
       }
