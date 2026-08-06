@@ -32,6 +32,19 @@ function isExternalUrl(url) {
   return /^https?:\/\//i.test(url) || url.startsWith('//') || url.startsWith('data:') || url.startsWith('#');
 }
 
+// Páginas exportadas pra rodar soltas no navegador costumam ter uma barra/
+// cabeçalho com "position: fixed", pensada pra ficar grudada na janela
+// inteira enquanto o PRÓPRIO DOCUMENTO rola. Aqui dentro, porém, quem rola é
+// o <body> do iframe do slide (ver PresentationViewer.jsx), não a janela —
+// e "fixed" é sempre relativo ao viewport, nunca a um container com scroll
+// próprio. Resultado: a barra fica "flutuando" parada enquanto o resto do
+// conteúdo desliza por baixo dela, sobrepondo texto/imagem. Trocar por
+// "absolute" resolve: ancora no .slide-root (que garantimos como
+// position:relative logo abaixo), então volta a rolar junto com o resto.
+function neutralizeFixedPosition(css) {
+  return css.replace(/position\s*:\s*fixed\b/gi, 'position: absolute');
+}
+
 function readAsText(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -130,6 +143,15 @@ export async function bundleLocalFiles(fileList) {
   // não evita a bagunça estrutural de um <!DOCTYPE> no meio do <body> alheio).
   const doc = new DOMParser().parseFromString(inlined, 'text/html');
 
+  // Neutraliza "position: fixed" tanto em <style> (regras de CSS) quanto em
+  // atributos style="..." inline — ver neutralizeFixedPosition() acima.
+  doc.querySelectorAll('style').forEach((styleEl) => {
+    styleEl.textContent = neutralizeFixedPosition(styleEl.textContent);
+  });
+  doc.querySelectorAll('[style]').forEach((el) => {
+    if (el.style.position === 'fixed') el.style.position = 'absolute';
+  });
+
   const headAssets = Array.from(doc.head?.querySelectorAll('link, style, script') || [])
     .map((el) => el.outerHTML)
     .join('\n');
@@ -160,8 +182,12 @@ export async function bundleLocalFiles(fileList) {
   if (!rootEl.classList.contains('slide-root')) {
     rootEl.classList.add('slide-root');
     if (!rootEl.style.height) rootEl.style.height = '100%';
-    if (!rootEl.style.position) rootEl.style.position = 'relative';
   }
+  // Sempre garante um container posicionado pra ancorar os "position:
+  // absolute" que vieram de "fixed" (ver neutralizeFixedPosition acima) —
+  // mesmo quando .slide-root já existia no HTML original e por isso não caiu
+  // no bloco acima.
+  if (!rootEl.style.position) rootEl.style.position = 'relative';
 
   const fragment = [headAssets, rootEl.outerHTML].filter(Boolean).join('\n');
   const usedFiles = Object.keys(texts).length + Object.keys(images).length;
