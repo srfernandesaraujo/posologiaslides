@@ -15,3 +15,11 @@ const firebaseConfig = {
 export const firebaseApp = initializeApp(firebaseConfig);
 export const auth = getAuth(firebaseApp);
 export const googleProvider = new GoogleAuthProvider();
+
+// Provider SEPARADO do login normal, só pro fluxo de Backup no Google Drive
+// (ver lib/googleDriveAuth.js) — pedido sob demanda quando o usuário clica em
+// "Fazer Backup"/"Restaurar", não no login. Escopo mínimo (drive.file): só dá
+// acesso aos arquivos que o PRÓPRIO app cria no Drive do usuário, não ao
+// Drive inteiro.
+export const driveGoogleProvider = new GoogleAuthProvider();
+driveGoogleProvider.addScope('https://www.googleapis.com/auth/drive.file');

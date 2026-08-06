@@ -85,7 +85,11 @@ export async function createFolder(userId, name, color) {
   batch.set(subfolder, { folderId: folder.id, name: 'Geral' });
   await batch.commit();
 
-  return { id: folder.id, name, color: color || '#38bdf8', subfolders: [] };
+  // subfolderId: aditivo (chamadores existentes só destroem os campos que já
+  // usavam) — quem precisa saber onde encaixar algo dentro da pasta recém-
+  // criada sem dar outra volta no Firestore (ex.: restoreBackup em
+  // backupService.js, recriando pastas a partir de um manifest) usa direto.
+  return { id: folder.id, name, color: color || '#38bdf8', subfolders: [], subfolderId: subfolder.id };
 }
 
 export async function renameFolder(userId, folderId, name) {
@@ -243,6 +247,31 @@ export async function savePresentation(presentation, userId) {
     createdAt: now,
     updatedAt: now,
     lastOpenedAt: null,
+    relatedPresentationId: relatedPresentationId || null,
+    relatedPresentationTitle: relatedPresentationTitle || null
+  };
+  const ref = await presentationsRef(userId).add(data);
+  return serializePresentation(ref.id, data);
+}
+
+// Só pro restore de backup (backupService.js) — savePresentation() sempre
+// joga apresentações NOVAS na subpasta padrão do usuário (linha acima), o
+// que não serve aqui: o restore recria cada apresentação dentro da pasta
+// (nova) que veio do próprio backup, não na padrão. Função separada em vez
+// de estender savePresentation pra aceitar um subfolderId explícito —
+// menor superfície de risco pro autosave normal, que continua 100% intocado.
+export async function createPresentationInSubfolder(userId, subfolderId, presentation) {
+  const { title, description, slides, favorite, relatedPresentationId, relatedPresentationTitle, updatedAt, lastOpenedAt } = presentation;
+  const now = Date.now();
+  const data = {
+    subfolderId,
+    title,
+    description: description || null,
+    slides,
+    favorite: !!favorite,
+    createdAt: now,
+    updatedAt: updatedAt || now,
+    lastOpenedAt: lastOpenedAt || null,
     relatedPresentationId: relatedPresentationId || null,
     relatedPresentationTitle: relatedPresentationTitle || null
   };

@@ -120,7 +120,11 @@ export default function App() {
           }}
         />
 
-        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          onBackupRestored={() => setLibraryRefreshKey((k) => k + 1)}
+        />
       </>
     );
   }
@@ -173,6 +177,7 @@ export default function App() {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        onBackupRestored={() => setLibraryRefreshKey((k) => k + 1)}
       />
     </div>
   );

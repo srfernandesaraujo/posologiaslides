@@ -15,6 +15,7 @@ import presentationsRoutes from './routes/presentationsRoutes.js';
 import foldersRoutes from './routes/foldersRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import mediaSearchRoutes from './routes/mediaSearchRoutes.js';
+import backupRoutes from './routes/backupRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
 import multer from 'multer';
 import { requireAuth } from './middleware/auth.js';
@@ -45,6 +46,7 @@ app.use('/api/presentations', requireAuth, presentationsRoutes);
 app.use('/api/folders', requireAuth, foldersRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 app.use('/api/media-search', requireAuth, mediaSearchRoutes);
+app.use('/api/backup', requireAuth, backupRoutes);
 // Pública, de propósito (sem requireAuth) — serve apresentações via link de
 // compartilhamento só-visualização, sem exigir login (ver publicRoutes.js).
 app.use('/api/public/presentations', publicRoutes);

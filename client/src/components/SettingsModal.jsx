@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Shield, Save, X, Check, Loader2, Image as ImageIcon } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import BackupSection from './BackupSection';
 
-export default function SettingsModal({ isOpen, onClose }) {
+export default function SettingsModal({ isOpen, onClose, onBackupRestored }) {
   const [geminiKey, setGeminiKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
@@ -199,6 +200,11 @@ export default function SettingsModal({ isOpen, onClose }) {
             </button>
           </div>
         </form>
+
+        {/* Fora do <form> de propósito: os botões daqui (Fazer Backup,
+            Restaurar) não podem disparar o submit de handleSave (que salva
+            as chaves de API acima) por engano. */}
+        <BackupSection onRestored={onBackupRestored} />
       </div>
     </div>
   );
