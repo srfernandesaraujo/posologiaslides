@@ -1917,7 +1917,7 @@ button.mobile-toggle-btn {
 
 .finder-table-header {
   display: grid;
-  grid-template-columns: 2.3fr 1.4fr 1.1fr 90px 120px;
+  grid-template-columns: 2.3fr 1.4fr 1.1fr 90px 136px;
   padding: 0.75rem 1.25rem;
   background: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid var(--border-glass);
@@ -1935,7 +1935,7 @@ button.mobile-toggle-btn {
 
 .finder-file-row {
   display: grid;
-  grid-template-columns: 2.3fr 1.4fr 1.1fr 90px 120px;
+  grid-template-columns: 2.3fr 1.4fr 1.1fr 90px 136px;
   align-items: center;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -1962,6 +1962,18 @@ button.mobile-toggle-btn {
   flex-shrink: 0;
 }
 
+/* Toda célula da grade (nome/pasta/data/tamanho/ações) precisa de
+   min-width:0 explícito — grid items (igual flex items) usam min-width:auto
+   por padrão, que pro texto de título (white-space:nowrap) equivale à
+   largura INTEIRA do texto sem quebrar, e impede a célula de encolher
+   abaixo disso. Sem isto, um título comprido não trunca: ele VAZA visualmente
+   por cima das colunas vizinhas (pasta, data, tamanho) em vez de cortar com
+   reticências — foi exatamente o "bagunçado" visto em telas menores. */
+.finder-col {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .finder-file-title {
   font-size: 0.88rem;
   font-weight: 600;
@@ -1969,16 +1981,28 @@ button.mobile-toggle-btn {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 .finder-folder-badge {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   padding: 0.2rem 0.55rem;
   border-radius: 12px;
   border: 1px solid transparent;
   font-size: 0.75rem;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* O nome da disciplina dentro do selo já trunca (regra acima); o ícone de
+   pasta não pode encolher junto ou fica achatado antes do texto cortar. */
+.finder-folder-badge svg {
+  flex-shrink: 0;
 }
 
 .finder-col.col-date {
@@ -1988,22 +2012,51 @@ button.mobile-toggle-btn {
 
 .finder-col.col-size {
   font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .finder-col.col-actions {
   display: flex;
   gap: 0.25rem;
   justify-content: flex-end;
+  overflow: visible;
+}
+
+/* Larguras fixas (90px/120px+) somadas às 3 colunas flexíveis já apertam o
+   selo de disciplina numa faixa de telas ANTES do breakpoint de 768px que
+   esconde data/tamanho — essa faixa intermediária (ex.: tablet, dois
+   painéis lado a lado) é onde o selo quebrava em 2 linhas e "empurrava" a
+   linha seguinte por cima da coluna de data, mesmo com os truncamentos
+   acima. Esconde só "Tamanho" primeiro (a menos crítica das duas) antes de
+   chegar no breakpoint que já esconde as duas. */
+@media (max-width: 980px) {
+  .finder-table-header,
+  .finder-file-row {
+    grid-template-columns: 2.1fr 1.3fr 1fr 132px;
+  }
+  .finder-col.col-size {
+    display: none;
+  }
 }
 
 @media (max-width: 768px) {
   .finder-table-header,
   .finder-file-row {
-    grid-template-columns: 2fr 1fr 100px;
+    grid-template-columns: 1.6fr 1fr 108px;
   }
   .finder-col.col-date,
   .finder-col.col-size {
     display: none;
+  }
+  /* 4 botões de ação (favoritar/renomear/mover/excluir) a 28px cada não
+     cabem nos 108px da coluna nesta largura — encolhe pra caber sem
+     precisar esconder nenhum. */
+  .finder-col.col-actions {
+    gap: 0.15rem;
+  }
+  .finder-col.col-actions .btn-icon {
+    width: 24px !important;
+    height: 24px !important;
   }
 }
 
