@@ -1911,13 +1911,35 @@ button.mobile-toggle-btn {
   background: var(--bg-card);
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-lg);
-  overflow: hidden;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  /* Em vez de esconder colunas em telas estreitas (Data/Tamanho sumiam), a
+     tabela inteira rola na horizontal — todo dado continua visível, só
+     precisa arrastar/rolar pro lado pra ver o resto. overflow-y:hidden
+     evita uma segunda barra de rolagem (a vertical já é da página, ver
+     .library-main) e mantém as bordas arredondadas cortando o conteúdo. */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* min-width fixo (soma dos pisos de cada coluna, ver grid-template-columns
+   abaixo, MAIS o padding horizontal — box-sizing:border-box inclui padding
+   dentro do min-width) em vez de deixar o grid encolher sozinho:
+   min-width:max-content num grid com colunas minmax(...) fica refém do
+   texto MAIS LARGO sem truncar (o cálculo de max-content ignora
+   nowrap+ellipsis), então rolaria muito mais do que o necessário. Com o
+   número fixo, a linha preenche 100% da largura disponível normalmente
+   (colunas fr crescem) enquanto ela couber, e só passa a exigir rolagem
+   horizontal (via overflow-x:auto do container acima) quando a tela for
+   mais estreita que isto: 220+160+130+90+136 = 736px de colunas + 2×1.25rem
+   (20px) de padding = 776px. */
+.finder-table-header,
+.finder-file-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 2.3fr) minmax(160px, 1.4fr) minmax(130px, 1.1fr) 90px 136px;
+  min-width: 776px;
 }
 
 .finder-table-header {
-  display: grid;
-  grid-template-columns: 2.3fr 1.4fr 1.1fr 90px 136px;
   padding: 0.75rem 1.25rem;
   background: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid var(--border-glass);
@@ -1934,8 +1956,6 @@ button.mobile-toggle-btn {
 }
 
 .finder-file-row {
-  display: grid;
-  grid-template-columns: 2.3fr 1.4fr 1.1fr 90px 136px;
   align-items: center;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -2022,41 +2042,4 @@ button.mobile-toggle-btn {
   overflow: visible;
 }
 
-/* Larguras fixas (90px/120px+) somadas às 3 colunas flexíveis já apertam o
-   selo de disciplina numa faixa de telas ANTES do breakpoint de 768px que
-   esconde data/tamanho — essa faixa intermediária (ex.: tablet, dois
-   painéis lado a lado) é onde o selo quebrava em 2 linhas e "empurrava" a
-   linha seguinte por cima da coluna de data, mesmo com os truncamentos
-   acima. Esconde só "Tamanho" primeiro (a menos crítica das duas) antes de
-   chegar no breakpoint que já esconde as duas. */
-@media (max-width: 980px) {
-  .finder-table-header,
-  .finder-file-row {
-    grid-template-columns: 2.1fr 1.3fr 1fr 132px;
-  }
-  .finder-col.col-size {
-    display: none;
-  }
-}
-
-@media (max-width: 768px) {
-  .finder-table-header,
-  .finder-file-row {
-    grid-template-columns: 1.6fr 1fr 108px;
-  }
-  .finder-col.col-date,
-  .finder-col.col-size {
-    display: none;
-  }
-  /* 4 botões de ação (favoritar/renomear/mover/excluir) a 28px cada não
-     cabem nos 108px da coluna nesta largura — encolhe pra caber sem
-     precisar esconder nenhum. */
-  .finder-col.col-actions {
-    gap: 0.15rem;
-  }
-  .finder-col.col-actions .btn-icon {
-    width: 24px !important;
-    height: 24px !important;
-  }
-}
 
