@@ -130,10 +130,10 @@ export default function BackupSection({ onRestored }) {
         />
         <button
           type="button"
-          className="btn-icon"
+          className="btn-secondary"
           onClick={() => restoreInputRef.current?.click()}
           disabled={restoring}
-          style={{ width: 'auto', padding: '0.35rem 0.75rem', fontSize: '0.8rem', gap: '0.4rem' }}
+          style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', fontWeight: 600, gap: '0.4rem' }}
         >
           {restoring ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
           {restoring ? (describeProgress(restoreProgress) || 'Restaurando...') : 'Restaurar de um arquivo .zip'}

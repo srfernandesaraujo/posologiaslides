@@ -1876,8 +1876,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   style={{ flex: 1, fontSize: '0.8rem', boxSizing: 'border-box' }}
                 />
                 <label
-                  className="btn-icon"
-                  style={{ width: 'auto', flexShrink: 0, padding: '0 0.7rem', gap: '0.35rem', fontSize: '0.78rem', opacity: hotspotUploading ? 0.7 : 1, pointerEvents: hotspotUploading ? 'none' : 'auto' }}
+                  className="btn-secondary"
+                  style={{ flexShrink: 0, padding: '0 0.7rem', gap: '0.35rem', fontSize: '0.78rem', fontWeight: 600, opacity: hotspotUploading ? 0.7 : 1, pointerEvents: hotspotUploading ? 'none' : 'auto' }}
                   title="Fazer upload de uma imagem do seu computador"
                 >
                   {hotspotUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
@@ -2467,7 +2467,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                       onChange={(e) => setElementHtmlDraft(e.target.value)}
                     />
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
-                      <button className="btn-icon" style={{ width: 'auto', flex: 1 }} onClick={() => setElementHtmlDraft(null)}>Cancelar</button>
+                      <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setElementHtmlDraft(null)}>Cancelar</button>
                       <button className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem' }} onClick={handleSaveElementHtml}>
                         <Save size={15} /> Salvar
                       </button>
@@ -2594,7 +2594,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
           {showAttachMenu && (
             <div style={{ margin: '0 1rem 0.5rem', padding: '0.75rem', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-glass)', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <label className="btn-icon" style={{ width: 'auto', padding: '0.4rem 0.7rem', justifyContent: 'flex-start', gap: '0.4rem', cursor: 'pointer' }}>
+              <label className="btn-secondary" style={{ padding: '0.4rem 0.7rem', justifyContent: 'flex-start', gap: '0.4rem', cursor: 'pointer' }}>
                 <Paperclip size={14} /> <span style={{ fontSize: '0.78rem' }}>Anexar PDF / TXT / Imagem</span>
                 <input type="file" accept=".pdf,.txt,image/*" style={{ display: 'none' }} onChange={handleAttachFile} disabled={attachLoading} />
               </label>

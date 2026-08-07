@@ -222,10 +222,10 @@ export default function ActiveMethodologiesOverlay({
           {wordEntries.length > 0 && (
             <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
               <button
-                className="btn-icon"
+                className="btn-secondary"
                 onClick={handleSummarize}
                 disabled={summaryLoading}
-                style={{ width: 'auto', padding: '0.35rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', color: '#67e8f9' }}
+                style={{ padding: '0.35rem 0.7rem', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: '#67e8f9' }}
               >
                 {summaryLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
                 Resumir com IA

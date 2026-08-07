@@ -147,7 +147,7 @@ export default function SlideBackgroundModal({ isOpen, onClose, currentSlideHtml
 
         {/* Rodapé de Ações */}
         <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <button className="btn-icon" onClick={onClose} style={{ width: 'auto', padding: '0.5rem 1rem' }}>
+          <button className="btn-secondary" onClick={onClose} style={{ padding: '0.5rem 1rem' }}>
             Cancelar
           </button>
           <button

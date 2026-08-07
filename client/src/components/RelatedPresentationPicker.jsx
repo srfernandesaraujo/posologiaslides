@@ -92,7 +92,7 @@ export default function RelatedPresentationPicker({ isOpen, onClose, currentPres
             <div style={{ fontSize: '0.82rem', color: '#e5e7eb' }}>
               Vinculada agora: <strong>{currentRelated.title}</strong>
             </div>
-            <button className="btn-icon" style={{ width: 'auto', padding: '0.3rem 0.5rem', fontSize: '0.72rem', gap: '0.3rem', color: '#f87171' }} onClick={onClear} title="Remover vínculo">
+            <button className="btn-secondary" style={{ padding: '0.3rem 0.5rem', fontSize: '0.72rem', fontWeight: 600, gap: '0.3rem', color: '#f87171' }} onClick={onClear} title="Remover vínculo">
               <Link2Off size={14} /> Remover
             </button>
           </div>

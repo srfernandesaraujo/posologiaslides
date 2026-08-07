@@ -131,7 +131,7 @@ export default function PresentationReportModal({ isOpen, onClose, presentationT
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-          <button className="btn-icon" onClick={onClose} style={{ width: 'auto', padding: '0 1rem' }}>
+          <button className="btn-secondary" onClick={onClose} style={{ padding: '0.6rem 1.2rem' }}>
             Fechar
           </button>
         </div>

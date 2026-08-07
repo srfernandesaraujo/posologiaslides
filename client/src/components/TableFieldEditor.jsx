@@ -129,10 +129,10 @@ export default function TableFieldEditor({ value, onChange }) {
         </table>
       </div>
       <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
-        <button type="button" className="btn-icon" style={{ width: 'auto', fontSize: '0.72rem', gap: '0.25rem', padding: '0.3rem 0.5rem' }} onClick={addRow}>
+        <button type="button" className="btn-secondary" style={{ fontSize: '0.72rem', fontWeight: 600, gap: '0.25rem', padding: '0.3rem 0.5rem' }} onClick={addRow}>
           <Plus size={12} /> Linha
         </button>
-        <button type="button" className="btn-icon" style={{ width: 'auto', fontSize: '0.72rem', gap: '0.25rem', padding: '0.3rem 0.5rem' }} onClick={addColumn}>
+        <button type="button" className="btn-secondary" style={{ fontSize: '0.72rem', fontWeight: 600, gap: '0.25rem', padding: '0.3rem 0.5rem' }} onClick={addColumn}>
           <Plus size={12} /> Coluna
         </button>
       </div>

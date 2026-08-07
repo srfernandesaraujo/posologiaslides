@@ -127,7 +127,7 @@ export default function AISingleSlideModal({ isOpen, onClose, onInsert }) {
             />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
-              <label className="btn-icon" style={{ width: 'auto', fontSize: '0.78rem', gap: '0.35rem', padding: '0.4rem 0.7rem', cursor: 'pointer' }}>
+              <label className="btn-secondary" style={{ fontSize: '0.78rem', fontWeight: 600, gap: '0.35rem', padding: '0.4rem 0.7rem', cursor: 'pointer' }}>
                 {attachLoading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
                 Anexar arquivo de referência (opcional)
                 <input type="file" accept=".pdf,.txt,image/*" style={{ display: 'none' }} onChange={handleAttachFile} disabled={attachLoading} />
@@ -170,8 +170,8 @@ export default function AISingleSlideModal({ isOpen, onClose, onInsert }) {
             </div>
             <div style={{ display: 'flex', gap: '0.6rem' }}>
               <button
-                className="btn-icon"
-                style={{ flex: 1, width: 'auto', justifyContent: 'center', fontSize: '0.85rem', gap: '0.4rem' }}
+                className="btn-secondary"
+                style={{ flex: 1, justifyContent: 'center', fontSize: '0.85rem', gap: '0.4rem' }}
                 onClick={handleGenerate}
                 disabled={loading}
               >

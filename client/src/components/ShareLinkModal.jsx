@@ -125,9 +125,9 @@ export default function ShareLinkModal({ isOpen, onClose, presentationId, presen
               </button>
             </div>
             <button
-              className="btn-icon"
+              className="btn-secondary"
               onClick={handleRevoke}
-              style={{ width: 'auto', padding: '0.5rem 0.9rem', gap: '0.4rem', color: '#f87171', fontSize: '0.82rem' }}
+              style={{ padding: '0.5rem 0.9rem', gap: '0.4rem', color: '#f87171', fontSize: '0.82rem', fontWeight: 600 }}
             >
               <Ban size={15} /> Revogar link
             </button>

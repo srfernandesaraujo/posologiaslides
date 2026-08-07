@@ -591,7 +591,7 @@ export default function AIModalGenerator({ isOpen, onClose, onGenerate }) {
           )}
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-            <button type="button" className="btn-icon" onClick={onClose} style={{ width: 'auto', padding: '0 1rem' }}>
+            <button type="button" className="btn-secondary" onClick={onClose} style={{ padding: '0.6rem 1.2rem' }}>
               Cancelar
             </button>
             <button type="submit" className="btn-primary" disabled={loading}>

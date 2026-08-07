@@ -238,7 +238,7 @@ export default function WidgetLibraryDrawer({ isOpen, onClose, onInsertWidget, e
                 return <IconComp size={Number(iconSize)} color={iconColor} />;
               })()}
               <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
-                <button className="btn-icon" style={{ width: 'auto', flex: 1 }} onClick={() => setEditingIcon(null)}>Cancelar</button>
+                <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setEditingIcon(null)}>Cancelar</button>
                 <button className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem' }} onClick={handleSaveIconEdit}>
                   <Save size={15} /> Salvar Alterações
                 </button>

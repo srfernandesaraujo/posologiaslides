@@ -499,8 +499,8 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
         {/* Rodapé de Ações */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
           <button
-            className="btn-icon"
-            style={{ width: 'auto', padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
+            className="btn-secondary"
+            style={{ padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}
             onClick={handleClose}
           >
             Cancelar

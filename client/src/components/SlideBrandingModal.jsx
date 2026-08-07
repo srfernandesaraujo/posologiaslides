@@ -229,10 +229,10 @@ export default function SlideBrandingModal({ isOpen, onClose, onApplyAll, onAppl
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <button
             type="button"
-            className="btn-icon"
+            className="btn-secondary"
             onClick={handleRemoveAll}
             title="Remover a marca/rodapé de todos os slides"
-            style={{ width: 'auto', padding: '0.45rem 0.8rem', fontSize: '0.78rem', color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}
+            style={{ padding: '0.45rem 0.8rem', fontSize: '0.78rem', fontWeight: 600, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}
           >
             <Trash2 size={14} /> Remover de Todos
           </button>
@@ -240,9 +240,9 @@ export default function SlideBrandingModal({ isOpen, onClose, onApplyAll, onAppl
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <button
               type="button"
-              className="btn-icon"
+              className="btn-secondary"
               onClick={handleSaveToLocalStorage}
-              style={{ width: 'auto', padding: '0.45rem 0.8rem', fontSize: '0.78rem', gap: '0.35rem' }}
+              style={{ padding: '0.45rem 0.8rem', fontSize: '0.78rem', fontWeight: 600, gap: '0.35rem' }}
             >
               {savedSuccess ? <Check size={14} color="#34d399" /> : <Save size={14} />}
               {savedSuccess ? 'Salvo no Perfil!' : 'Salvar Dados'}
