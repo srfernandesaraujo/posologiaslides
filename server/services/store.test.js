@@ -9,7 +9,7 @@ import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
 import { db } from './firebaseAdmin.js';
-import { savePresentation } from './store.js';
+import { savePresentation, findInvalidNestedArrayPath } from './store.js';
 
 const userId = `test-concurrency-${crypto.randomUUID()}`;
 const createdIds = [];
@@ -97,5 +97,30 @@ describe('savePresentation — concorrência otimista', () => {
     );
     assert.equal(forced.conflict, false);
     assert.equal(forced.presentation.title, 'Aula Z (forçado do PC)');
+  });
+});
+
+describe('findInvalidNestedArrayPath — array-dentro-de-array (Firestore rejeita)', () => {
+  test('slides sem nenhum array aninhado: null', () => {
+    const slides = [{ id: 's1', title: 'A', html: '<div></div>', tags: ['x', 'y'] }];
+    assert.equal(findInvalidNestedArrayPath(slides), null);
+  });
+
+  test('array direto dentro de array: acha o caminho', () => {
+    const slides = [{ id: 's1', pontos: [[1, 2], [3, 4]] }];
+    assert.equal(findInvalidNestedArrayPath(slides), 'slides[0].pontos[0]');
+  });
+
+  test('array aninhado fundo dentro de objetos: acha o caminho completo', () => {
+    const slides = [
+      { id: 's1', html: '<div></div>' },
+      { id: 's2', elements: [{ id: 'e1', transform: { path: [[0, 0], [10, 10]] } }] }
+    ];
+    assert.equal(findInvalidNestedArrayPath(slides), 'slides[1].elements[0].transform.path[0]');
+  });
+
+  test('array DENTRO de objeto DENTRO de array é permitido (só array-em-array direto é proibido)', () => {
+    const slides = [{ id: 's1', elements: [{ id: 'e1', tags: ['a', 'b'] }] }];
+    assert.equal(findInvalidNestedArrayPath(slides), null);
   });
 });

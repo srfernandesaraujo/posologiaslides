@@ -212,6 +212,33 @@ function serializePresentation(id, p) {
   };
 }
 
+// Firestore recusa gravar um array que contenha outro array diretamente
+// dentro dele (ex.: `{ pontos: [[1,2],[3,4]] }`) — falha com um erro genérico
+// (`INVALID_ARGUMENT: Property array contains an invalid nested entity`) que
+// não diz ONDE está o problema. Isso já travou um save de verdade sem
+// resposta nenhuma pro cliente (2026-08-07 — ver presentationsRoutes.js,
+// devolvido como 400 com o caminho exato antes de sequer tentar escrever, em
+// vez de deixar o Firestore rejeitar e a mensagem ficar só nos logs do
+// servidor). Objetos (mapas) DENTRO de arrays podem ter arrays à vontade —
+// só array-dentro-de-array direto é proibido.
+export function findInvalidNestedArrayPath(value, path = 'slides') {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      if (Array.isArray(value[i])) return `${path}[${i}]`;
+      const nested = findInvalidNestedArrayPath(value[i], `${path}[${i}]`);
+      if (nested) return nested;
+    }
+    return null;
+  }
+  if (value && typeof value === 'object') {
+    for (const key of Object.keys(value)) {
+      const nested = findInvalidNestedArrayPath(value[key], `${path}.${key}`);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
 export async function getPresentation(id, userId) {
   const snap = await presentationsRef(userId).doc(id).get();
   return snap.exists ? serializePresentation(snap.id, snap.data()) : null;
