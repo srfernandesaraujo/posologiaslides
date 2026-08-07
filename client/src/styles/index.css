@@ -1922,21 +1922,27 @@ button.mobile-toggle-btn {
 }
 
 /* min-width fixo (soma dos pisos de cada coluna, ver grid-template-columns
-   abaixo, MAIS o padding horizontal — box-sizing:border-box inclui padding
-   dentro do min-width) em vez de deixar o grid encolher sozinho:
-   min-width:max-content num grid com colunas minmax(...) fica refém do
-   texto MAIS LARGO sem truncar (o cálculo de max-content ignora
-   nowrap+ellipsis), então rolaria muito mais do que o necessário. Com o
-   número fixo, a linha preenche 100% da largura disponível normalmente
-   (colunas fr crescem) enquanto ela couber, e só passa a exigir rolagem
-   horizontal (via overflow-x:auto do container acima) quando a tela for
-   mais estreita que isto: 220+160+130+90+136 = 736px de colunas + 2×1.25rem
-   (20px) de padding = 776px. */
+   abaixo, MAIS os 4 gaps entre colunas MAIS o padding horizontal —
+   box-sizing:border-box inclui padding dentro do min-width) em vez de
+   deixar o grid encolher sozinho: min-width:max-content num grid com
+   colunas minmax(...) fica refém do texto MAIS LARGO sem truncar (o
+   cálculo de max-content ignora nowrap+ellipsis), então rolaria muito mais
+   do que o necessário. Com o número fixo, a linha preenche 100% da largura
+   disponível normalmente (colunas fr crescem) enquanto ela couber, e só
+   passa a exigir rolagem horizontal (via overflow-x:auto do container
+   acima) quando a tela for mais estreita que isto: 220+180+130+90+136 =
+   756px de colunas + 4×1rem (64px) de gap + 2×1.25rem (40px) de padding =
+   860px. O gap em si (ver `gap` abaixo) também é o que faltava pro selo de
+   disciplina não ficar colado na coluna de data seguinte — como o selo
+   ocupa 100% da largura da própria célula (max-width:100%), sem gap nenhum
+   entre colunas as duas colunas ficavam encostadas, mesmo com o texto
+   truncando corretamente. */
 .finder-table-header,
 .finder-file-row {
   display: grid;
-  grid-template-columns: minmax(220px, 2.3fr) minmax(160px, 1.4fr) minmax(130px, 1.1fr) 90px 136px;
-  min-width: 776px;
+  grid-template-columns: minmax(220px, 2.3fr) minmax(180px, 1.4fr) minmax(130px, 1.1fr) 90px 136px;
+  gap: 1rem;
+  min-width: 860px;
 }
 
 .finder-table-header {
