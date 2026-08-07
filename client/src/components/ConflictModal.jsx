@@ -43,18 +43,10 @@ export default function ConflictModal({ isOpen, localPresentation, serverPresent
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-          <button
-            className="btn-icon"
-            onClick={onDownloadLocal}
-            style={{ width: '100%', justifyContent: 'center', padding: '0.65rem', gap: '0.5rem', background: 'rgba(255,255,255,0.08)' }}
-          >
+          <button className="btn-secondary" onClick={onDownloadLocal} style={{ width: '100%', justifyContent: 'center' }}>
             <Download size={16} /> Baixar minhas alterações daqui (.json)
           </button>
-          <button
-            className="btn-icon"
-            onClick={onLoadServer}
-            style={{ width: '100%', justifyContent: 'center', padding: '0.65rem', gap: '0.5rem', color: '#f87171', background: 'rgba(255,255,255,0.08)' }}
-          >
+          <button className="btn-secondary" onClick={onLoadServer} style={{ width: '100%', justifyContent: 'center', color: '#f87171' }}>
             <CloudDownload size={16} /> Descartar edições daqui e carregar a versão mais recente
           </button>
           <button className="btn-primary" onClick={onKeepLocal} style={{ width: '100%', justifyContent: 'center' }}>

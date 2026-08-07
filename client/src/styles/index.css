@@ -554,6 +554,30 @@ button.mobile-toggle-btn {
   box-shadow: 0 6px 20px var(--accent-primary-glow);
 }
 
+/* Mesmo formato/tamanho de .btn-primary, sem o destaque de cor — ação
+   secundária num grupo de botões (ex.: ConflictModal.jsx). Não reaproveita
+   .btn-icon aqui: aquela classe é pensada pra um botão pequeno e circular
+   (36x36, border-radius: 50%), e esticada em largura total vira uma forma de
+   fuso/cápsula em vez de um botão retangular tradicional. */
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 /* Texto de botões que só cabe em telas largas — em celulares muito estreitos
    vira ícone-only (ver breakpoint ≤480px mais abaixo). */
 .btn-label {

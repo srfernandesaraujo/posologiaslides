@@ -39,6 +39,11 @@ export default function App() {
   const autosaveTimerRef = useRef(null);
   const autosaveAbortRef = useRef(null);
   const lastSavedJsonRef = useRef(null);
+  // Id fixo desta aba (uma vez por carregamento) — deixa o servidor
+  // reconhecer "sou eu mesmo, só uma resposta anterior que abortei e nunca
+  // processei" e não confundir isso com um conflito de verdade vindo de
+  // outra aba/dispositivo. Ver comentário em store.js#savePresentation.
+  const sessionIdRef = useRef(crypto.randomUUID());
   // Trava o autosave enquanto um conflito de edição concorrente (409, ver
   // store.js#savePresentation) está sem resolução na tela — evita empilhar
   // mais um save em cima de um conflito que o usuário ainda nem viu.
@@ -68,7 +73,7 @@ export default function App() {
         const res = await apiFetch('/api/presentations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...presentation, expectedUpdatedAt: presentation.updatedAt ?? null }),
+          body: JSON.stringify({ ...presentation, expectedUpdatedAt: presentation.updatedAt ?? null, sessionId: sessionIdRef.current }),
           signal: controller.signal
         });
         const data = await res.json();
@@ -133,7 +138,7 @@ export default function App() {
       const res = await apiFetch('/api/presentations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...presentation, force: true })
+        body: JSON.stringify({ ...presentation, force: true, sessionId: sessionIdRef.current })
       });
       const data = await res.json();
       if (data.success) {

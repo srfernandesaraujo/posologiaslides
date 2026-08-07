@@ -228,8 +228,20 @@ export async function getPresentation(id, userId) {
 // pelo `get()` antes de qualquer `update()` acontecer e a checagem vira letra
 // morta. `force: true` pula a checagem — usado só quando o usuário resolve um
 // conflito já mostrado a ele escolhendo manter a própria versão.
+//
+// `sessionId` (um id aleatório gerado uma vez por aba, ver App.jsx) evita um
+// falso-positivo: o autosave cancela (AbortController) um POST anterior ainda
+// em voo antes de mandar um novo, mas o cancelamento só existe do lado do
+// navegador — o servidor não sabe e pode terminar de gravar aquele save
+// mesmo assim. O cliente nunca processa essa resposta abortada, então o
+// `updatedAt` que ele guarda localmente fica atrasado, e o PRÓXIMO autosave
+// da MESMA aba erraria a checagem contra o próprio save anterior (conflito
+// "toda hora" com um único navegador aberto, sem ninguém mais editando).
+// Se quem gravou por último foi essa mesma sessão, deixa passar mesmo com
+// expectedUpdatedAt desatualizado — só é conflito de verdade quando o último
+// gravador foi uma sessão DIFERENTE.
 export async function savePresentation(presentation, userId) {
-  const { id, title, description, slides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force } = presentation;
+  const { id, title, description, slides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId } = presentation;
   const now = Date.now();
 
   if (id) {
@@ -238,17 +250,21 @@ export async function savePresentation(presentation, userId) {
       const existing = await tx.get(ref);
       if (!existing.exists) return null;
 
-      if (!force && typeof expectedUpdatedAt === 'number' && existing.data().updatedAt !== expectedUpdatedAt) {
-        return { conflict: true, presentation: serializePresentation(id, existing.data()) };
+      const currentData = existing.data();
+      const sameSessionAsLastWriter = !!sessionId && currentData.lastWriterSessionId === sessionId;
+
+      if (!force && !sameSessionAsLastWriter && typeof expectedUpdatedAt === 'number' && currentData.updatedAt !== expectedUpdatedAt) {
+        return { conflict: true, presentation: serializePresentation(id, currentData) };
       }
 
       const data = {
         title, description: description || null, slides, updatedAt: now,
+        lastWriterSessionId: sessionId || null,
         relatedPresentationId: relatedPresentationId || null,
         relatedPresentationTitle: relatedPresentationTitle || null
       };
       tx.update(ref, data);
-      return { conflict: false, presentation: serializePresentation(id, { ...existing.data(), ...data }) };
+      return { conflict: false, presentation: serializePresentation(id, { ...currentData, ...data }) };
     });
     if (result) return result;
   }
@@ -265,6 +281,7 @@ export async function savePresentation(presentation, userId) {
     createdAt: now,
     updatedAt: now,
     lastOpenedAt: null,
+    lastWriterSessionId: sessionId || null,
     relatedPresentationId: relatedPresentationId || null,
     relatedPresentationTitle: relatedPresentationTitle || null
   };

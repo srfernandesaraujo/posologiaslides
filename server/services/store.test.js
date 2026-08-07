@@ -33,28 +33,51 @@ describe('savePresentation — concorrência otimista', () => {
     assert.equal(updated.presentation.title, 'Aula X editada');
   });
 
-  test('expectedUpdatedAt desatualizado devolve conflict:true e NÃO sobrescreve', async () => {
+  test('expectedUpdatedAt desatualizado + sessionId diferente devolve conflict:true e NÃO sobrescreve', async () => {
     const created = await savePresentation({ title: 'Aula Y', slides: [{ id: 's1', html: '<div>a</div>' }] }, userId);
     const id = created.presentation.id;
     createdIds.push(id);
     const staleUpdatedAt = created.presentation.updatedAt;
 
-    // Simula outro dispositivo salvando primeiro.
+    // Simula outro dispositivo (sessionId diferente) salvando primeiro.
     const otherDevice = await savePresentation(
-      { id, title: 'Aula Y (salva no iPad)', slides: [{ id: 's1', html: '<div>ipad</div>' }], expectedUpdatedAt: staleUpdatedAt },
+      { id, title: 'Aula Y (salva no iPad)', slides: [{ id: 's1', html: '<div>ipad</div>' }], expectedUpdatedAt: staleUpdatedAt, sessionId: 'sessao-ipad' },
       userId
     );
     assert.equal(otherDevice.conflict, false);
 
-    // Este cliente ainda tem o updatedAt antigo (staleUpdatedAt) — não devia sobrescrever o que o iPad acabou de salvar.
+    // Este cliente (sessão diferente) ainda tem o updatedAt antigo — não devia sobrescrever o que o iPad acabou de salvar.
     const thisDevice = await savePresentation(
-      { id, title: 'Aula Y (editada no PC)', slides: [{ id: 's1', html: '<div>pc</div>' }], expectedUpdatedAt: staleUpdatedAt },
+      { id, title: 'Aula Y (editada no PC)', slides: [{ id: 's1', html: '<div>pc</div>' }], expectedUpdatedAt: staleUpdatedAt, sessionId: 'sessao-pc' },
       userId
     );
     assert.equal(thisDevice.conflict, true);
     // O conflito devolve o estado ATUAL do servidor (o que o iPad salvou), não o que este cliente tentou mandar.
     assert.equal(thisDevice.presentation.title, 'Aula Y (salva no iPad)');
     assert.equal(thisDevice.presentation.slides[0].html, '<div>ipad</div>');
+  });
+
+  test('expectedUpdatedAt desatualizado mas MESMA sessionId não é conflito (aba cancelou a resposta anterior, não é outro dispositivo)', async () => {
+    const created = await savePresentation({ title: 'Aula W', slides: [{ id: 's1', html: '<div>a</div>' }] }, userId);
+    const id = created.presentation.id;
+    createdIds.push(id);
+    const staleUpdatedAt = created.presentation.updatedAt;
+
+    // Mesma aba salva de novo (updatedAt já mudou no servidor por esse mesmo save,
+    // mas o cliente nunca processou a resposta — abortou — então ainda manda o
+    // expectedUpdatedAt antigo). sessionId igual ao gravador atual: não é conflito.
+    const firstSave = await savePresentation(
+      { id, title: 'Aula W (save 1, resposta abortada no cliente)', slides: [{ id: 's1', html: '<div>1</div>' }], expectedUpdatedAt: staleUpdatedAt, sessionId: 'sessao-unica' },
+      userId
+    );
+    assert.equal(firstSave.conflict, false);
+
+    const secondSave = await savePresentation(
+      { id, title: 'Aula W (save 2, mesma aba)', slides: [{ id: 's1', html: '<div>2</div>' }], expectedUpdatedAt: staleUpdatedAt, sessionId: 'sessao-unica' },
+      userId
+    );
+    assert.equal(secondSave.conflict, false);
+    assert.equal(secondSave.presentation.title, 'Aula W (save 2, mesma aba)');
   });
 
   test('force:true ignora o conflito e sobrescreve mesmo assim', async () => {
