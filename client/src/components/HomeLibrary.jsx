@@ -99,7 +99,7 @@ function flattenTree(folders) {
   return items;
 }
 
-export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSettings, refreshKey, user, onLogout }) {
+export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSettings, refreshKey, user, onLogout, active = true }) {
   const [folders, setFolders] = useState([]);
   const [sizeLimitBytes, setSizeLimitBytes] = useState(DEFAULT_SIZE_LIMIT_BYTES);
   const [loading, setLoading] = useState(true);
@@ -169,9 +169,17 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
       .finally(() => setLoading(false));
   };
 
+  // `active` (App.jsx agora mantém HomeLibrary sempre montada, só escondida
+  // via CSS quando o editor está aberto — ver comentário lá) evita buscar a
+  // árvore do zero enquanto a biblioteca está invisível: sem esta guarda,
+  // cada autosave bem-sucedido durante a edição (que incrementa `refreshKey`
+  // pra deixar os dados frescos pra PRÓXIMA visita) dispararia uma consulta
+  // completa ao Firestore a cada ~1,2s de edição, mesmo sem ninguém olhando
+  // pra tela. Volta a buscar assim que `active` fica true de novo.
   useEffect(() => {
+    if (!active) return;
     loadTree();
-  }, [refreshKey]);
+  }, [refreshKey, active]);
 
   const allPresentations = useMemo(() => flattenTree(folders), [folders]);
 

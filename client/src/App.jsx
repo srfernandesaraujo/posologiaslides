@@ -258,10 +258,29 @@ export default function App() {
     return <Login />;
   }
 
-  if (view === 'library') {
-    return (
-      <>
+  return (
+    <>
+      {/* Biblioteca fica SEMPRE montada (só escondida via display:none
+          quando a tela ativa é o editor), em vez do antigo `if (view ===
+          'library') return (...)` que desmontava a árvore inteira a cada
+          troca de tela. HomeLibrary tem uma miniatura por apresentação (um
+          iframe cada, ver SlideThumbnail/PresentationViewer) — desmontar e
+          remontar tudo do zero a cada ida-e-volta pro editor recarregava
+          TODAS elas de novo, mesmo quando nada tinha mudado (é o mesmo
+          problema já corrigido no SlideList da barra lateral do editor,
+          só que aqui na biblioteca). `display:contents` no wrapper (só
+          quando visível) não introduz caixa nenhuma, então o grid próprio
+          de `.library-page` (height:100vh) continua se comportando como se
+          estivesse direto na raiz.
+          A prop `active` evita o outro lado do problema: cada autosave bem-
+          sucedido incrementa `libraryRefreshKey` (ver mais abaixo) pra
+          biblioteca vir com dados frescos da PRÓXIMA vez que for aberta —
+          sem a guarda de `active` dentro de HomeLibrary, isto buscaria a
+          árvore inteira de novo no Firestore a CADA autosave enquanto o
+          usuário edita, mesmo com a biblioteca invisível. */}
+      <div style={{ display: view === 'library' ? 'contents' : 'none' }}>
         <HomeLibrary
+          active={view === 'library'}
           onOpenPresentation={openPresentation}
           onCreateNew={() => setIsModalOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
@@ -269,83 +288,75 @@ export default function App() {
           user={user}
           onLogout={logout}
         />
+      </div>
 
-        <AIModalGenerator
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          onGenerate={(newPresentation) => {
-            lastSavedJsonRef.current = null; // força o autosave a persistir a nova apresentação
-            setPresentation(newPresentation);
-            setView('editor');
-          }}
-        />
+      {view === 'editor' && (
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+          {/* Top Header */}
+          <header className="app-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button className="btn-icon" onClick={backToLibrary} title="Voltar para a Biblioteca">
+                <ArrowLeft size={20} />
+              </button>
+              <div className="app-title">
+                <Presentation size={24} color="var(--accent-primary)" />
+                <span>Posologia Slides</span>
+              </div>
 
-        <SettingsModal
-          isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
-          onBackupRestored={() => setLibraryRefreshKey((k) => k + 1)}
-        />
-      </>
-    );
-  }
+              {saveStatus === 'saving' && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  <Loader2 size={14} className="animate-spin" /> Salvando…
+                </span>
+              )}
+              {saveStatus === 'error' && (
+                <span
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', fontWeight: 700, color: '#f87171' }}
+                  title="As últimas alterações podem não ter sido salvas no servidor. Não feche esta aba."
+                >
+                  <AlertCircle size={14} />
+                  {saveErrorDetail || 'Não foi possível salvar — verifique sua conexão'}
+                </span>
+              )}
+            </div>
 
-  return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Top Header */}
-      <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <button className="btn-icon" onClick={backToLibrary} title="Voltar para a Biblioteca">
-            <ArrowLeft size={20} />
-          </button>
-          <div className="app-title">
-            <Presentation size={24} color="var(--accent-primary)" />
-            <span>Posologia Slides</span>
-          </div>
+            <div style={{ display: 'flex', gap: '0.6rem' }}>
+              <button className="btn-icon" onClick={() => setIsSettingsOpen(true)} title="Configurar Chaves de API (IA)">
+                <Settings size={18} />
+              </button>
+              <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
+                <Sparkles size={18} /> <span className="btn-label">Nova Apresentação com IA</span>
+              </button>
+              <button className="btn-icon" onClick={logout} title="Sair">
+                <LogOut size={18} />
+              </button>
+            </div>
+          </header>
 
-          {saveStatus === 'saving' && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              <Loader2 size={14} className="animate-spin" /> Salvando…
-            </span>
-          )}
-          {saveStatus === 'error' && (
-            <span
-              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', fontWeight: 700, color: '#f87171' }}
-              title="As últimas alterações podem não ter sido salvas no servidor. Não feche esta aba."
-            >
-              <AlertCircle size={14} />
-              {saveErrorDetail || 'Não foi possível salvar — verifique sua conexão'}
-            </span>
-          )}
+          {/* Main Presentation Editor */}
+          <PresentationEditor
+            presentation={presentation}
+            setPresentation={setPresentation}
+            onOpenModal={() => setIsModalOpen(true)}
+            onOpenPresentation={openPresentation}
+          />
         </div>
+      )}
 
-        <div style={{ display: 'flex', gap: '0.6rem' }}>
-          <button className="btn-icon" onClick={() => setIsSettingsOpen(true)} title="Configurar Chaves de API (IA)">
-            <Settings size={18} />
-          </button>
-          <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
-            <Sparkles size={18} /> <span className="btn-label">Nova Apresentação com IA</span>
-          </button>
-          <button className="btn-icon" onClick={logout} title="Sair">
-            <LogOut size={18} />
-          </button>
-        </div>
-      </header>
-
-      {/* Main Presentation Editor */}
-      <PresentationEditor
-        presentation={presentation}
-        setPresentation={setPresentation}
-        onOpenModal={() => setIsModalOpen(true)}
-        onOpenPresentation={openPresentation}
-      />
-
-      {/* Modais */}
+      {/* Modais — uma instância só, compartilhada entre biblioteca e editor
+          (antes existiam duas cópias de AIModalGenerator/SettingsModal, uma
+          em cada branch; agora que os dois ficam montados ao mesmo tempo,
+          duas instâncias reagindo ao mesmo `isModalOpen`/`isSettingsOpen`
+          abririam os dois modais sobrepostos). `onGenerate` sempre leva pro
+          editor — mesmo comportamento que já valia ao gerar a partir da
+          biblioteca; gerar a partir do editor já deixava `view` como
+          'editor' mesmo, então virou um no-op inofensivo ali. */}
       <AIModalGenerator
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onGenerate={(newPresentation) => {
-          lastSavedJsonRef.current = null;
+          lastSavedJsonRef.current = null; // força o autosave a persistir a nova apresentação
           setPresentation(newPresentation);
+          setView('editor');
         }}
       />
 
@@ -363,6 +374,6 @@ export default function App() {
         onLoadServer={handleLoadServerVersion}
         onDownloadLocal={handleDownloadLocalVersion}
       />
-    </div>
+    </>
   );
 }
