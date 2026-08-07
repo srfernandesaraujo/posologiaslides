@@ -9,6 +9,7 @@ import StudentJoin from './mobile/StudentJoin';
 import PublicPresentationView from './pages/PublicPresentationView';
 import { useAuth } from './context/AuthContext';
 import { apiFetch } from './lib/api';
+import { findInvalidNestedArrayPath } from './lib/dataValidation';
 import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loader2 } from 'lucide-react';
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
@@ -55,6 +56,7 @@ export default function App() {
   // POST /api/presentations sem nenhum indício visível). Este estado alimenta
   // um aviso fixo no header enquanto o último save não tiver sucesso.
   const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'error'
+  const [saveErrorDetail, setSaveErrorDetail] = useState(null);
 
   // Autosave: persiste a apresentação no servidor sempre que ela muda, com debounce
   useEffect(() => {
@@ -72,10 +74,30 @@ export default function App() {
       // Firestore com uma lista de slides desatualizada. O `expectedUpdatedAt`
       // abaixo cobre o caso mais grave (outra ABA/DISPOSITIVO salvando por
       // cima, não só requisições deste mesmo cliente fora de ordem).
+      // Checa ANTES de mandar pro servidor: Firestore recusa qualquer array
+      // que contenha outro array diretamente dentro dele, com um erro
+      // genérico que não diz onde está o problema (ver
+      // store.js#findInvalidNestedArrayPath — mesma checagem duplicada aqui
+      // pra falhar rápido, sem gastar uma volta de rede à toa, e apontar o
+      // campo exato direto no console).
+      const invalidPath = findInvalidNestedArrayPath(presentation.slides);
+      if (invalidPath) {
+        const slideIndexMatch = invalidPath.match(/^slides\[(\d+)\]/);
+        const slideIndex = slideIndexMatch ? Number(slideIndexMatch[1]) : null;
+        console.error(`[autosave] campo inválido em "${invalidPath}" — array dentro de array, Firestore recusa isto.`);
+        if (slideIndex !== null) {
+          console.error(`[autosave] conteúdo do slide ${slideIndex} (o que causou o problema):`, presentation.slides[slideIndex]);
+        }
+        setSaveStatus('error');
+        setSaveErrorDetail(`Campo "${invalidPath}" tem um formato que o servidor não aceita (array dentro de array).`);
+        return;
+      }
+
       if (autosaveAbortRef.current) autosaveAbortRef.current.abort();
       const controller = new AbortController();
       autosaveAbortRef.current = controller;
       setSaveStatus('saving');
+      setSaveErrorDetail(null);
       try {
         const res = await apiFetch('/api/presentations', {
           method: 'POST',
@@ -121,6 +143,7 @@ export default function App() {
           // Resposta chegou mas sem sucesso (400/401/500 etc, não é o 409 de
           // conflito tratado acima) — não fica em silêncio.
           setSaveStatus('error');
+          setSaveErrorDetail(data.error || null);
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
@@ -275,7 +298,8 @@ export default function App() {
               style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', fontWeight: 700, color: '#f87171' }}
               title="As últimas alterações podem não ter sido salvas no servidor. Não feche esta aba."
             >
-              <AlertCircle size={14} /> Não foi possível salvar — verifique sua conexão
+              <AlertCircle size={14} />
+              {saveErrorDetail || 'Não foi possível salvar — verifique sua conexão'}
             </span>
           )}
         </div>
