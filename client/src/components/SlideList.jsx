@@ -30,7 +30,7 @@ function LazySlidePreview({ html }) {
   );
 }
 
-export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onAddSlideWithCode, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onToggleHideSlide, onReorderSlides, className = '', onClose }) {
+export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onAddSlideWithCode, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onToggleHideSlide, onReorderSlides, className = '', onClose, style }) {
   const listRef = useRef(null);
   // Índice sendo arrastado e índice "bruto" (antes do ajuste de deslocamento,
   // ver handlePointerUp) sobre o qual o ponteiro está no momento — null
@@ -83,7 +83,7 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
   };
 
   return (
-    <div className={`sidebar-slides ${className}`.trim()} ref={listRef}>
+    <div className={`sidebar-slides ${className}`.trim()} ref={listRef} style={style}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
         <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', tracking: '0.05em' }}>
           Slides ({slides.length})

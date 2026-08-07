@@ -1516,62 +1516,70 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         />
       )}
 
-      {/* Sidebar Esquerda (Miniaturas de Slides) */}
-      {!isFullscreen && (
-        <SlideList
-          className={mobileSlideListOpen ? 'mobile-open' : ''}
-          slides={presentation.slides}
-          activeIndex={activeIndex}
-          onSelectSlide={(idx) => {
-            emitSlideChanged(idx);
-            setMobileSlideListOpen(false);
-          }}
-          onClose={() => setMobileSlideListOpen(false)}
-          onAddSlide={() => handleAddSlideAt(presentation.slides.length)}
-          onAddTemplate={() => handleOpenTemplateGallery(activeIndex + 1)}
-          onAddSlideWithAI={() => handleOpenAISingleSlide(activeIndex + 1)}
-          onAddSlideWithCode={() => handleOpenCodeSlide(activeIndex + 1)}
-          onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
-          onToggleHideSlide={handleToggleHideSlide}
-          onDeleteSlide={(idxToDelete) => {
-            if (presentation.slides.length <= 1) return;
-            const newSlides = presentation.slides.filter((_, i) => i !== idxToDelete);
-            commit({ ...presentation, slides: newSlides });
-            // Sem isto, apagar o slide ativo (ou qualquer um antes dele) deixava
-            // activeIndex apontando para fora do novo array — o palco caía no
-            // placeholder "Nenhum slide gerado" e parecia que nada tinha acontecido.
-            setActiveIndex((prev) => {
-              const shifted = idxToDelete < prev ? prev - 1 : prev;
-              return Math.min(shifted, newSlides.length - 1);
-            });
-          }}
-          onDuplicateSlide={(idxToDuplicate) => {
-            // Clona o slide inteiro (mesmo html/branches/type/etc.) só com um
-            // id novo — insere logo depois do original e já seleciona a cópia,
-            // pra editar o conteúdo dela sem afetar a original.
-            const original = presentation.slides[idxToDuplicate];
-            const duplicate = { ...original, id: `slide-${Date.now()}` };
-            const newSlides = [...presentation.slides];
-            newSlides.splice(idxToDuplicate + 1, 0, duplicate);
-            commit({ ...presentation, slides: newSlides });
-            setActiveIndex(idxToDuplicate + 1);
-          }}
-          onReorderSlides={(fromIndex, toIndex) => {
-            const newSlides = [...presentation.slides];
-            const [moved] = newSlides.splice(fromIndex, 1);
-            newSlides.splice(toIndex, 0, moved);
-            commit({ ...presentation, slides: newSlides });
-            // Reordenar não deve trocar QUAL slide está selecionado — só
-            // recalcula onde esse mesmo slide foi parar no array novo.
-            setActiveIndex((prevActive) => {
-              if (prevActive === fromIndex) return toIndex;
-              if (fromIndex < prevActive && toIndex >= prevActive) return prevActive - 1;
-              if (fromIndex > prevActive && toIndex <= prevActive) return prevActive + 1;
-              return prevActive;
-            });
-          }}
-        />
-      )}
+      {/* Sidebar Esquerda (Miniaturas de Slides) — fica sempre montada
+          (mesmo em tela cheia, só escondida via CSS) em vez de
+          desmontar/remontar com `isFullscreen`: cada miniatura carrega o
+          próprio slide num iframe (ver LazySlidePreview em SlideList.jsx,
+          que só monta a prévia real quando ela entra na viewport uma vez e
+          nunca desmonta depois). Desmontar o componente inteiro toda vez que
+          entra/sai da apresentação (F, botão de tela cheia) reiniciava esse
+          estado do zero, e voltar pra este painel recarregava TODAS as
+          miniaturas já visíveis de novo, uma a uma — exatamente o
+          "carregando e recarregando" relatado. */}
+      <SlideList
+        style={isFullscreen ? { display: 'none' } : undefined}
+        className={mobileSlideListOpen ? 'mobile-open' : ''}
+        slides={presentation.slides}
+        activeIndex={activeIndex}
+        onSelectSlide={(idx) => {
+          emitSlideChanged(idx);
+          setMobileSlideListOpen(false);
+        }}
+        onClose={() => setMobileSlideListOpen(false)}
+        onAddSlide={() => handleAddSlideAt(presentation.slides.length)}
+        onAddTemplate={() => handleOpenTemplateGallery(activeIndex + 1)}
+        onAddSlideWithAI={() => handleOpenAISingleSlide(activeIndex + 1)}
+        onAddSlideWithCode={() => handleOpenCodeSlide(activeIndex + 1)}
+        onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
+        onToggleHideSlide={handleToggleHideSlide}
+        onDeleteSlide={(idxToDelete) => {
+          if (presentation.slides.length <= 1) return;
+          const newSlides = presentation.slides.filter((_, i) => i !== idxToDelete);
+          commit({ ...presentation, slides: newSlides });
+          // Sem isto, apagar o slide ativo (ou qualquer um antes dele) deixava
+          // activeIndex apontando para fora do novo array — o palco caía no
+          // placeholder "Nenhum slide gerado" e parecia que nada tinha acontecido.
+          setActiveIndex((prev) => {
+            const shifted = idxToDelete < prev ? prev - 1 : prev;
+            return Math.min(shifted, newSlides.length - 1);
+          });
+        }}
+        onDuplicateSlide={(idxToDuplicate) => {
+          // Clona o slide inteiro (mesmo html/branches/type/etc.) só com um
+          // id novo — insere logo depois do original e já seleciona a cópia,
+          // pra editar o conteúdo dela sem afetar a original.
+          const original = presentation.slides[idxToDuplicate];
+          const duplicate = { ...original, id: `slide-${Date.now()}` };
+          const newSlides = [...presentation.slides];
+          newSlides.splice(idxToDuplicate + 1, 0, duplicate);
+          commit({ ...presentation, slides: newSlides });
+          setActiveIndex(idxToDuplicate + 1);
+        }}
+        onReorderSlides={(fromIndex, toIndex) => {
+          const newSlides = [...presentation.slides];
+          const [moved] = newSlides.splice(fromIndex, 1);
+          newSlides.splice(toIndex, 0, moved);
+          commit({ ...presentation, slides: newSlides });
+          // Reordenar não deve trocar QUAL slide está selecionado — só
+          // recalcula onde esse mesmo slide foi parar no array novo.
+          setActiveIndex((prevActive) => {
+            if (prevActive === fromIndex) return toIndex;
+            if (fromIndex < prevActive && toIndex >= prevActive) return prevActive - 1;
+            if (fromIndex > prevActive && toIndex <= prevActive) return prevActive + 1;
+            return prevActive;
+          });
+        }}
+      />
 
       {/* Palco Principal de Apresentação */}
       <div className="stage-container">
