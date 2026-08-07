@@ -578,6 +578,11 @@ button.mobile-toggle-btn {
   background: rgba(255, 255, 255, 0.14);
 }
 
+.btn-secondary:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* Texto de botões que só cabe em telas largas — em celulares muito estreitos
    vira ícone-only (ver breakpoint ≤480px mais abaixo). */
 .btn-label {

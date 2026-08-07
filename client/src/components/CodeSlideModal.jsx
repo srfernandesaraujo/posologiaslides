@@ -301,22 +301,22 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
               Exemplos:
             </span>
             <button
-              className="btn-icon"
-              style={{ width: 'auto', padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.35rem', background: 'rgba(255,255,255,0.06)' }}
+              className="btn-secondary"
+              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', fontWeight: 600, gap: '0.35rem' }}
               onClick={() => { setCode(EXAMPLES.html); setActiveTab('html'); }}
             >
               <FileCode size={13} color="#67e8f9" /> Modelo HTML
             </button>
             <button
-              className="btn-icon"
-              style={{ width: 'auto', padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.35rem', background: 'rgba(255,255,255,0.06)' }}
+              className="btn-secondary"
+              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', fontWeight: 600, gap: '0.35rem' }}
               onClick={() => { setCode(EXAMPLES.json); setActiveTab('json'); }}
             >
               <FileJson size={13} color="#a78bfa" /> Modelo JSON
             </button>
             <button
-              className="btn-icon"
-              style={{ width: 'auto', padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.35rem', background: 'rgba(255,255,255,0.06)' }}
+              className="btn-secondary"
+              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', fontWeight: 600, gap: '0.35rem' }}
               onClick={() => { setCode(EXAMPLES.markdown); setActiveTab('markdown'); }}
             >
               <FileText size={13} color="#34d399" /> Modelo Markdown
@@ -347,8 +347,8 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
               style={{ display: 'none' }}
             />
             <button
-              className="btn-icon"
-              style={{ width: 'auto', padding: '0.35rem 0.75rem', fontSize: '0.78rem', gap: '0.4rem', background: 'rgba(167, 139, 250, 0.12)', color: '#a78bfa', border: '1px solid rgba(167, 139, 250, 0.25)' }}
+              className="btn-secondary"
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem', fontWeight: 700, gap: '0.4rem', background: 'rgba(167, 139, 250, 0.12)', color: '#a78bfa', border: '1px solid rgba(167, 139, 250, 0.25)' }}
               onClick={() => bundleInputRef.current?.click()}
               disabled={bundling}
               title="Selecione o .html principal junto com seus .css/.js/imagens locais — tudo vira um bloco só, autocontido"
@@ -357,8 +357,8 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
               {bundling ? 'Juntando arquivos...' : 'Importar Arquivos'}
             </button>
             <button
-              className="btn-icon"
-              style={{ width: 'auto', padding: '0.35rem 0.75rem', fontSize: '0.78rem', gap: '0.4rem', background: 'rgba(52, 211, 153, 0.12)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.25)' }}
+              className="btn-secondary"
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem', fontWeight: 700, gap: '0.4rem', background: 'rgba(52, 211, 153, 0.12)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.25)' }}
               onClick={() => bundleFolderInputRef.current?.click()}
               disabled={bundling}
               title="Selecione a pasta inteira do projeto (ex.: com uma subpasta 'images/') — todos os arquivos dentro, incluindo os de subpastas, são incluídos automaticamente"
@@ -367,8 +367,8 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
               {bundling ? 'Juntando arquivos...' : 'Importar Pasta Inteira'}
             </button>
             <button
-              className="btn-icon"
-              style={{ width: 'auto', padding: '0.35rem 0.75rem', fontSize: '0.78rem', gap: '0.4rem', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.25)' }}
+              className="btn-secondary"
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem', fontWeight: 700, gap: '0.4rem', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.25)' }}
               onClick={handleCopyPrompt}
               title="Copiar instrução pronta para colar no ChatGPT/Claude e pedir a geração do slide"
             >
