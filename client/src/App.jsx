@@ -14,6 +14,30 @@ import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loade
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
 
+// JSON.stringify normal é sensível à ORDEM de inserção das chaves do objeto
+// — o que basta pra quebrar a comparação "já salvo?" do autosave abaixo
+// (lastSavedJsonRef). Uma apresentação recém-gerada por IA (ver
+// AIModalGenerator/aiRoutes.js) só tem {title, description, slides}; depois
+// do primeiro save, o eco do servidor (serializePresentation em store.js)
+// tem 9 campos numa ordem literal fixa (id, title, description, slides,
+// favorite, updatedAt, lastOpenedAt, relatedPresentationId,
+// relatedPresentationTitle), enquanto o patch local só acrescenta
+// updatedAt/id NO FINAL do objeto — mesmo depois de convergir pro mesmo
+// CONJUNTO de campos, a ORDEM nunca bate com a do servidor, então
+// JSON.stringify(presentation) nunca mais igualava lastSavedJsonRef.current
+// e o autosave reenviava a cada ciclo de debounce PRA SEMPRE (só um F5, que
+// recarrega via GET no formato/ordem exatos do servidor, interrompia o
+// loop — daí precisar recarregar a página pra "parar de atualizar
+// sozinho"). Ordena as chaves recursivamente antes de comparar, então a
+// ORDEM deixa de importar — só o CONTEÚDO.
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 export default function App() {
   // Verifica se o usuário está acessando a página de participação mobile do aluno (/join)
   const isStudentRoute = window.location.pathname === '/join' || window.location.search.includes('pin=');
@@ -62,7 +86,7 @@ export default function App() {
   useEffect(() => {
     if (!presentation || conflictPendingRef.current) return;
 
-    const json = JSON.stringify(presentation);
+    const json = stableStringify(presentation);
     if (json === lastSavedJsonRef.current) return;
 
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
@@ -135,7 +159,7 @@ export default function App() {
 
         if (data.success) {
           setSaveStatus('idle');
-          lastSavedJsonRef.current = JSON.stringify(data.presentation);
+          lastSavedJsonRef.current = stableStringify(data.presentation);
           // Adota o id (apresentação nova, sem id ainda) e o updatedAt novos
           // devolvidos pelo servidor com um updater FUNCIONAL sobre o estado
           // ATUAL (não `setPresentation(data.presentation)` direto) — esse
@@ -150,6 +174,18 @@ export default function App() {
             if (!prev) return prev;
             const patch = { updatedAt: data.presentation.updatedAt };
             if (!prev.id) patch.id = data.presentation.id;
+            // Uma apresentação recém-gerada por IA (ver AIModalGenerator/
+            // aiRoutes.js) só chega aqui com {title, description, slides} —
+            // sem isto, ela nunca ganhava favorite/lastOpenedAt/
+            // relatedPresentation* localmente, e o CONJUNTO de campos nunca
+            // convergia com o eco do servidor (ver stableStringify no topo
+            // do arquivo), mantendo o autosave reenviando pra sempre. Só
+            // preenche o que ainda está ausente — nunca sobrescreve um valor
+            // que o usuário (ou outra aba) já tenha editado nesta sessão.
+            if (prev.favorite === undefined) patch.favorite = data.presentation.favorite;
+            if (prev.lastOpenedAt === undefined) patch.lastOpenedAt = data.presentation.lastOpenedAt;
+            if (prev.relatedPresentationId === undefined) patch.relatedPresentationId = data.presentation.relatedPresentationId;
+            if (prev.relatedPresentationTitle === undefined) patch.relatedPresentationTitle = data.presentation.relatedPresentationTitle;
             return { ...prev, ...patch };
           });
           setLibraryRefreshKey((k) => k + 1);
@@ -177,7 +213,7 @@ export default function App() {
   // aqui e adota a versão que está salva no servidor.
   const handleLoadServerVersion = () => {
     if (!conflict) return;
-    lastSavedJsonRef.current = JSON.stringify(conflict.serverPresentation);
+    lastSavedJsonRef.current = stableStringify(conflict.serverPresentation);
     setPresentation(conflict.serverPresentation);
     conflictPendingRef.current = false;
     setConflict(null);
@@ -198,8 +234,18 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setSaveStatus('idle');
-        lastSavedJsonRef.current = JSON.stringify(data.presentation);
-        setPresentation((prev) => (prev ? { ...prev, updatedAt: data.presentation.updatedAt, id: prev.id || data.presentation.id } : prev));
+        lastSavedJsonRef.current = stableStringify(data.presentation);
+        // Mesmo backfill do autosave normal acima — ver comentário lá.
+        setPresentation((prev) => {
+          if (!prev) return prev;
+          const patch = { updatedAt: data.presentation.updatedAt };
+          if (!prev.id) patch.id = data.presentation.id;
+          if (prev.favorite === undefined) patch.favorite = data.presentation.favorite;
+          if (prev.lastOpenedAt === undefined) patch.lastOpenedAt = data.presentation.lastOpenedAt;
+          if (prev.relatedPresentationId === undefined) patch.relatedPresentationId = data.presentation.relatedPresentationId;
+          if (prev.relatedPresentationTitle === undefined) patch.relatedPresentationTitle = data.presentation.relatedPresentationTitle;
+          return { ...prev, ...patch };
+        });
         setLibraryRefreshKey((k) => k + 1);
       } else {
         setSaveStatus('error');
@@ -235,7 +281,7 @@ export default function App() {
       const res = await apiFetch(`/api/presentations/${id}`);
       const data = await res.json();
       if (data.success) {
-        lastSavedJsonRef.current = JSON.stringify(data.presentation);
+        lastSavedJsonRef.current = stableStringify(data.presentation);
         setPresentation(data.presentation);
         setView('editor');
         apiFetch(`/api/presentations/${id}/touch`, { method: 'POST' }).catch(() => {});
