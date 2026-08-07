@@ -1,6 +1,11 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { db } from './firebaseAdmin.js';
 import { seedPresentation } from '../data/seedPresentation.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_FOLDER_NAME = 'Minhas Apresentações';
 const DEFAULT_SUBFOLDER_NAME = 'Geradas por IA';
@@ -310,9 +315,17 @@ export async function savePresentation(presentation, userId) {
       // onde está o problema (incidente 2026-08-07, Aula 08).
       if (err && err.code === 3 && data) {
         const invalidPath = findInvalidNestedArrayPath(data, '');
+        // Grava o payload INTEIRO em disco em vez de truncar numa resposta
+        // HTTP — apresentações com várias slides passam fácil de qualquer
+        // corte razoável de string, e cortado no meio esconde exatamente a
+        // parte que importa.
+        const debugFilePath = path.join(__dirname, '..', 'tmp-debug-payload.json');
+        try {
+          fs.writeFileSync(debugFilePath, JSON.stringify(data, null, 2), 'utf8');
+        } catch { /* melhor esforço — não deixa o diagnóstico quebrar a resposta de erro em si */ }
         const diagnostic = invalidPath
           ? `Campo inválido: "${invalidPath}" (array dentro de array).`
-          : `Campo não identificado automaticamente. Amostra dos dados: ${JSON.stringify(data).slice(0, 3000)}`;
+          : `Campo não identificado automaticamente. Dados completos salvos em server/tmp-debug-payload.json — procure por "[[" nesse arquivo.`;
         const diagnosedError = new Error(`Firestore recusou a gravação. ${diagnostic}`);
         diagnosedError.status = 400;
         throw diagnosedError;
