@@ -811,6 +811,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         // só ativo em apresentação de verdade) — o script só manda o FATOR de
         // variação; quem decide o valor final e aplica o limite é aqui.
         setZoom((z) => clampZoom(z * data.factor));
+      } else if (data.type === 'nav-key') {
+        // Setas do teclado com o foco dentro do iframe (ver buildEditorScript
+        // em PresentationViewer) — mesma navegação usada pelo teclado da
+        // janela pai (PresentationControls). Só chega aqui quando `editable`
+        // é true, ou seja, sempre fora de tela cheia (handleNext/handlePrev
+        // caem no ramo sem socket/pin, então não há estado obsoleto a
+        // considerar pelas deps deste efeito).
+        if (data.direction === 'next') handleNext();
+        else if (data.direction === 'prev') handlePrev();
       }
     };
     window.addEventListener('message', handleMessage);

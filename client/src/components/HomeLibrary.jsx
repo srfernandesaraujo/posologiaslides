@@ -12,6 +12,26 @@ import {
 // nada de paleta nova, só reaproveitar a linguagem visual existente.
 const FOLDER_COLORS = ['#38bdf8', '#a855f7', '#10b981', '#f59e0b', '#f472b6', '#ef4444'];
 
+// Limite real do Firestore (1 MiB por documento, ver FIRESTORE_MAX_DOCUMENT_BYTES
+// em store.js) — este valor é só o fallback antes da árvore carregar; o
+// servidor manda o número de verdade em `sizeLimitBytes` (fonte única).
+const DEFAULT_SIZE_LIMIT_BYTES = 1048576;
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+// Verde bem abaixo do limite, amarelo perto (>70%), vermelho muito perto/acima
+// (>90%) — mesmo limiar de alerta usado no backend (SIZE_WARNING_THRESHOLD_BYTES).
+function sizeColor(bytes, limitBytes) {
+  const ratio = bytes / limitBytes;
+  if (ratio >= 0.9) return '#f87171';
+  if (ratio >= 0.7) return '#fbbf24';
+  return '#9ca3af';
+}
+
 function formatRelativeTime(timestamp) {
   if (!timestamp) return null;
   const diffSeconds = Math.round((Date.now() - timestamp) / 1000);
@@ -81,6 +101,7 @@ function flattenTree(folders) {
 
 export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSettings, refreshKey, user, onLogout }) {
   const [folders, setFolders] = useState([]);
+  const [sizeLimitBytes, setSizeLimitBytes] = useState(DEFAULT_SIZE_LIMIT_BYTES);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('todos');
@@ -139,7 +160,10 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
     apiFetch('/api/presentations/tree')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success) setFolders(data.folders);
+        if (data.success) {
+          setFolders(data.folders);
+          if (data.sizeLimitBytes) setSizeLimitBytes(data.sizeLimitBytes);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -533,6 +557,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
                   {sortBy === 'date_desc' && <ChevronDown size={14} color="var(--accent-primary)" />}
                   {sortBy !== 'date_asc' && sortBy !== 'date_desc' && <ArrowUpDown size={12} style={{ opacity: 0.35 }} />}
                 </div>
+                <div className="finder-col col-size">Tamanho</div>
                 <div className="finder-col col-actions" style={{ textAlign: 'right' }}>Ações</div>
               </div>
               <div className="finder-table-body">
@@ -569,6 +594,9 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
                     </div>
                     <div className="finder-col col-date">
                       {formatRelativeTime(p.updatedAt) ? `Editado ${formatRelativeTime(p.updatedAt)}` : 'Recente'}
+                    </div>
+                    <div className="finder-col col-size" style={{ color: sizeColor(p.sizeBytes, sizeLimitBytes), fontWeight: 700 }} title={`${((p.sizeBytes / sizeLimitBytes) * 100).toFixed(0)}% do limite de ${formatBytes(sizeLimitBytes)} do Firestore`}>
+                      {formatBytes(p.sizeBytes)}
                     </div>
                     <div className="finder-col col-actions" onClick={(e) => e.stopPropagation()}>
                       <button
@@ -656,7 +684,15 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
                     ) : (
                       <div className="library-card-title">{p.title}</div>
                     )}
-                    <div className="library-card-meta">{p.folderName}</div>
+                    <div className="library-card-meta" style={{ display: 'flex', justifyContent: 'space-between', gap: '0.4rem' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.folderName}</span>
+                      <span
+                        style={{ color: sizeColor(p.sizeBytes, sizeLimitBytes), fontWeight: 700, flexShrink: 0 }}
+                        title={`${((p.sizeBytes / sizeLimitBytes) * 100).toFixed(0)}% do limite de ${formatBytes(sizeLimitBytes)} do Firestore`}
+                      >
+                        {formatBytes(p.sizeBytes)}
+                      </span>
+                    </div>
                     <div className="library-card-footer">
                       <span>{formatRelativeTime(p.updatedAt) ? `Editado ${formatRelativeTime(p.updatedAt)}` : ''}</span>
                       <div style={{ display: 'flex', gap: '0.2rem' }}>

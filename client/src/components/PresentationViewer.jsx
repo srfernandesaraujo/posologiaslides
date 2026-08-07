@@ -739,6 +739,25 @@ function buildEditorScript(initialSelected, initialCropMode) {
     window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'paste-fallback' }, '*');
   });
 
+  // Setas do teclado navegam entre slides — mesmo padrão do listener de
+  // 'paste' acima: o iframe é um documento separado, então um keydown que
+  // acontece com o foco lá dentro (comum, já que qualquer clique no slide
+  // pra selecionar um elemento move o foco pro iframe) nunca chega no
+  // listener de teclado da janela pai (PresentationControls), e as setas
+  // pareciam simplesmente não funcionar. Repassa pro pai, que decide o que
+  // fazer (mesma navegação de handlePrev/handleNext usada pelo teclado da
+  // janela pai). Ignora quando o alvo é um campo de entrada/edição do
+  // PRÓPRIO slide (input, textarea, select, contenteditable) — senão mover o
+  // cursor num campo de texto ou arrastar um slider trocaria de slide junto.
+  document.addEventListener('keydown', function (e) {
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    var direction = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') direction = 'next';
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') direction = 'prev';
+    if (!direction) return;
+    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'nav-key', direction: direction }, '*');
+  });
+
   // Ver comentário de "initialSelected" acima de buildEditorScript: restaura
   // a seleção que existia antes deste (re)carregamento, se o elemento ainda
   // existir no mesmo índice/escopo. Não reenvia 'select' pro pai — o rect
@@ -971,7 +990,7 @@ function buildAnimationTriggerScript(enabled) {
 </script>`;
 }
 
-export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, selectedElement = null, cropMode = false }) {
+export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, selectedElement = null, cropMode = false, staticPreview = false }) {
   const iframeRef = useRef(null);
   // Ref (não estado/dependência do efeito abaixo): só precisamos do valor mais
   // recente NO MOMENTO em que o iframe recarrega por outro motivo (ver
@@ -1025,7 +1044,16 @@ export default function PresentationViewer({ htmlContent, editable = false, spot
      de imagem em blockCatalog.js, slider antes/depois em widgetCatalog.js)
      — overflow não é herdado pelos filhos em CSS. */
   html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
-  body { margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #090d16; }
+  /* staticPreview (miniaturas da lista de slides, ver SlideThumbnail.jsx):
+     sem rolagem interna nenhuma — é um "print" reduzido via transform, então
+     nunca deveria reagir a gesto de rolagem por conta própria. Sem isto, um
+     slide mais alto que os 1080px nativos (ver comentário abaixo) tinha
+     scrollbar própria dentro da miniatura, e rolar a lista de slides com o
+     trackpad primeiro rolava o CONTEÚDO da miniatura sob o cursor até o fim
+     pra só depois rolar a lista e revelar as próximas — mesmo o wrapper de
+     fora tendo pointer-events:none, o gesto de rolagem do trackpad ainda
+     alcançava o documento do iframe em alguns navegadores. */
+  body { margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: ${staticPreview ? 'hidden' : 'auto'}; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #090d16; }
   * { box-sizing: border-box; }
   /* Scrollbar fina e discreta (tema escuro), em vez da barra cinza padrão do
      navegador destoando do visual do slide — só aparece quando há de fato
@@ -1056,6 +1084,16 @@ export default function PresentationViewer({ htmlContent, editable = false, spot
     border-radius: 999px !important;
   }
 
+  ${staticPreview ? `
+  /* staticPreview vence até a rolagem opt-in acima (data-scrollable="true"
+     num widget específico do slide, ex. lista longa) — na miniatura, nada
+     deveria rolar sozinho, então isto precisa do mesmo !important pra
+     ganhar da regra de cima. */
+  .slide-root[data-scrollable="true"],
+  body[data-scrollable="true"] {
+    overflow-y: hidden !important;
+  }
+  ` : ''}
 
   /* Biblioteca de animações aplicáveis a um elemento via o painel "Animar" do
      editor (ver client/src/lib/animationCatalog.js) — sempre presente (não só
@@ -1105,7 +1143,7 @@ ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) 
       cancelAnimationFrame(frame1);
       if (frame2) cancelAnimationFrame(frame2);
     };
-  }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled, animationTriggersEnabled]);
+  }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled, animationTriggersEnabled, staticPreview]);
 
   return (
     <iframe

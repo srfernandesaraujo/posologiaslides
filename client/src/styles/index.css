@@ -1917,7 +1917,7 @@ button.mobile-toggle-btn {
 
 .finder-table-header {
   display: grid;
-  grid-template-columns: 2.5fr 1.5fr 1.2fr 120px;
+  grid-template-columns: 2.3fr 1.4fr 1.1fr 90px 120px;
   padding: 0.75rem 1.25rem;
   background: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid var(--border-glass);
@@ -1935,7 +1935,7 @@ button.mobile-toggle-btn {
 
 .finder-file-row {
   display: grid;
-  grid-template-columns: 2.5fr 1.5fr 1.2fr 120px;
+  grid-template-columns: 2.3fr 1.4fr 1.1fr 90px 120px;
   align-items: center;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -1986,6 +1986,10 @@ button.mobile-toggle-btn {
   color: var(--text-dim);
 }
 
+.finder-col.col-size {
+  font-size: 0.8rem;
+}
+
 .finder-col.col-actions {
   display: flex;
   gap: 0.25rem;
@@ -1997,7 +2001,8 @@ button.mobile-toggle-btn {
   .finder-file-row {
     grid-template-columns: 2fr 1fr 100px;
   }
-  .finder-col.col-date {
+  .finder-col.col-date,
+  .finder-col.col-size {
     display: none;
   }
 }

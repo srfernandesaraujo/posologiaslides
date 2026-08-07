@@ -168,7 +168,11 @@ export async function getFolderTree(userId) {
       favorite: !!p.favorite,
       updatedAt: p.updatedAt,
       lastOpenedAt: p.lastOpenedAt || null,
-      firstSlideHtml: Array.isArray(p.slides) ? p.slides[0]?.html || null : null
+      firstSlideHtml: Array.isArray(p.slides) ? p.slides[0]?.html || null : null,
+      // Mesma medida usada por findOversizedSlide (só o array `slides`, que é
+      // de longe o grosso do documento) — dá pra biblioteca mostrar quão perto
+      // do limite de 1 MiB do Firestore cada apresentação está.
+      sizeBytes: Array.isArray(p.slides) ? Buffer.byteLength(JSON.stringify(p.slides), 'utf8') : 0
     });
     presentationsBySubfolder.set(p.subfolderId, list);
   });
@@ -252,7 +256,10 @@ export function findInvalidNestedArrayPath(value, path = 'slides') {
 // — ficou horas disfarçado de bug de array aninhado, 2026-08-07). Checa
 // ANTES de tentar gravar e aponta o slide culpado, em vez de deixar o
 // Firestore recusar com uma mensagem que não ajuda a achar o problema.
-const FIRESTORE_MAX_DOCUMENT_BYTES = 1048576;
+// Exportada pra rota /tree devolver junto (ver presentationsRoutes.js) — a
+// biblioteca mostra o tamanho de cada apresentação contra este mesmo limite,
+// em vez de um número mágico duplicado no frontend.
+export const FIRESTORE_MAX_DOCUMENT_BYTES = 1048576;
 const SIZE_WARNING_THRESHOLD_BYTES = FIRESTORE_MAX_DOCUMENT_BYTES * 0.9;
 
 export function findOversizedSlide(slides) {

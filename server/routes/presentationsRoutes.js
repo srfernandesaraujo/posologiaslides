@@ -2,7 +2,7 @@ import express from 'express';
 import {
   getFolderTree, getPresentation, savePresentation, deletePresentation, setFavorite, touchPresentation,
   createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder, renamePresentation,
-  findInvalidNestedArrayPath, findOversizedSlide
+  findInvalidNestedArrayPath, findOversizedSlide, FIRESTORE_MAX_DOCUMENT_BYTES
 } from '../services/store.js';
 
 const router = express.Router();
@@ -20,7 +20,7 @@ const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, ne
 
 // Árvore de pastas/disciplinas com as apresentações salvas
 router.get('/tree', asyncHandler(async (req, res) => {
-  res.json({ success: true, folders: await getFolderTree(req.user.id) });
+  res.json({ success: true, folders: await getFolderTree(req.user.id), sizeLimitBytes: FIRESTORE_MAX_DOCUMENT_BYTES });
 }));
 
 // Apresentação completa (com slides) por id

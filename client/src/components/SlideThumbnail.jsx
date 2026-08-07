@@ -45,7 +45,7 @@ export default function SlideThumbnail({ html }) {
           pointerEvents: 'none'
         }}
       >
-        <PresentationViewer htmlContent={html} />
+        <PresentationViewer htmlContent={html} staticPreview />
       </div>
     </div>
   );
