@@ -14,30 +14,6 @@ import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loade
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
 
-// JSON.stringify normal é sensível à ORDEM de inserção das chaves do objeto
-// — o que basta pra quebrar a comparação "já salvo?" do autosave abaixo
-// (lastSavedJsonRef). Uma apresentação recém-gerada por IA (ver
-// AIModalGenerator/aiRoutes.js) só tem {title, description, slides}; depois
-// do primeiro save, o eco do servidor (serializePresentation em store.js)
-// tem 9 campos numa ordem literal fixa (id, title, description, slides,
-// favorite, updatedAt, lastOpenedAt, relatedPresentationId,
-// relatedPresentationTitle), enquanto o patch local só acrescenta
-// updatedAt/id NO FINAL do objeto — mesmo depois de convergir pro mesmo
-// CONJUNTO de campos, a ORDEM nunca bate com a do servidor, então
-// JSON.stringify(presentation) nunca mais igualava lastSavedJsonRef.current
-// e o autosave reenviava a cada ciclo de debounce PRA SEMPRE (só um F5, que
-// recarrega via GET no formato/ordem exatos do servidor, interrompia o
-// loop — daí precisar recarregar a página pra "parar de atualizar
-// sozinho"). Ordena as chaves recursivamente antes de comparar, então a
-// ORDEM deixa de importar — só o CONTEÚDO.
-function stableStringify(value) {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
 export default function App() {
   // Verifica se o usuário está acessando a página de participação mobile do aluno (/join)
   const isStudentRoute = window.location.pathname === '/join' || window.location.search.includes('pin=');
@@ -58,12 +34,35 @@ export default function App() {
   const [view, setView] = useState('library'); // 'library' | 'editor'
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [presentation, setPresentation] = useState(null);
+  const [presentation, setPresentationState] = useState(null);
   const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
+
+  // Controla quando o autosave deve de fato disparar — um CONTADOR de
+  // versão local, não uma comparação de conteúdo (JSON.stringify), que já
+  // causou um autosave em loop infinito antes: qualquer diferença sutil
+  // entre a apresentação local e o eco que volta do servidor (ordem de
+  // chaves, um campo que o servidor normaliza/adiciona/remove ao salvar)
+  // fazia a comparação achar "ainda diferente" pra sempre, reenviando a
+  // cada ciclo de debounce sem parar — só um F5 (que recarrega no formato
+  // exato do servidor) interrompia. Um contador é imune a isso: só avança
+  // quando alguém chama `setPresentation` (edição de verdade — digitar,
+  // arrastar elemento, desfazer/refazer, gerar via IA); os PATCHES INTERNOS
+  // deste arquivo que só sincronizam metadado de volta (updatedAt/id depois
+  // de salvar, carregar do servidor, resolver conflito) usam
+  // `setPresentationState` direto, sem mexer na versão, porque não são
+  // edições novas — é o estado só convergindo com o que o servidor já tem.
+  const editVersionRef = useRef(0);
+  const savedVersionRef = useRef(0);
+
+  // Passado pro editor (via useUndoHistory) e pra geração por IA — QUALQUER
+  // chamada por este caminho é tratada como edição pendente de salvar.
+  const setPresentation = (updater) => {
+    editVersionRef.current += 1;
+    setPresentationState(updater);
+  };
 
   const autosaveTimerRef = useRef(null);
   const autosaveAbortRef = useRef(null);
-  const lastSavedJsonRef = useRef(null);
   // Id fixo desta aba (uma vez por carregamento) — deixa o servidor
   // reconhecer "sou eu mesmo, só uma resposta anterior que abortei e nunca
   // processei" e não confundir isso com um conflito de verdade vindo de
@@ -86,8 +85,16 @@ export default function App() {
   useEffect(() => {
     if (!presentation || conflictPendingRef.current) return;
 
-    const json = stableStringify(presentation);
-    if (json === lastSavedJsonRef.current) return;
+    if (editVersionRef.current === savedVersionRef.current) return;
+    // Versão sendo salva NESTE ciclo — capturada agora (não dentro do
+    // setTimeout nem lida de volta depois do POST), pra distinguir de uma
+    // edição NOVA que aconteça enquanto o save ainda está em voo: se isso
+    // acontecer, `editVersionRef.current` já vai ter avançado de novo antes
+    // da resposta chegar, e marcar `savedVersionRef` com este valor (mais
+    // antigo) mantém a diferença viva — o efeito roda de novo (a resposta
+    // troca `presentation`) e agenda mais um save pra pegar o que ficou de
+    // fora, em vez de marcar tudo como sincronizado por engano.
+    const versionAtSaveStart = editVersionRef.current;
 
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(async () => {
@@ -159,29 +166,33 @@ export default function App() {
 
         if (data.success) {
           setSaveStatus('idle');
-          lastSavedJsonRef.current = stableStringify(data.presentation);
+          savedVersionRef.current = versionAtSaveStart;
           // Adota o id (apresentação nova, sem id ainda) e o updatedAt novos
           // devolvidos pelo servidor com um updater FUNCIONAL sobre o estado
-          // ATUAL (não `setPresentation(data.presentation)` direto) — esse
-          // save pode ter levado um tempo; se o usuário editou algo enquanto
-          // ele estava em voo, `data.presentation` é só o eco do que foi
-          // ENVIADO, e substituir o estado inteiro por ele descartaria essas
-          // edições concorrentes (bug real já visto antes). O updatedAt
-          // PRECISA ser sincronizado de volta — sem isso, o próximo autosave
-          // enviaria um expectedUpdatedAt já desatualizado e geraria um
-          // conflito falso consigo mesmo.
-          setPresentation((prev) => {
+          // ATUAL, via `setPresentationState` (NÃO o `setPresentation`
+          // encapsulado — isto é sincronizar metadado de volta, não uma
+          // edição nova, então não deve avançar `editVersionRef` e reagendar
+          // outro save só por causa deste patch). Não troca `presentation`
+          // pelo `data.presentation` inteiro direto porque esse save pode ter
+          // levado um tempo; se o usuário editou algo enquanto ele estava em
+          // voo, `data.presentation` é só o eco do que foi ENVIADO, e
+          // substituir o estado inteiro por ele descartaria essas edições
+          // concorrentes (bug real já visto antes). O updatedAt PRECISA ser
+          // sincronizado de volta — sem isso, o próximo autosave enviaria um
+          // expectedUpdatedAt já desatualizado e geraria um conflito falso
+          // consigo mesmo.
+          setPresentationState((prev) => {
             if (!prev) return prev;
             const patch = { updatedAt: data.presentation.updatedAt };
             if (!prev.id) patch.id = data.presentation.id;
             // Uma apresentação recém-gerada por IA (ver AIModalGenerator/
             // aiRoutes.js) só chega aqui com {title, description, slides} —
-            // sem isto, ela nunca ganhava favorite/lastOpenedAt/
-            // relatedPresentation* localmente, e o CONJUNTO de campos nunca
-            // convergia com o eco do servidor (ver stableStringify no topo
-            // do arquivo), mantendo o autosave reenviando pra sempre. Só
-            // preenche o que ainda está ausente — nunca sobrescreve um valor
-            // que o usuário (ou outra aba) já tenha editado nesta sessão.
+            // preenche o que ainda está ausente (favorite/lastOpenedAt/
+            // relatedPresentation*) com o que o servidor devolveu, só pra
+            // manter o estado local completo (ex.: o link "Aula Relacionada"
+            // do slide de encerramento lê relatedPresentationId direto daqui).
+            // Nunca sobrescreve um valor que o usuário (ou outra aba) já
+            // tenha editado nesta sessão.
             if (prev.favorite === undefined) patch.favorite = data.presentation.favorite;
             if (prev.lastOpenedAt === undefined) patch.lastOpenedAt = data.presentation.lastOpenedAt;
             if (prev.relatedPresentationId === undefined) patch.relatedPresentationId = data.presentation.relatedPresentationId;
@@ -213,8 +224,8 @@ export default function App() {
   // aqui e adota a versão que está salva no servidor.
   const handleLoadServerVersion = () => {
     if (!conflict) return;
-    lastSavedJsonRef.current = stableStringify(conflict.serverPresentation);
-    setPresentation(conflict.serverPresentation);
+    savedVersionRef.current = editVersionRef.current; // adotou o servidor: nada pendente de salvar
+    setPresentationState(conflict.serverPresentation);
     conflictPendingRef.current = false;
     setConflict(null);
   };
@@ -224,6 +235,7 @@ export default function App() {
   // desta vez (o usuário já viu o conflito e decidiu de propósito).
   const handleKeepLocalVersion = async () => {
     if (!conflict || !presentation) return;
+    const versionAtSaveStart = editVersionRef.current;
     setSaveStatus('saving');
     try {
       const res = await apiFetch('/api/presentations', {
@@ -234,9 +246,9 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setSaveStatus('idle');
-        lastSavedJsonRef.current = stableStringify(data.presentation);
+        savedVersionRef.current = versionAtSaveStart;
         // Mesmo backfill do autosave normal acima — ver comentário lá.
-        setPresentation((prev) => {
+        setPresentationState((prev) => {
           if (!prev) return prev;
           const patch = { updatedAt: data.presentation.updatedAt };
           if (!prev.id) patch.id = data.presentation.id;
@@ -281,8 +293,13 @@ export default function App() {
       const res = await apiFetch(`/api/presentations/${id}`);
       const data = await res.json();
       if (data.success) {
-        lastSavedJsonRef.current = stableStringify(data.presentation);
-        setPresentation(data.presentation);
+        // Recém-carregada do servidor: nenhuma edição pendente ainda —
+        // zera os dois contadores pra começar uma apresentação "limpa"
+        // (setPresentationState, não o `setPresentation` encapsulado, pra
+        // não contar isto como uma edição que precisa de autosave).
+        editVersionRef.current = 0;
+        savedVersionRef.current = 0;
+        setPresentationState(data.presentation);
         setView('editor');
         apiFetch(`/api/presentations/${id}/touch`, { method: 'POST' }).catch(() => {});
       }
@@ -400,8 +417,7 @@ export default function App() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onGenerate={(newPresentation) => {
-          lastSavedJsonRef.current = null; // força o autosave a persistir a nova apresentação
-          setPresentation(newPresentation);
+          setPresentation(newPresentation); // via wrapper: marca como pendente de salvar
           setView('editor');
         }}
       />
