@@ -3,6 +3,7 @@ import PresentationEditor from './components/PresentationEditor';
 import AIModalGenerator from './components/AIModalGenerator';
 import HomeLibrary from './components/HomeLibrary';
 import SettingsModal from './components/SettingsModal';
+import ConflictModal from './components/ConflictModal';
 import Login from './components/Login';
 import StudentJoin from './mobile/StudentJoin';
 import PublicPresentationView from './pages/PublicPresentationView';
@@ -38,10 +39,15 @@ export default function App() {
   const autosaveTimerRef = useRef(null);
   const autosaveAbortRef = useRef(null);
   const lastSavedJsonRef = useRef(null);
+  // Trava o autosave enquanto um conflito de edição concorrente (409, ver
+  // store.js#savePresentation) está sem resolução na tela — evita empilhar
+  // mais um save em cima de um conflito que o usuário ainda nem viu.
+  const conflictPendingRef = useRef(false);
+  const [conflict, setConflict] = useState(null); // { serverPresentation } | null
 
   // Autosave: persiste a apresentação no servidor sempre que ela muda, com debounce
   useEffect(() => {
-    if (!presentation) return;
+    if (!presentation || conflictPendingRef.current) return;
 
     const json = JSON.stringify(presentation);
     if (json === lastSavedJsonRef.current) return;
@@ -52,11 +58,9 @@ export default function App() {
       // sem isso, dois POSTs concorrentes podem chegar ao servidor fora de
       // ordem (rede lenta, renovação de token do Firebase no meio do
       // caminho) e o mais antigo, chegando por ÚLTIMO, sobrescreve o
-      // Firestore com uma lista de slides desatualizada (savePresentation faz
-      // `ref.update()`, substituição total do array `slides`, sem checagem
-      // de versão — ver server/services/store.js). Isso já causou slides
-      // recém-inseridos (e até slides preexistentes) sumirem depois de
-      // salvar.
+      // Firestore com uma lista de slides desatualizada. O `expectedUpdatedAt`
+      // abaixo cobre o caso mais grave (outra ABA/DISPOSITIVO salvando por
+      // cima, não só requisições deste mesmo cliente fora de ordem).
       if (autosaveAbortRef.current) autosaveAbortRef.current.abort();
       const controller = new AbortController();
       autosaveAbortRef.current = controller;
@@ -64,28 +68,40 @@ export default function App() {
         const res = await apiFetch('/api/presentations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(presentation),
+          body: JSON.stringify({ ...presentation, expectedUpdatedAt: presentation.updatedAt ?? null }),
           signal: controller.signal
         });
         const data = await res.json();
+
+        if (res.status === 409 && data.conflict) {
+          // Servidor recusou o save: outra aba/dispositivo salvou depois que
+          // este cliente carregou a apresentação (ver savePresentation em
+          // store.js). Não decide sozinho — mostra o conflito pro usuário
+          // escolher, com opção de baixar as próprias edições antes de
+          // qualquer coisa.
+          conflictPendingRef.current = true;
+          setConflict({ serverPresentation: data.presentation });
+          return;
+        }
+
         if (data.success) {
           lastSavedJsonRef.current = JSON.stringify(data.presentation);
-          // Apresentação nova (sem id ainda): adota o id definitivo gerado
-          // pelo servidor. Faz isso com um updater FUNCIONAL sobre o estado
-          // ATUAL (não com `setPresentation(data.presentation)` direto) —
-          // esta é a gravação inicial, sem id, e pode levar um tempo; se o
-          // usuário inseriu slides ou editou algo enquanto ela estava em
-          // voo, `presentation` (capturado por closure) já está desatualizado
-          // e `data.presentation` é só o eco do que foi ENVIADO — substituir
-          // o estado inteiro por ele descartaria essas edições concorrentes
-          // (bug real, já visto em apresentações recém-geradas por IA/
-          // importação editadas nos primeiros segundos). Só o id precisa
-          // vir do servidor; o resto do estado atual fica intocado, e o
-          // efeito abaixo detecta a diferença e agenda um novo autosave
-          // sozinho (agora já com o id certo).
-          if (data.presentation.id !== presentation.id) {
-            setPresentation((prev) => (prev && !prev.id ? { ...prev, id: data.presentation.id } : prev));
-          }
+          // Adota o id (apresentação nova, sem id ainda) e o updatedAt novos
+          // devolvidos pelo servidor com um updater FUNCIONAL sobre o estado
+          // ATUAL (não `setPresentation(data.presentation)` direto) — esse
+          // save pode ter levado um tempo; se o usuário editou algo enquanto
+          // ele estava em voo, `data.presentation` é só o eco do que foi
+          // ENVIADO, e substituir o estado inteiro por ele descartaria essas
+          // edições concorrentes (bug real já visto antes). O updatedAt
+          // PRECISA ser sincronizado de volta — sem isso, o próximo autosave
+          // enviaria um expectedUpdatedAt já desatualizado e geraria um
+          // conflito falso consigo mesmo.
+          setPresentation((prev) => {
+            if (!prev) return prev;
+            const patch = { updatedAt: data.presentation.updatedAt };
+            if (!prev.id) patch.id = data.presentation.id;
+            return { ...prev, ...patch };
+          });
           setLibraryRefreshKey((k) => k + 1);
         }
       } catch (err) {
@@ -97,6 +113,58 @@ export default function App() {
 
     return () => clearTimeout(autosaveTimerRef.current);
   }, [presentation]);
+
+  // Resolve o conflito mostrado em ConflictModal: descarta as edições feitas
+  // aqui e adota a versão que está salva no servidor.
+  const handleLoadServerVersion = () => {
+    if (!conflict) return;
+    lastSavedJsonRef.current = JSON.stringify(conflict.serverPresentation);
+    setPresentation(conflict.serverPresentation);
+    conflictPendingRef.current = false;
+    setConflict(null);
+  };
+
+  // Resolve o conflito escolhendo sobrescrever a versão do servidor com o que
+  // está aqui — reenvia com `force: true` pra pular a checagem de versão
+  // desta vez (o usuário já viu o conflito e decidiu de propósito).
+  const handleKeepLocalVersion = async () => {
+    if (!conflict || !presentation) return;
+    try {
+      const res = await apiFetch('/api/presentations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...presentation, force: true })
+      });
+      const data = await res.json();
+      if (data.success) {
+        lastSavedJsonRef.current = JSON.stringify(data.presentation);
+        setPresentation((prev) => (prev ? { ...prev, updatedAt: data.presentation.updatedAt, id: prev.id || data.presentation.id } : prev));
+        setLibraryRefreshKey((k) => k + 1);
+      }
+    } catch {
+      // Falha de rede: mantém local: o autosave normal tenta de novo assim que `presentation` mudar
+    } finally {
+      conflictPendingRef.current = false;
+      setConflict(null);
+    }
+  };
+
+  // Baixa as edições feitas aqui como JSON — rede de segurança pro usuário
+  // não perder nada mesmo se acabar escolhendo a opção errada no conflito.
+  const handleDownloadLocalVersion = () => {
+    if (!presentation) return;
+    const blob = new Blob([JSON.stringify(presentation, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const safeTitle = (presentation.title || 'apresentacao').replace(/[^\w-]+/g, '_');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeTitle}-conflito-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const openPresentation = async (id) => {
     try {
@@ -206,6 +274,15 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onBackupRestored={() => setLibraryRefreshKey((k) => k + 1)}
+      />
+
+      <ConflictModal
+        isOpen={!!conflict}
+        localPresentation={presentation}
+        serverPresentation={conflict?.serverPresentation}
+        onKeepLocal={handleKeepLocalVersion}
+        onLoadServer={handleLoadServerVersion}
+        onDownloadLocal={handleDownloadLocalVersion}
       />
     </div>
   );

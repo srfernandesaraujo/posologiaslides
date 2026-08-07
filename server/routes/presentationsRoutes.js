@@ -22,13 +22,22 @@ router.get('/:id', async (req, res) => {
 
 // Cria ou atualiza (upsert) uma apresentação completa
 router.post('/', async (req, res) => {
-  const { id, title, description, slides, relatedPresentationId, relatedPresentationTitle } = req.body;
+  const { id, title, description, slides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force } = req.body;
   if (!title || !Array.isArray(slides)) {
     return res.status(400).json({ error: 'title e slides são obrigatórios.' });
   }
 
-  const saved = await savePresentation({ id, title, description, slides, relatedPresentationId, relatedPresentationTitle }, req.user.id);
-  res.json({ success: true, presentation: saved });
+  const result = await savePresentation(
+    { id, title, description, slides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force },
+    req.user.id
+  );
+  // Ver comentário em store.js#savePresentation: conflito de edição concorrente
+  // (outra aba/dispositivo salvou depois que este cliente carregou). O cliente
+  // decide o que fazer — nunca sobrescrevemos silenciosamente aqui.
+  if (result.conflict) {
+    return res.status(409).json({ success: false, conflict: true, presentation: result.presentation });
+  }
+  res.json({ success: true, presentation: result.presentation });
 });
 
 // Renomeia apenas o título da apresentação

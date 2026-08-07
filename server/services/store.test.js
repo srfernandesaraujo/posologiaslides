@@ -1,0 +1,78 @@
+// store.js usa o Admin SDK direto (sem injeção de dependência como
+// backupService.js), então estes testes rodam contra o Firestore de verdade
+// (mesmas credenciais de server/.env — ver firebaseAdmin.js) sob um userId
+// isolado e descartável, igual ao espírito real-I/O de backupService.test.js.
+// Cobre a concorrência otimista de savePresentation (expectedUpdatedAt/force)
+// — ver comentário em store.js#savePresentation pro porquê.
+import 'dotenv/config';
+import { test, describe, after } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'crypto';
+import { db } from './firebaseAdmin.js';
+import { savePresentation } from './store.js';
+
+const userId = `test-concurrency-${crypto.randomUUID()}`;
+const createdIds = [];
+
+async function cleanup() {
+  await Promise.all(createdIds.map((id) => db.collection('users').doc(userId).collection('presentations').doc(id).delete()));
+}
+after(cleanup);
+
+describe('savePresentation — concorrência otimista', () => {
+  test('save normal (sem expectedUpdatedAt) sobrescreve como antes', async () => {
+    const created = await savePresentation({ title: 'Aula X', slides: [{ id: 's1', html: '<div>a</div>' }] }, userId);
+    createdIds.push(created.presentation.id);
+    assert.equal(created.conflict, false);
+
+    const updated = await savePresentation(
+      { id: created.presentation.id, title: 'Aula X editada', slides: [{ id: 's1', html: '<div>b</div>' }] },
+      userId
+    );
+    assert.equal(updated.conflict, false);
+    assert.equal(updated.presentation.title, 'Aula X editada');
+  });
+
+  test('expectedUpdatedAt desatualizado devolve conflict:true e NÃO sobrescreve', async () => {
+    const created = await savePresentation({ title: 'Aula Y', slides: [{ id: 's1', html: '<div>a</div>' }] }, userId);
+    const id = created.presentation.id;
+    createdIds.push(id);
+    const staleUpdatedAt = created.presentation.updatedAt;
+
+    // Simula outro dispositivo salvando primeiro.
+    const otherDevice = await savePresentation(
+      { id, title: 'Aula Y (salva no iPad)', slides: [{ id: 's1', html: '<div>ipad</div>' }], expectedUpdatedAt: staleUpdatedAt },
+      userId
+    );
+    assert.equal(otherDevice.conflict, false);
+
+    // Este cliente ainda tem o updatedAt antigo (staleUpdatedAt) — não devia sobrescrever o que o iPad acabou de salvar.
+    const thisDevice = await savePresentation(
+      { id, title: 'Aula Y (editada no PC)', slides: [{ id: 's1', html: '<div>pc</div>' }], expectedUpdatedAt: staleUpdatedAt },
+      userId
+    );
+    assert.equal(thisDevice.conflict, true);
+    // O conflito devolve o estado ATUAL do servidor (o que o iPad salvou), não o que este cliente tentou mandar.
+    assert.equal(thisDevice.presentation.title, 'Aula Y (salva no iPad)');
+    assert.equal(thisDevice.presentation.slides[0].html, '<div>ipad</div>');
+  });
+
+  test('force:true ignora o conflito e sobrescreve mesmo assim', async () => {
+    const created = await savePresentation({ title: 'Aula Z', slides: [{ id: 's1', html: '<div>a</div>' }] }, userId);
+    const id = created.presentation.id;
+    createdIds.push(id);
+    const staleUpdatedAt = created.presentation.updatedAt;
+
+    await savePresentation(
+      { id, title: 'Aula Z (salva no iPad)', slides: [{ id: 's1', html: '<div>ipad</div>' }], expectedUpdatedAt: staleUpdatedAt },
+      userId
+    );
+
+    const forced = await savePresentation(
+      { id, title: 'Aula Z (forçado do PC)', slides: [{ id: 's1', html: '<div>pc</div>' }], expectedUpdatedAt: staleUpdatedAt, force: true },
+      userId
+    );
+    assert.equal(forced.conflict, false);
+    assert.equal(forced.presentation.title, 'Aula Z (forçado do PC)');
+  });
+});

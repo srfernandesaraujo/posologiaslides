@@ -217,22 +217,40 @@ export async function getPresentation(id, userId) {
   return snap.exists ? serializePresentation(snap.id, snap.data()) : null;
 }
 
+// Concorrência otimista: se `expectedUpdatedAt` vier preenchido e divergir do
+// `updatedAt` gravado agora no Firestore, alguém mais salvou por cima entre o
+// cliente ter carregado a apresentação e este save chegar — em vez de
+// sobrescrever (era o que `ref.update()` direto fazia, causa raiz do bug de
+// slides sumindo em edição concorrente multi-aba/dispositivo), devolve
+// `conflict: true` com o estado atual do servidor pro chamador decidir. Roda
+// dentro de `runTransaction` (não só `get` + `update` em sequência) pra essa
+// checagem ser atômica de verdade — sem isso, duas requisições podiam passar
+// pelo `get()` antes de qualquer `update()` acontecer e a checagem vira letra
+// morta. `force: true` pula a checagem — usado só quando o usuário resolve um
+// conflito já mostrado a ele escolhendo manter a própria versão.
 export async function savePresentation(presentation, userId) {
-  const { id, title, description, slides, relatedPresentationId, relatedPresentationTitle } = presentation;
+  const { id, title, description, slides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force } = presentation;
   const now = Date.now();
 
   if (id) {
     const ref = presentationsRef(userId).doc(id);
-    const existing = await ref.get();
-    if (existing.exists) {
+    const result = await db.runTransaction(async (tx) => {
+      const existing = await tx.get(ref);
+      if (!existing.exists) return null;
+
+      if (!force && typeof expectedUpdatedAt === 'number' && existing.data().updatedAt !== expectedUpdatedAt) {
+        return { conflict: true, presentation: serializePresentation(id, existing.data()) };
+      }
+
       const data = {
         title, description: description || null, slides, updatedAt: now,
         relatedPresentationId: relatedPresentationId || null,
         relatedPresentationTitle: relatedPresentationTitle || null
       };
-      await ref.update(data);
-      return serializePresentation(id, { ...existing.data(), ...data });
-    }
+      tx.update(ref, data);
+      return { conflict: false, presentation: serializePresentation(id, { ...existing.data(), ...data }) };
+    });
+    if (result) return result;
   }
 
   const profileSnap = await userRef(userId).get();
@@ -251,7 +269,7 @@ export async function savePresentation(presentation, userId) {
     relatedPresentationTitle: relatedPresentationTitle || null
   };
   const ref = await presentationsRef(userId).add(data);
-  return serializePresentation(ref.id, data);
+  return { conflict: false, presentation: serializePresentation(ref.id, data) };
 }
 
 // Só pro restore de backup (backupService.js) — savePresentation() sempre
