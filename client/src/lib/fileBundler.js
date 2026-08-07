@@ -1,10 +1,12 @@
 // Junta um HTML exportado de outra ferramenta (ex.: Antigravity) que referencia
 // CSS/JS/imagens como arquivos SEPARADOS num único fragmento autocontido —
 // troca <link rel="stylesheet" href="X"> por <style>, <script src="Y"> por
-// <script> inline, e src/href de imagem por base64 — pra caber no que "Criar
-// Slide por Código" (ver CodeSlideModal.jsx) aceita: um bloco só, sem nenhum
-// arquivo de fora além de CDN (esses continuam externos de propósito, ver
-// isExternalUrl). Usado por handleBundleFilesSelected em CodeSlideModal.jsx.
+// <script> inline, e src/href de imagem pela URL de um upload real (ver
+// uploadImageFile abaixo) — pra caber no que "Criar Slide por Código" (ver
+// CodeSlideModal.jsx) aceita: um bloco só, sem nenhum arquivo de fora além de
+// CDN (esses continuam externos de propósito, ver isExternalUrl). Usado por
+// handleBundleFilesSelected em CodeSlideModal.jsx.
+import { apiFetch } from './api';
 
 const TEXT_EXTENSIONS = new Set(['css', 'js', 'mjs']);
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp', 'avif']);
@@ -54,37 +56,47 @@ function readAsText(file) {
   });
 }
 
-function readAsDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error || new Error('Falha ao ler ' + file.name));
-    reader.readAsDataURL(file);
-  });
+// Sobe a imagem pro Cloud Storage e devolve a URL pública, em vez de embutir
+// o arquivo como data: URI direto no HTML — mesma rota que colar imagem/
+// hotspot já usam (ver handlePasteImageFile/handleChangeHotspotConfig em
+// PresentationEditor.jsx). Embutir como base64 parecia mais simples (não
+// precisa de rede, funciona offline), mas o resultado vai inteiro pro campo
+// `html` do slide, que é salvo como parte de UM ÚNICO documento no Firestore
+// — limite rígido de 1 MiB por documento. Uma imagem em alta resolução
+// (comum ao importar uma pasta inteira) sozinha já estoura isso, e o erro
+// que o Firestore devolve nesse caso não menciona tamanho em lugar nenhum
+// (ver findOversizedSlide em store.js — já aconteceu de verdade, 2026-08-07).
+async function uploadImageFile(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetch('/api/materials/upload-media', { method: 'POST', body: formData });
+  const data = await res.json();
+  if (!data.success) throw new Error(`Falha ao enviar "${file.name}": ${data.error || 'erro desconhecido'}`);
+  return data.url;
 }
 
-// Troca url(...) dentro de um bloco CSS por base64 quando o arquivo
+// Troca url(...) dentro de um bloco CSS pela URL de upload quando o arquivo
 // referenciado estiver entre os selecionados (ex.: background-image:
 // url('bg.png')) — sem isto, uma imagem de fundo declarada só no CSS (não no
 // HTML) continuaria apontando pra um arquivo que não existe aqui dentro.
 function inlineCssUrls(css, images) {
   return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (full, _quote, url) => {
     if (isExternalUrl(url)) return full;
-    const data = images[baseName(url)];
-    return data ? `url('${data}')` : full;
+    const uploadedUrl = images[baseName(url)];
+    return uploadedUrl ? `url('${uploadedUrl}')` : full;
   });
 }
 
 // Recebe uma FileList (ver <input type="file" multiple> em CodeSlideModal.jsx)
 // com o .html principal + seus .css/.js/imagens locais, e devolve um único
-// fragmento HTML autocontido (CSS/JS inline, imagens em base64) pronto pra
-// colar no "Código-Fonte" do criador de slides. CDNs externos (Google Fonts,
-// FontAwesome etc.) continuam como <link>/<script src> normais — só arquivo
-// LOCAL vira inline.
+// fragmento HTML autocontido (CSS/JS inline, imagens enviadas pro Cloud
+// Storage e referenciadas por URL) pronto pra colar no "Código-Fonte" do
+// criador de slides. CDNs externos (Google Fonts, FontAwesome etc.) continuam
+// como <link>/<script src> normais — só arquivo LOCAL é processado aqui.
 export async function bundleLocalFiles(fileList) {
   const files = Array.from(fileList);
   const texts = {}; // nome-do-arquivo -> conteúdo texto (css/js)
-  const images = {}; // nome-do-arquivo -> data: URI
+  const images = {}; // nome-do-arquivo -> URL pública no Cloud Storage
   let htmlFile = null;
   let htmlText = '';
 
@@ -102,7 +114,7 @@ export async function bundleLocalFiles(fileList) {
     } else if (TEXT_EXTENSIONS.has(ext)) {
       texts[name] = await readAsText(file);
     } else if (IMAGE_EXTENSIONS.has(ext)) {
-      images[name] = await readAsDataURL(file);
+      images[name] = await uploadImageFile(file);
     }
   }
 

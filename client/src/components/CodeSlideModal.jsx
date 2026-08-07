@@ -230,7 +230,10 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
   // estilo/interatividade (os outros arquivos não existem aqui dentro). Este
   // botão deixa selecionar TODOS os arquivos de uma vez e o bundleLocalFiles
   // (ver lib/fileBundler.js) junta tudo num fragmento só, com CSS/JS inline e
-  // imagens em base64 — o mesmo trabalho que antes precisava ser feito à mão.
+  // imagens enviadas pro Cloud Storage (referenciadas por URL, não embutidas
+  // como base64 — isso já estourou o limite de 1 MiB por documento do
+  // Firestore numa apresentação real, 2026-08-07) — o mesmo trabalho que
+  // antes precisava ser feito à mão.
   // Usado tanto pelo <input> de arquivos soltos quanto pelo <input
   // webkitdirectory> de pasta inteira (bundleFolderInputRef) — em ambos os
   // casos o resultado é um FileList comum, então o mesmo handler serve pros
