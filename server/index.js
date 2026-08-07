@@ -28,7 +28,31 @@ const PORT = process.env.PORT || 3001;
 // Configurar Socket.io
 const io = setupSocketIO(httpServer);
 
-app.use(cors({ origin: process.env.CLIENT_URL || '*' }));
+// Frontend (Cloudflare Pages) e backend (servidor doméstico) ficam em origens
+// diferentes, então CORS precisa de uma lista explícita — `CLIENT_URL` no
+// .env aceita uma ou várias origens separadas por vírgula (uma pra cada
+// ambiente: produção, preview do Cloudflare, dev local...). O domínio de
+// produção fica hardcoded como rede de segurança: se o .env do servidor ficar
+// desatualizado ou vazio, o site ainda funciona em vez de travar toda
+// gravação silenciosamente (foi exatamente isso que aconteceu — CORS barrando
+// todo POST /api/presentations sem nenhum aviso pro usuário).
+const PRODUCTION_ORIGIN = 'https://slides.posologia.app';
+const allowedOrigins = [
+  PRODUCTION_ORIGIN,
+  ...(process.env.CLIENT_URL || '').split(',').map((o) => o.trim()).filter(Boolean)
+];
+
+app.use(cors({
+  origin(origin, callback) {
+    // Sem Origin (curl, healthcheck, requisição same-origin) sempre passa.
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`Origem não permitida pelo CORS: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 

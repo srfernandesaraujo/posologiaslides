@@ -9,7 +9,7 @@ import StudentJoin from './mobile/StudentJoin';
 import PublicPresentationView from './pages/PublicPresentationView';
 import { useAuth } from './context/AuthContext';
 import { apiFetch } from './lib/api';
-import { Sparkles, Presentation, Settings, ArrowLeft, LogOut } from 'lucide-react';
+import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loader2 } from 'lucide-react';
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
 
@@ -49,6 +49,12 @@ export default function App() {
   // mais um save em cima de um conflito que o usuário ainda nem viu.
   const conflictPendingRef = useRef(false);
   const [conflict, setConflict] = useState(null); // { serverPresentation } | null
+  // Antes disto, uma falha de autosave (rede, CORS, servidor fora do ar) era
+  // 100% silenciosa — nenhum aviso na tela, o usuário só descobria ao dar F5
+  // e ver o conteúdo faltando (já aconteceu de verdade: CORS bloqueando todo
+  // POST /api/presentations sem nenhum indício visível). Este estado alimenta
+  // um aviso fixo no header enquanto o último save não tiver sucesso.
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'error'
 
   // Autosave: persiste a apresentação no servidor sempre que ela muda, com debounce
   useEffect(() => {
@@ -69,6 +75,7 @@ export default function App() {
       if (autosaveAbortRef.current) autosaveAbortRef.current.abort();
       const controller = new AbortController();
       autosaveAbortRef.current = controller;
+      setSaveStatus('saving');
       try {
         const res = await apiFetch('/api/presentations', {
           method: 'POST',
@@ -84,12 +91,14 @@ export default function App() {
           // store.js). Não decide sozinho — mostra o conflito pro usuário
           // escolher, com opção de baixar as próprias edições antes de
           // qualquer coisa.
+          setSaveStatus('idle');
           conflictPendingRef.current = true;
           setConflict({ serverPresentation: data.presentation });
           return;
         }
 
         if (data.success) {
+          setSaveStatus('idle');
           lastSavedJsonRef.current = JSON.stringify(data.presentation);
           // Adota o id (apresentação nova, sem id ainda) e o updatedAt novos
           // devolvidos pelo servidor com um updater FUNCIONAL sobre o estado
@@ -108,10 +117,18 @@ export default function App() {
             return { ...prev, ...patch };
           });
           setLibraryRefreshKey((k) => k + 1);
+        } else {
+          // Resposta chegou mas sem sucesso (400/401/500 etc, não é o 409 de
+          // conflito tratado acima) — não fica em silêncio.
+          setSaveStatus('error');
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
-          // Falha de rede no autosave: mantém as alterações apenas localmente por ora
+          // Falha de rede/CORS no autosave — antes ficava só "mantém as
+          // alterações apenas localmente por ora" sem avisar ninguém; foi
+          // exatamente assim que um bloqueio de CORS em produção apagou
+          // silenciosamente uma sessão de edição inteira (2026-08-07).
+          setSaveStatus('error');
         }
       }
     }, AUTOSAVE_DEBOUNCE_MS);
@@ -134,6 +151,7 @@ export default function App() {
   // desta vez (o usuário já viu o conflito e decidiu de propósito).
   const handleKeepLocalVersion = async () => {
     if (!conflict || !presentation) return;
+    setSaveStatus('saving');
     try {
       const res = await apiFetch('/api/presentations', {
         method: 'POST',
@@ -142,12 +160,16 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
+        setSaveStatus('idle');
         lastSavedJsonRef.current = JSON.stringify(data.presentation);
         setPresentation((prev) => (prev ? { ...prev, updatedAt: data.presentation.updatedAt, id: prev.id || data.presentation.id } : prev));
         setLibraryRefreshKey((k) => k + 1);
+      } else {
+        setSaveStatus('error');
       }
     } catch {
-      // Falha de rede: mantém local: o autosave normal tenta de novo assim que `presentation` mudar
+      // Falha de rede: mantém local, mas avisa — o autosave normal tenta de novo assim que `presentation` mudar
+      setSaveStatus('error');
     } finally {
       conflictPendingRef.current = false;
       setConflict(null);
@@ -242,6 +264,20 @@ export default function App() {
             <Presentation size={24} color="var(--accent-primary)" />
             <span>Posologia Slides</span>
           </div>
+
+          {saveStatus === 'saving' && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              <Loader2 size={14} className="animate-spin" /> Salvando…
+            </span>
+          )}
+          {saveStatus === 'error' && (
+            <span
+              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', fontWeight: 700, color: '#f87171' }}
+              title="As últimas alterações podem não ter sido salvas no servidor. Não feche esta aba."
+            >
+              <AlertCircle size={14} /> Não foi possível salvar — verifique sua conexão
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '0.6rem' }}>
