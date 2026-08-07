@@ -273,26 +273,52 @@ export async function savePresentation(presentation, userId) {
 
   if (id) {
     const ref = presentationsRef(userId).doc(id);
-    const result = await db.runTransaction(async (tx) => {
-      const existing = await tx.get(ref);
-      if (!existing.exists) return null;
+    // `data` fica fora do runTransaction pra ficar acessível no catch abaixo
+    // — o gRPC do Firestore só rejeita a gravação de verdade quando a
+    // transação faz commit, DEPOIS que o callback já retornou, então o erro
+    // sempre aparece aqui fora, nunca dentro do próprio callback.
+    let data;
+    let result;
+    try {
+      result = await db.runTransaction(async (tx) => {
+        const existing = await tx.get(ref);
+        if (!existing.exists) return null;
 
-      const currentData = existing.data();
-      const sameSessionAsLastWriter = !!sessionId && currentData.lastWriterSessionId === sessionId;
+        const currentData = existing.data();
+        const sameSessionAsLastWriter = !!sessionId && currentData.lastWriterSessionId === sessionId;
 
-      if (!force && !sameSessionAsLastWriter && typeof expectedUpdatedAt === 'number' && currentData.updatedAt !== expectedUpdatedAt) {
-        return { conflict: true, presentation: serializePresentation(id, currentData) };
+        if (!force && !sameSessionAsLastWriter && typeof expectedUpdatedAt === 'number' && currentData.updatedAt !== expectedUpdatedAt) {
+          return { conflict: true, presentation: serializePresentation(id, currentData) };
+        }
+
+        data = {
+          title, description: description || null, slides, updatedAt: now,
+          lastWriterSessionId: sessionId || null,
+          relatedPresentationId: relatedPresentationId || null,
+          relatedPresentationTitle: relatedPresentationTitle || null
+        };
+        tx.update(ref, data);
+        return { conflict: false, presentation: serializePresentation(id, { ...currentData, ...data }) };
+      });
+    } catch (err) {
+      // code 3 = INVALID_ARGUMENT do gRPC do Firestore. findInvalidNestedArrayPath
+      // já busca em `slides` sozinho (checado antes de chegar aqui, tanto no
+      // cliente quanto na rota) — aqui varre TUDO que foi de fato escrito
+      // (title/description/etc também), pro caso do campo culpado não ser em
+      // slides. Se mesmo assim não achar, devolve uma amostra bruta dos dados
+      // em vez de deixar só a mensagem genérica do Firestore, que não diz
+      // onde está o problema (incidente 2026-08-07, Aula 08).
+      if (err && err.code === 3 && data) {
+        const invalidPath = findInvalidNestedArrayPath(data, '');
+        const diagnostic = invalidPath
+          ? `Campo inválido: "${invalidPath}" (array dentro de array).`
+          : `Campo não identificado automaticamente. Amostra dos dados: ${JSON.stringify(data).slice(0, 3000)}`;
+        const diagnosedError = new Error(`Firestore recusou a gravação. ${diagnostic}`);
+        diagnosedError.status = 400;
+        throw diagnosedError;
       }
-
-      const data = {
-        title, description: description || null, slides, updatedAt: now,
-        lastWriterSessionId: sessionId || null,
-        relatedPresentationId: relatedPresentationId || null,
-        relatedPresentationTitle: relatedPresentationTitle || null
-      };
-      tx.update(ref, data);
-      return { conflict: false, presentation: serializePresentation(id, { ...currentData, ...data }) };
-    });
+      throw err;
+    }
     if (result) return result;
   }
 

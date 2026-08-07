@@ -87,6 +87,12 @@ app.use((err, req, res, next) => {
     return res.status(413).json({ error: 'Arquivo muito grande para o limite permitido.' });
   }
   console.error('Erro não tratado:', err);
+  // `err.status` marca um erro deliberadamente seguro de mostrar (mensagem
+  // já pensada pra não vazar nada sensível) — ver diagnosedError em
+  // store.js#savePresentation. Sem isso, todo erro vira o genérico abaixo.
+  if (err.status) {
+    return res.status(err.status).json({ error: err.message });
+  }
   res.status(500).json({ error: 'Erro interno do servidor.' });
 });
 
