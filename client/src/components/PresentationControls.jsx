@@ -55,15 +55,28 @@ export default function PresentationControls({
     };
   }, [isFullscreen]);
 
-  // Navegação por atalhos de teclado (Seta Esquerda/Direita, Espaço, PageUp/PageDown)
+  // Navegação por atalhos de teclado (Setas, Espaço, PageUp/PageDown)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      // SELECT/contentEditable também entram na guarda (além de INPUT/
+      // TEXTAREA): ArrowUp/ArrowDown abaixo é justamente o par que o
+      // navegador usa nativamente pra trocar a opção selecionada num
+      // <select> focado (ex.: fonte do texto) — sem isto, navegar o preview
+      // de slides "vazaria" pra dentro desses campos e mudaria o valor deles
+      // junto, ou vice-versa.
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
 
-      if (e.key === 'ArrowRight' || e.key === 'Space' || e.key === 'PageDown') {
+      // ArrowUp/ArrowDown navegam igual Left/Right (mesmo par usado ao
+      // repassar do iframe pro pai, ver buildEditorScript em
+      // PresentationViewer) — sem isto, as setas de cima/baixo não tinham
+      // handler nenhum aqui e caíam no comportamento nativo do navegador:
+      // rolar o contêiner com overflow mais próximo (a lista de miniaturas
+      // na barra lateral), em vez de trocar de slide.
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'Space' || e.key === 'PageDown') {
         e.preventDefault();
         onNext();
-      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
         e.preventDefault();
         onPrev();
       } else if (e.key === 'f' || e.key === 'F') {
