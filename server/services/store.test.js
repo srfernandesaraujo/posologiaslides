@@ -9,7 +9,7 @@ import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
 import { db } from './firebaseAdmin.js';
-import { savePresentation, findInvalidNestedArrayPath } from './store.js';
+import { savePresentation, findInvalidNestedArrayPath, findOversizedSlide } from './store.js';
 
 const userId = `test-concurrency-${crypto.randomUUID()}`;
 const createdIds = [];
@@ -122,5 +122,24 @@ describe('findInvalidNestedArrayPath — array-dentro-de-array (Firestore rejeit
   test('array DENTRO de objeto DENTRO de array é permitido (só array-em-array direto é proibido)', () => {
     const slides = [{ id: 's1', elements: [{ id: 'e1', tags: ['a', 'b'] }] }];
     assert.equal(findInvalidNestedArrayPath(slides), null);
+  });
+});
+
+describe('findOversizedSlide — limite de 1 MiB por documento do Firestore', () => {
+  test('apresentação pequena: null', () => {
+    const slides = [{ id: 's1', title: 'A', html: '<div>oi</div>' }];
+    assert.equal(findOversizedSlide(slides), null);
+  });
+
+  test('um slide gigante estoura o limite: aponta ele como culpado', () => {
+    const slides = [
+      { id: 's1', title: 'Normal', html: '<div>pequeno</div>' },
+      { id: 's2', title: 'Gigante', html: '<div>' + 'x'.repeat(1_100_000) + '</div>' }
+    ];
+    const result = findOversizedSlide(slides);
+    assert.ok(result, 'deveria detectar apresentação grande demais');
+    assert.equal(result.biggest.index, 1);
+    assert.equal(result.biggest.title, 'Gigante');
+    assert.ok(result.biggest.bytes > 1_000_000);
   });
 });

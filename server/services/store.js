@@ -244,6 +244,29 @@ export function findInvalidNestedArrayPath(value, path = 'slides') {
   return null;
 }
 
+// Firestore recusa qualquer documento acima de 1 MiB — sem exceção, sem
+// aviso amigável, só um erro genérico do gRPC (que às vezes nem menciona
+// tamanho, ver findInvalidNestedArrayPath acima; foi assim que um slide de
+// 4,5 MB — importado via "Importar Pasta Inteira" embutindo algo enorme,
+// provavelmente uma imagem colada como base64 em vez de enviada como arquivo
+// — ficou horas disfarçado de bug de array aninhado, 2026-08-07). Checa
+// ANTES de tentar gravar e aponta o slide culpado, em vez de deixar o
+// Firestore recusar com uma mensagem que não ajuda a achar o problema.
+const FIRESTORE_MAX_DOCUMENT_BYTES = 1048576;
+const SIZE_WARNING_THRESHOLD_BYTES = FIRESTORE_MAX_DOCUMENT_BYTES * 0.9;
+
+export function findOversizedSlide(slides) {
+  const totalBytes = Buffer.byteLength(JSON.stringify(slides), 'utf8');
+  if (totalBytes < SIZE_WARNING_THRESHOLD_BYTES) return null;
+
+  let biggest = null;
+  slides.forEach((slide, index) => {
+    const bytes = Buffer.byteLength(JSON.stringify(slide), 'utf8');
+    if (!biggest || bytes > biggest.bytes) biggest = { index, bytes, title: slide?.title || '(sem título)' };
+  });
+  return { totalBytes, biggest };
+}
+
 export async function getPresentation(id, userId) {
   const snap = await presentationsRef(userId).doc(id).get();
   return snap.exists ? serializePresentation(snap.id, snap.data()) : null;

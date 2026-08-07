@@ -2,7 +2,7 @@ import express from 'express';
 import {
   getFolderTree, getPresentation, savePresentation, deletePresentation, setFavorite, touchPresentation,
   createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder, renamePresentation,
-  findInvalidNestedArrayPath
+  findInvalidNestedArrayPath, findOversizedSlide
 } from '../services/store.js';
 
 const router = express.Router();
@@ -45,6 +45,19 @@ router.post('/', asyncHandler(async (req, res) => {
   const invalidPath = findInvalidNestedArrayPath(slides);
   if (invalidPath) {
     return res.status(400).json({ error: `Dado inválido em "${invalidPath}": array dentro de array não é permitido.` });
+  }
+
+  // Firestore recusa qualquer documento acima de 1 MiB, sem exceção — ver
+  // comentário em findOversizedSlide (store.js). Aponta o slide culpado em
+  // vez de deixar isso virar de novo um mistério de horas (Aula 08,
+  // 2026-08-07: um slide de 4,5 MB vindo de "Importar Pasta Inteira`).
+  const oversized = findOversizedSlide(slides);
+  if (oversized) {
+    const totalMb = (oversized.totalBytes / 1024 / 1024).toFixed(1);
+    const biggestKb = (oversized.biggest.bytes / 1024).toFixed(0);
+    return res.status(400).json({
+      error: `Apresentação muito grande (${totalMb} MB — o limite do Firestore é 1 MB). O slide "${oversized.biggest.title}" (posição ${oversized.biggest.index + 1}) sozinho tem ${biggestKb} KB — provavelmente uma imagem colada direto em vez de enviada como arquivo. Apague ou refaça esse slide.`
+    });
   }
 
   const result = await savePresentation(

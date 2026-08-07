@@ -9,7 +9,7 @@ import StudentJoin from './mobile/StudentJoin';
 import PublicPresentationView from './pages/PublicPresentationView';
 import { useAuth } from './context/AuthContext';
 import { apiFetch } from './lib/api';
-import { findInvalidNestedArrayPath } from './lib/dataValidation';
+import { findInvalidNestedArrayPath, findOversizedSlide } from './lib/dataValidation';
 import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loader2 } from 'lucide-react';
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
@@ -90,6 +90,20 @@ export default function App() {
         }
         setSaveStatus('error');
         setSaveErrorDetail(`Campo "${invalidPath}" tem um formato que o servidor não aceita (array dentro de array).`);
+        return;
+      }
+
+      // Idem pro limite de 1 MiB por documento do Firestore — ver
+      // store.js#findOversizedSlide. Achado numa Aula 08 real: um slide de
+      // 4,5 MB (imagem colada como base64 em vez de enviada como arquivo)
+      // travou o save com um erro que não menciona tamanho em lugar nenhum.
+      const oversized = findOversizedSlide(presentation.slides);
+      if (oversized) {
+        const totalMb = (oversized.totalBytes / 1024 / 1024).toFixed(1);
+        const biggestKb = (oversized.biggest.bytes / 1024).toFixed(0);
+        console.error(`[autosave] apresentação muito grande: ${totalMb} MB. Slide ${oversized.biggest.index} ("${oversized.biggest.title}") sozinho: ${biggestKb} KB.`);
+        setSaveStatus('error');
+        setSaveErrorDetail(`Apresentação muito grande (${totalMb} MB). O slide "${oversized.biggest.title}" tem ${biggestKb} KB — provavelmente uma imagem colada direto. Apague ou refaça esse slide.`);
         return;
       }
 
