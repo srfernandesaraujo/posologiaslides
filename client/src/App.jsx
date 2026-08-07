@@ -70,9 +70,21 @@ export default function App() {
         const data = await res.json();
         if (data.success) {
           lastSavedJsonRef.current = JSON.stringify(data.presentation);
-          // Apresentação nova (sem id ainda): adota o id definitivo gerado pelo servidor
+          // Apresentação nova (sem id ainda): adota o id definitivo gerado
+          // pelo servidor. Faz isso com um updater FUNCIONAL sobre o estado
+          // ATUAL (não com `setPresentation(data.presentation)` direto) —
+          // esta é a gravação inicial, sem id, e pode levar um tempo; se o
+          // usuário inseriu slides ou editou algo enquanto ela estava em
+          // voo, `presentation` (capturado por closure) já está desatualizado
+          // e `data.presentation` é só o eco do que foi ENVIADO — substituir
+          // o estado inteiro por ele descartaria essas edições concorrentes
+          // (bug real, já visto em apresentações recém-geradas por IA/
+          // importação editadas nos primeiros segundos). Só o id precisa
+          // vir do servidor; o resto do estado atual fica intocado, e o
+          // efeito abaixo detecta a diferença e agenda um novo autosave
+          // sozinho (agora já com o id certo).
           if (data.presentation.id !== presentation.id) {
-            setPresentation(data.presentation);
+            setPresentation((prev) => (prev && !prev.id ? { ...prev, id: data.presentation.id } : prev));
           }
           setLibraryRefreshKey((k) => k + 1);
         }

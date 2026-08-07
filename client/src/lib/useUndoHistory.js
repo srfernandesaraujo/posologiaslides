@@ -21,6 +21,19 @@ export default function useUndoHistory(presentation, setPresentation, { maxHisto
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  // Ref "sempre fresca" do `presentation` atual — commit/commitDebounced/
+  // undo/redo podem ser chamados a partir de handlers assíncronos que só
+  // terminam depois de um `await` (ex.: handleSendChatMessage em
+  // PresentationEditor.jsx). Nesses casos a INSTÂNCIA destas funções que o
+  // handler capturou por closure é a de quando ele começou, não a mais
+  // recente — ler o parâmetro `presentation` direto (em vez desta ref)
+  // empilharia um "antes" desatualizado no histórico de undo, mesmo já
+  // gravando o `next` certo (esse já é corrigido no lado do chamador, ver
+  // presentationRef em PresentationEditor.jsx). Sem isto, um Ctrl+Z logo
+  // depois de uma dessas ações podia "voltar" bem mais do que o esperado.
+  const presentationRef = useRef(presentation);
+  useEffect(() => { presentationRef.current = presentation; }, [presentation]);
+
   const syncFlags = () => {
     setCanUndo(pastRef.current.length > 0);
     setCanRedo(futureRef.current.length > 0);
@@ -33,15 +46,15 @@ export default function useUndoHistory(presentation, setPresentation, { maxHisto
   };
 
   const commit = useCallback((next) => {
-    pushPast(presentation);
+    pushPast(presentationRef.current);
     skipNextRef.current = true;
     syncFlags();
     setPresentation(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presentation, setPresentation, maxHistory]);
+  }, [setPresentation, maxHistory]);
 
   const commitDebounced = useCallback((next) => {
-    if (pendingBeforeRef.current === null) pendingBeforeRef.current = presentation;
+    if (pendingBeforeRef.current === null) pendingBeforeRef.current = presentationRef.current;
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       pushPast(pendingBeforeRef.current);
@@ -52,29 +65,27 @@ export default function useUndoHistory(presentation, setPresentation, { maxHisto
     skipNextRef.current = true;
     setPresentation(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presentation, setPresentation, maxHistory, debounceMs]);
+  }, [setPresentation, maxHistory, debounceMs]);
 
   const undo = useCallback(() => {
     if (pastRef.current.length === 0) return null;
     const restored = pastRef.current.pop();
-    futureRef.current.push(presentation);
+    futureRef.current.push(presentationRef.current);
     skipNextRef.current = true;
     syncFlags();
     setPresentation(restored);
     return restored;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presentation, setPresentation]);
+  }, [setPresentation]);
 
   const redo = useCallback(() => {
     if (futureRef.current.length === 0) return null;
     const restored = futureRef.current.pop();
-    pastRef.current.push(presentation);
+    pastRef.current.push(presentationRef.current);
     skipNextRef.current = true;
     syncFlags();
     setPresentation(restored);
     return restored;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presentation, setPresentation]);
+  }, [setPresentation]);
 
   useEffect(() => {
     if (skipNextRef.current) {
