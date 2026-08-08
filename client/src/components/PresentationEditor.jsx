@@ -401,7 +401,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       // altos que os 1080px nativos, ver PresentationViewer.jsx).
       newSocket.on('remote_scroll', ({ dyPercent }) => {
         const doc = stageIframeRef.current?.contentDocument;
-        const scrollEl = doc?.scrollingElement || doc?.body;
+        // Quem rola de verdade é o <body> (overflow-y:auto, ver
+        // PresentationViewer.jsx) — o <html> tem overflow:hidden de
+        // propósito ali (evita scrollbar duplicada), então
+        // `document.scrollingElement` (que aponta pro <html> em modo
+        // standards) NUNCA é null e o `||` abaixo nunca chegava a usar o
+        // body de verdade. Corrigido: usa body primeiro.
+        const scrollEl = doc?.body || doc?.scrollingElement;
         if (!scrollEl) return;
         scrollEl.scrollTop += (dyPercent || 0) * SCROLL_SENSITIVITY;
       });
