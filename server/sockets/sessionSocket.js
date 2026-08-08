@@ -148,6 +148,32 @@ export function setupSocketIO(httpServer) {
       io.to(session.presenterSocketId).emit('remote_navigate', { direction });
     });
 
+    // 2d. Trackpad do controle remoto — modo "cursor" (mover um ponteiro
+    // virtual sobre o slide e simular clique) e modo "rolar" (rolar o
+    // conteúdo do slide, pra slides mais altos que a tela). Deltas vêm como
+    // PORCENTAGEM da área de toque do celular (não pixels crus), pra a
+    // sensibilidade não depender do tamanho da tela do aparelho — quem decide
+    // a escala final é o apresentador (ver PresentationEditor.jsx). Sem
+    // estado nenhum guardado na sessão: é só um repasse pro socket certo,
+    // igual remote_navigate acima.
+    socket.on('remote_cursor_move', ({ pin, dxPercent, dyPercent }) => {
+      const session = activeSessions.get(pin);
+      if (!session) return;
+      io.to(session.presenterSocketId).emit('remote_cursor_move', { dxPercent, dyPercent });
+    });
+
+    socket.on('remote_cursor_click', ({ pin }) => {
+      const session = activeSessions.get(pin);
+      if (!session) return;
+      io.to(session.presenterSocketId).emit('remote_cursor_click');
+    });
+
+    socket.on('remote_scroll', ({ pin, dyPercent }) => {
+      const session = activeSessions.get(pin);
+      if (!session) return;
+      io.to(session.presenterSocketId).emit('remote_scroll', { dyPercent });
+    });
+
     // 3. Aluno envia resposta (Quiz / Wordcloud / iRAT / Hotspot)
     socket.on('submit_response', ({ pin, slideIndex, responseType, answer }) => {
       const session = activeSessions.get(pin);

@@ -46,7 +46,7 @@ import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
   GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2, StickyNote,
-  Smartphone
+  Smartphone, MousePointer2
 } from 'lucide-react';
 
 // Tamanho do canvas ANTES da migração pra 1920x1080 (ver lib/canvasConstants.js)
@@ -55,6 +55,17 @@ import {
 // pra calcular o fator de escala, não é mais o tamanho ativo do canvas.
 const LEGACY_SLIDE_WIDTH = 1280;
 const LEGACY_SLIDE_HEIGHT = 720;
+
+// Trackpad do controle remoto (ver RemoteControl.jsx): os deltas que chegam
+// do celular já vêm em % da própria área de toque dele (não pixels crus, pra
+// não depender do tamanho de tela do aparelho — ver remote_cursor_move em
+// sessionSocket.js). Estes multiplicadores é que decidem o quanto isso se
+// traduz em movimento real aqui — CURSOR_SENSITIVITY calibrado pra um arrasto
+// de ponta a ponta da área de toque não passar muito de metade do slide de
+// uma vez (controle preciso); SCROLL_SENSITIVITY só precisa "parecer" uma
+// rolagem normal de página.
+const CURSOR_SENSITIVITY = 2.5;
+const SCROLL_SENSITIVITY = 6;
 
 // O DOM normaliza valores de estilo ao ler de volta (cor hex vira "rgb(...)",
 // aspas de font-family podem mudar) — estas duas convertem pra uma forma
@@ -248,6 +259,18 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleNextRef = useRef(() => {});
   const handlePrevRef = useRef(() => {});
 
+  // Trackpad do controle remoto (ver RemoteControl.jsx): posição do cursor
+  // virtual, em % do canvas nativo (0-100), null enquanto o celular não
+  // mandou nenhum movimento ainda — só aparece em tela cheia (ver JSX do
+  // overlay). `stageIframeRef` aponta pro <iframe> do slide sendo exibido
+  // agora (mesmo PresentationViewer usado em edição e apresentação, ver
+  // `ref={stageIframeRef}` mais abaixo) — usado tanto pra simular o clique
+  // (elementFromPoint + dispatchEvent) quanto pra rolar o documento do slide.
+  const stageIframeRef = useRef(null);
+  const [remoteCursor, setRemoteCursor] = useState(null);
+  const remoteCursorRef = useRef(null);
+  useEffect(() => { remoteCursorRef.current = remoteCursor; }, [remoteCursor]);
+
   // Chat com IA
   const [chatMessages, setChatMessages] = useState([
     { sender: 'ai', text: 'Olá! Sou seu assistente de IA. Selecione um slide e me peça para alterar cores, adicionar gráficos, simuladores ou novos conteúdos!' }
@@ -326,6 +349,58 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       newSocket.on('remote_navigate', ({ direction }) => {
         if (direction === 'next') handleNextRef.current();
         else if (direction === 'prev') handlePrevRef.current();
+      });
+
+      // Trackpad do controle remoto — modo cursor: acumula o delta recebido
+      // (ver CURSOR_SENSITIVITY acima) na posição atual do cursor virtual,
+      // sempre travado entre 0-100% do canvas nativo. Lido a partir do valor
+      // anterior via updater function (não closure), então não precisa de
+      // ref pra "current remoteCursor" aqui.
+      newSocket.on('remote_cursor_move', ({ dxPercent, dyPercent }) => {
+        setRemoteCursor((prev) => {
+          const base = prev || { xPct: 50, yPct: 50 };
+          return {
+            xPct: Math.min(100, Math.max(0, base.xPct + (dxPercent || 0) * CURSOR_SENSITIVITY)),
+            yPct: Math.min(100, Math.max(0, base.yPct + (dyPercent || 0) * CURSOR_SENSITIVITY))
+          };
+        });
+      });
+
+      // Trackpad — toque curto no modo cursor: simula um clique de verdade no
+      // elemento que está embaixo do cursor virtual DENTRO do documento do
+      // slide (mesma origem do app, ver PresentationViewer.jsx — por isso dá
+      // pra acessar contentDocument direto). elementFromPoint usa coordenadas
+      // de VIEWPORT do iframe, que é sempre 1920x1080 "de verdade" (o zoom da
+      // apresentação é só um transform CSS no container de fora, não muda o
+      // tamanho de layout interno do iframe) — não precisa descontar zoom
+      // nem rolagem aqui.
+      newSocket.on('remote_cursor_click', () => {
+        const iframe = stageIframeRef.current;
+        const cursor = remoteCursorRef.current;
+        const doc = iframe?.contentDocument;
+        if (!doc || !cursor) return;
+
+        const x = (cursor.xPct / 100) * SLIDE_NATIVE_WIDTH;
+        const y = (cursor.yPct / 100) * SLIDE_NATIVE_HEIGHT;
+        const target = doc.elementFromPoint(x, y);
+        if (!target) return;
+
+        const eventInit = { bubbles: true, cancelable: true, view: iframe.contentWindow, clientX: x, clientY: y };
+        target.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+        target.dispatchEvent(new MouseEvent('mousedown', eventInit));
+        target.dispatchEvent(new PointerEvent('pointerup', eventInit));
+        target.dispatchEvent(new MouseEvent('mouseup', eventInit));
+        target.dispatchEvent(new MouseEvent('click', eventInit));
+      });
+
+      // Trackpad — modo rolar: aplica o delta direto no scroll do documento
+      // do slide (o mesmo body com overflow-y:auto usado por slides mais
+      // altos que os 1080px nativos, ver PresentationViewer.jsx).
+      newSocket.on('remote_scroll', ({ dyPercent }) => {
+        const doc = stageIframeRef.current?.contentDocument;
+        const scrollEl = doc?.scrollingElement || doc?.body;
+        if (!scrollEl) return;
+        scrollEl.scrollTop += (dyPercent || 0) * SCROLL_SENSITIVITY;
       });
     })();
 
@@ -2091,6 +2166,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   style={{ '--pos-transition-duration': `${atClosingSlide ? TRANSITION_DEFAULTS.duration : resolveTransition(currentSlide.transition).duration}s` }}
                 >
                   <PresentationViewer
+                    ref={stageIframeRef}
                     htmlContent={currentSlide.html}
                     editable={!isFullscreen && !atClosingSlide}
                     spotlightEnabled={isFullscreen && spotlightOn}
@@ -2100,6 +2176,28 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     cropMode={cropMode}
                   />
                 </div>
+
+                {/* Cursor virtual do trackpad do controle remoto (celular) —
+                    posicionado em % do canvas nativo, então fica dentro da
+                    MESMA camada com o transform:scale acima e acompanha o
+                    zoom/apresentação automaticamente, sem conta própria.
+                    pointerEvents:none pra nunca atrapalhar cliques reais do
+                    mouse/caneta/laser na tela. Só existe durante apresentação
+                    de verdade (isFullscreen) — em edição não faz sentido. */}
+                {isFullscreen && remoteCursor && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: `${remoteCursor.xPct}%`,
+                      top: `${remoteCursor.yPct}%`,
+                      transform: 'translate(-4px, -4px)',
+                      pointerEvents: 'none',
+                      zIndex: 2147483647
+                    }}
+                  >
+                    <MousePointer2 size={38} color="#22d3ee" fill="#0e7490" strokeWidth={1.5} style={{ filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.7))' }} />
+                  </div>
+                )}
               </div>
             </div>
           </div>

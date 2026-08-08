@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { API_URL } from '../lib/api';
-import { Smartphone, ChevronLeft, ChevronRight, StickyNote } from 'lucide-react';
+import { Smartphone, ChevronLeft, ChevronRight, StickyNote, Move, X, ScrollText, MousePointer2 } from 'lucide-react';
+
+// Abaixo de quanto o dedo se moveu (soma de todo o arrasto, em px de tela do
+// celular) um toque no modo "cursor" ainda conta como CLIQUE em vez de
+// arrasto — mesmo espírito de DRAG_THRESHOLD em PresentationViewer.jsx
+// (buildEditorScript), só que aqui decide "clicar ou não", não "selecionar ou
+// arrastar".
+const TAP_THRESHOLD_PX = 6;
 
 // Tela mobile do CONTROLE REMOTO — mesmo espírito visual/estrutural de
 // StudentJoin.jsx (tema escuro, PIN pego da URL se veio de QR Code), mas um
@@ -20,6 +27,9 @@ export default function RemoteControl() {
   const [totalSlides, setTotalSlides] = useState(null);
   const [slideTitle, setSlideTitle] = useState('');
   const [slideNotes, setSlideNotes] = useState('');
+  const [trackpadOpen, setTrackpadOpen] = useState(false);
+  const [trackpadMode, setTrackpadMode] = useState('scroll'); // 'scroll' | 'cursor'
+  const dragStateRef = useRef(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -64,6 +74,50 @@ export default function RemoteControl() {
     if (socket) socket.emit('remote_navigate', { pin, direction });
   };
 
+  // Trackpad: os deltas mandados pro servidor são em % da própria área de
+  // toque (getBoundingClientRect do próprio elemento), não pixels crus — a
+  // sensibilidade final quem decide é o apresentador (ver
+  // CURSOR_SENSITIVITY/SCROLL_SENSITIVITY em PresentationEditor.jsx), isso
+  // aqui só normaliza pelo tamanho da própria área de toque, que muda de
+  // aparelho pra aparelho.
+  const handleTrackpadPointerDown = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragStateRef.current = { lastX: e.clientX, lastY: e.clientY, totalMove: 0 };
+  };
+
+  const handleTrackpadPointerMove = (e) => {
+    const state = dragStateRef.current;
+    if (!state || !socket) return;
+    e.preventDefault();
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dx = e.clientX - state.lastX;
+    const dy = e.clientY - state.lastY;
+    state.lastX = e.clientX;
+    state.lastY = e.clientY;
+    state.totalMove += Math.abs(dx) + Math.abs(dy);
+
+    if (trackpadMode === 'scroll') {
+      socket.emit('remote_scroll', { pin, dyPercent: (dy / rect.height) * 100 });
+    } else {
+      socket.emit('remote_cursor_move', {
+        pin,
+        dxPercent: (dx / rect.width) * 100,
+        dyPercent: (dy / rect.height) * 100
+      });
+    }
+  };
+
+  const handleTrackpadPointerUp = () => {
+    const state = dragStateRef.current;
+    dragStateRef.current = null;
+    // Toque curto (sem arrastar de verdade) no modo cursor = clique. No modo
+    // rolar não existe "clique" — arrastar é sempre rolagem.
+    if (state && socket && trackpadMode === 'cursor' && state.totalMove < TAP_THRESHOLD_PX) {
+      socket.emit('remote_cursor_click', { pin });
+    }
+  };
+
   if (!connected) {
     return (
       <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #090d16 0%, #111827 100%)', color: '#fff', padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
@@ -105,20 +159,85 @@ export default function RemoteControl() {
         </div>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', margin: '1.5rem 0', gap: '1.5rem' }}>
-        <div style={{ textAlign: 'center' }}>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>{slideTitle || 'Slide atual'}</h2>
-        </div>
+      <button
+        onClick={() => setTrackpadOpen((v) => !v)}
+        className="btn-secondary"
+        style={{ width: '100%', justifyContent: 'center', padding: '0.6rem', fontSize: '0.82rem', gap: '0.4rem', marginTop: '0.9rem' }}
+      >
+        {trackpadOpen ? <X size={16} /> : <Move size={16} />} {trackpadOpen ? 'Fechar Trackpad' : 'Abrir Trackpad (mover cursor / rolar)'}
+      </button>
 
-        {slideNotes && (
-          <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '0.75rem', padding: '1rem', maxHeight: '35vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#38bdf8', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
-              <StickyNote size={14} /> Suas anotações
-            </div>
-            <p style={{ fontSize: '0.95rem', color: '#e5e7eb', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.5 }}>{slideNotes}</p>
+      {trackpadOpen ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.75rem', margin: '0.9rem 0' }}>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              onClick={() => setTrackpadMode('scroll')}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                padding: '0.6rem', borderRadius: '0.6rem', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
+                border: trackpadMode === 'scroll' ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.15)',
+                background: trackpadMode === 'scroll' ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.05)',
+                color: trackpadMode === 'scroll' ? '#67e8f9' : '#9ca3af'
+              }}
+            >
+              <ScrollText size={16} /> Rolar
+            </button>
+            <button
+              onClick={() => setTrackpadMode('cursor')}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                padding: '0.6rem', borderRadius: '0.6rem', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
+                border: trackpadMode === 'cursor' ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.15)',
+                background: trackpadMode === 'cursor' ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.05)',
+                color: trackpadMode === 'cursor' ? '#67e8f9' : '#9ca3af'
+              }}
+            >
+              <MousePointer2 size={16} /> Cursor
+            </button>
           </div>
-        )}
-      </div>
+
+          <div
+            onPointerDown={handleTrackpadPointerDown}
+            onPointerMove={handleTrackpadPointerMove}
+            onPointerUp={handleTrackpadPointerUp}
+            onPointerCancel={handleTrackpadPointerUp}
+            style={{
+              flex: 1,
+              minHeight: '220px',
+              borderRadius: '1rem',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px dashed rgba(255,255,255,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              touchAction: 'none',
+              userSelect: 'none',
+              WebkitUserSelect: 'none'
+            }}
+          >
+            <p style={{ textAlign: 'center', color: '#6b7280', fontSize: '0.8rem', padding: '0 1.5rem', pointerEvents: 'none' }}>
+              {trackpadMode === 'scroll'
+                ? 'Arraste pra cima/baixo pra rolar o conteúdo do slide'
+                : 'Arraste pra mover o cursor no telão — toque rápido (sem arrastar) pra clicar'}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', margin: '0.9rem 0', gap: '1.5rem' }}>
+          <div style={{ textAlign: 'center' }}>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>{slideTitle || 'Slide atual'}</h2>
+          </div>
+
+          {slideNotes && (
+            <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '0.75rem', padding: '1rem', maxHeight: '35vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#38bdf8', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+                <StickyNote size={14} /> Suas anotações
+              </div>
+              <p style={{ fontSize: '0.95rem', color: '#e5e7eb', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.5 }}>{slideNotes}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
         <button
