@@ -249,6 +249,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [socket, setSocket] = useState(null);
   const [pin, setPin] = useState('849201');
   const [remoteControlOpen, setRemoteControlOpen] = useState(false);
+  // Amplia o painel de QR Code/resultados ao vivo (ActiveMethodologiesOverlay)
+  // pra turma ver melhor — ver botão dedicado dentro do próprio overlay.
+  const [overlayExpanded, setOverlayExpanded] = useState(false);
   // handleNext/handlePrev são recriadas a cada render (fecham sobre
   // activeIndex/presentation atuais) — o listener de 'remote_navigate' vive
   // dentro do useEffect que cria o socket, que só roda de novo quando
@@ -834,7 +837,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // saída nativa (tecla Esc, UI do navegador), que não passa por toggleFullscreen
   // e por isso deixava a UI (lista de slides, chat) escondida mesmo após sair.
   useEffect(() => {
-    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+      // Saindo de tela cheia: o overlay ampliado (position:fixed, cobre a
+      // tela toda) não faz sentido em cima do editor — evita deixar a UI de
+      // edição obscurecida sem querer.
+      if (!document.fullscreenElement) setOverlayExpanded(false);
+    };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
@@ -2625,6 +2634,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             currentSlide={currentSlide}
             slideIndex={activeIndex}
             onNavigateBranch={handleNavigateBranch}
+            expanded={overlayExpanded}
+            onToggleExpand={() => setOverlayExpanded((v) => !v)}
           />
 
           <DrawingCanvas

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Users, BarChart2, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart } from 'lucide-react';
+import { Users, BarChart2, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { layoutWordCloud } from '../lib/wordCloudLayout';
 import { apiFetch } from '../lib/api';
 
@@ -9,7 +9,9 @@ export default function ActiveMethodologiesOverlay({
   pin,
   currentSlide,
   slideIndex,
-  onNavigateBranch
+  onNavigateBranch,
+  expanded = false,
+  onToggleExpand
 }) {
   const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   const [participantCount, setParticipantCount] = useState(0);
@@ -118,8 +120,39 @@ export default function ActiveMethodologiesOverlay({
     [JSON.stringify(wordEntries)]
   );
 
+  // Nada pra ampliar (nenhum widget seria mostrado mesmo) — sem isto o botão
+  // de ampliar aparecia mesmo em slides sem QR/leaderboard/interatividade
+  // nenhuma, expandindo pra uma tela vazia.
+  const hasAnythingToShow = (isIntroSlide && pin) || leaderboard.length > 0 || !!currentSlide?.type
+    || (currentSlide?.branches && currentSlide.branches.length > 0);
+
   return (
-    <div style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
+    <>
+      {/* Botão de ampliar/recolher — posição fixa própria (não entra no
+          transform:scale do container abaixo), pra continuar do mesmo
+          tamanho e no mesmo lugar nos dois estados. */}
+      {hasAnythingToShow && onToggleExpand && (
+        <button
+          onClick={onToggleExpand}
+          className="btn-icon"
+          title={expanded ? 'Voltar ao tamanho normal' : 'Ampliar QR Code / resultados ao vivo pra turma ver melhor'}
+          style={{ position: 'fixed', top: '16px', left: '16px', zIndex: 210, background: 'rgba(15, 23, 42, 0.85)' }}
+        >
+          {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+        </button>
+      )}
+
+      <div
+        style={
+          expanded
+            ? {
+                position: 'fixed', inset: 0, zIndex: 200, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', gap: '1.25rem',
+                background: 'rgba(9, 13, 22, 0.95)', transform: 'scale(1.7)', transformOrigin: 'center center'
+              }
+            : { position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }
+        }
+      >
       {/* Widget do QR Code no Slide de Abertura / Capa */}
       {isIntroSlide && pin && (
         <div className="glass-panel" style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'rgba(15, 23, 42, 0.9)' }}>
@@ -375,6 +408,7 @@ export default function ActiveMethodologiesOverlay({
           </p>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

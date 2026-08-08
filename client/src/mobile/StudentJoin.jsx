@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { API_URL } from '../lib/api';
-import { Smartphone, Send, CheckCircle2, Sparkles, Users } from 'lucide-react';
+import { Smartphone, Send, CheckCircle2, Sparkles, Users, Clock } from 'lucide-react';
 
 const POINTS_TOTAL = 100;
 const POINTS_KEYS = ['A', 'B', 'C', 'D'];
@@ -346,7 +346,7 @@ export default function StudentJoin() {
               <Send size={18} /> Enviar Distribuição
             </button>
           </div>
-        ) : (
+        ) : (slideType === 'quiz' || slideType === 'wordcloud' || slideType === 'tbl') ? (
           <div style={{ width: '100%', maxWidth: '400px' }}>
             <h4 style={{ textAlign: 'center', fontSize: '1.1rem', color: '#9ca3af', marginBottom: '1.5rem' }}>
               {slideType === 'tbl'
@@ -398,6 +398,17 @@ export default function StudentJoin() {
                 </button>
               </div>
             </form>
+          </div>
+        ) : (
+          // Slide sem NENHUMA interatividade escolhida pelo professor (dropdown
+          // "Sem interatividade" em PresentationEditor.jsx) — antes isto caía no
+          // mesmo branch de cima e mostrava quiz A/B/C/D + nuvem de palavras à
+          // toa, como se qualquer slide aceitasse resposta. Estado neutro: nada
+          // pra responder até o professor ativar uma interação de verdade.
+          <div style={{ textAlign: 'center', color: '#6b7280' }}>
+            <Clock size={40} style={{ margin: '0 auto 1rem auto', opacity: 0.6 }} />
+            <p style={{ fontSize: '0.95rem' }}>Este slide não tem nenhuma interação ativa no momento.</p>
+            <p style={{ fontSize: '0.8rem', marginTop: '0.4rem' }}>Aguarde o professor avançar para um slide com quiz, enquete ou outra atividade.</p>
           </div>
         )}
       </div>
