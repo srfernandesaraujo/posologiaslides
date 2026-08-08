@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { ANIMATION_PRESETS } from '../lib/animationCatalog';
 
 /**
@@ -990,8 +990,17 @@ function buildAnimationTriggerScript(enabled) {
 </script>`;
 }
 
-export default function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, selectedElement = null, cropMode = false, staticPreview = false }) {
+// `ref` (forwardRef) expõe o nó do <iframe> pra quem monta o viewer fora da
+// tela normal (ver client/src/lib/exportDeck.js — renderiza slide por slide
+// escondido pra capturar cada um como imagem) — quem não passa ref (todo o
+// resto do app) não é afetado.
+// `onReady`: callback disparado depois do 'load' do iframe (documento novo já
+// carregado) + `document.fonts.ready` + um pequeno delay extra pra Chart.js/
+// Mermaid/animações CSS assentarem. Só o exportDeck.js usa isto hoje — sem
+// consumidor, o callback nunca dispara e não custa nada pro resto do app.
+const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, selectedElement = null, cropMode = false, staticPreview = false, onReady = null }, forwardedRef) {
   const iframeRef = useRef(null);
+  useImperativeHandle(forwardedRef, () => iframeRef.current, []);
   // Ref (não estado/dependência do efeito abaixo): só precisamos do valor mais
   // recente NO MOMENTO em que o iframe recarrega por outro motivo (ver
   // "initialSelected" em buildEditorScript) — se `selectedElement` entrasse
@@ -1006,6 +1015,11 @@ export default function PresentationViewer({ htmlContent, editable = false, spot
   // separado logo abaixo, via postMessage, sem recarregar nada.
   const cropModeRef = useRef(cropMode);
   cropModeRef.current = cropMode;
+  // Mesmo motivo das refs acima: o efeito principal não tem `onReady` nas
+  // dependências (uma função nova a cada render do chamador recarregaria o
+  // iframe à toa), então lê sempre a versão mais recente através da ref.
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   // Liga/desliga o modo de recorte no script já rodando dentro do iframe,
   // sem recriar o srcdoc — só precisamos de um reload completo quando o
@@ -1131,9 +1145,21 @@ ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) 
     // Espera o layout do palco (tamanho novo de tela cheia, se for o caso) se
     // assentar por um frame antes de carregar o documento, para o script do
     // slide medir o container já no tamanho final.
-    let frame1, frame2;
+    let frame1, frame2, settleTimeout;
+    const handleLoad = () => {
+      const innerDoc = iframe.contentDocument;
+      const fontsReady = innerDoc?.fonts?.ready ? innerDoc.fonts.ready.catch(() => {}) : Promise.resolve();
+      fontsReady.then(() => {
+        // Delay extra pra Chart.js/Mermaid (que desenham depois do load, via
+        // <script> no próprio conteúdo) e animações de entrada terminarem.
+        settleTimeout = setTimeout(() => {
+          if (onReadyRef.current) onReadyRef.current();
+        }, 400);
+      });
+    };
     frame1 = requestAnimationFrame(() => {
       frame2 = requestAnimationFrame(() => {
+        iframe.addEventListener('load', handleLoad, { once: true });
         // srcdoc substitui todo o documento do iframe (novo contexto isolado a cada troca de slide)
         iframe.srcdoc = doc;
       });
@@ -1142,6 +1168,8 @@ ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) 
     return () => {
       cancelAnimationFrame(frame1);
       if (frame2) cancelAnimationFrame(frame2);
+      if (settleTimeout) clearTimeout(settleTimeout);
+      iframe.removeEventListener('load', handleLoad);
     };
   }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled, animationTriggersEnabled, staticPreview]);
 
@@ -1159,4 +1187,6 @@ ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) 
       }}
     />
   );
-}
+});
+
+export default PresentationViewer;

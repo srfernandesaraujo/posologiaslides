@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateEquivalentImage, generateSlideHtml, generateSingleSlideHtml, editSlideWithAi, generateLayoutVariation, generateInfographicFragment, generateClosingQuote, generateSlideQuestions, searchWebForPresenter } from '../services/aiService.js';
+import { generatePresentationOutline, generateOutlineFromSlidePrompts, generateOutlineFromImport, generateEquivalentImage, generateSlideHtml, generateSingleSlideHtml, editSlideWithAi, generateLayoutVariation, generateInfographicFragment, generateClosingQuote, generateSlideQuestions, searchWebForPresenter, generateCanvasPrompt } from '../services/aiService.js';
 import { getUserSettings } from '../services/store.js';
 
 const router = express.Router();
@@ -313,6 +313,26 @@ router.post('/web-search', async (req, res) => {
   } catch (error) {
     console.error('Erro na rota web-search:', error);
     res.status(500).json({ error: 'Falha ao pesquisar na web.' });
+  }
+});
+
+// Rota 8: Gerar um prompt específico (a partir de uma imagem) pra colar no
+// Gemini Canvas — ver PromptGeneratorModal.jsx. Não gera slide nenhum aqui;
+// o HTML que o usuário trouxer de volta do Gemini Canvas entra pelo fluxo que
+// já existe (botão "Código" da lista de slides).
+router.post('/generate-canvas-prompt', async (req, res) => {
+  try {
+    const { imageBase64, mimeType, apiKey } = req.body;
+    if (!imageBase64 || !mimeType) {
+      return res.status(400).json({ error: 'Envie uma imagem para gerar o prompt.' });
+    }
+
+    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
+    const { prompt, warning } = await generateCanvasPrompt({ imageBase64, mimeType, apiKey: effectiveApiKey });
+    res.json({ success: !!prompt, prompt: prompt || null, warning: warning || null });
+  } catch (error) {
+    console.error('Erro na rota generate-canvas-prompt:', error);
+    res.status(500).json({ error: 'Falha ao gerar o prompt.' });
   }
 });
 

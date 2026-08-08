@@ -17,6 +17,9 @@ import RelatedPresentationPicker from './RelatedPresentationPicker';
 import PresenterWindow from './PresenterWindow';
 import PresentationReportModal from './PresentationReportModal';
 import ShareLinkModal from './ShareLinkModal';
+import RemoteControlModal from './RemoteControlModal';
+import ExportModal from './ExportModal';
+import PromptGeneratorModal from './PromptGeneratorModal';
 import { io } from 'socket.io-client';
 import { apiFetch, API_URL } from '../lib/api';
 import { auth } from '../lib/firebase';
@@ -42,7 +45,8 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
-  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2, StickyNote
+  GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2, StickyNote,
+  Smartphone
 } from 'lucide-react';
 
 // Tamanho do canvas ANTES da migração pra 1920x1080 (ver lib/canvasConstants.js)
@@ -112,6 +116,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [showBranchPanel, setShowBranchPanel] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [promptGeneratorOpen, setPromptGeneratorOpen] = useState(false);
   const [showPresenterWindow, setShowPresenterWindow] = useState(false);
   // Painel de anotações do apresentador (como o painel de notas do
   // PowerPoint), embaixo do canvas — fechado por padrão pra não encolher o
@@ -231,6 +237,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Sockets & PIN para sessão ao vivo
   const [socket, setSocket] = useState(null);
   const [pin, setPin] = useState('849201');
+  const [remoteControlOpen, setRemoteControlOpen] = useState(false);
+  // handleNext/handlePrev são recriadas a cada render (fecham sobre
+  // activeIndex/presentation atuais) — o listener de 'remote_navigate' vive
+  // dentro do useEffect que cria o socket, que só roda de novo quando
+  // presentation.title muda, então chamaria sempre a versão do PRIMEIRO
+  // render sem essas refs (index/slides desatualizados assim que o
+  // apresentador avançasse um slide). As refs são realinhadas a cada render
+  // no useEffect logo abaixo da definição de handleNext/handlePrev.
+  const handleNextRef = useRef(() => {});
+  const handlePrevRef = useRef(() => {});
 
   // Chat com IA
   const [chatMessages, setChatMessages] = useState([
@@ -293,11 +309,23 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         correctAnswer: presentation.slides?.[0]?.correctAnswer || null,
         hotspotConfig: presentation.slides?.[0]?.hotspotConfig || null,
         pointsConfig: presentation.slides?.[0]?.pointsConfig || null,
-        branches: presentation.slides?.[0]?.branches || null
+        branches: presentation.slides?.[0]?.branches || null,
+        slideTitle: presentation.slides?.[0]?.title || null,
+        slideNotes: presentation.slides?.[0]?.notes || null,
+        totalSlides: presentation.slides?.length || null
       });
 
       newSocket.on('session_created', ({ pin: newPin }) => {
         setPin(newPin);
+      });
+
+      // Controle remoto (celular) pediu pra avançar/voltar — ver
+      // RemoteControlModal/RemoteControl.jsx. Usa as refs (não handleNext/
+      // handlePrev direto) porque este listener é registrado uma vez só,
+      // dentro de um efeito que não roda de novo a cada troca de slide.
+      newSocket.on('remote_navigate', ({ direction }) => {
+        if (direction === 'next') handleNextRef.current();
+        else if (direction === 'prev') handlePrevRef.current();
       });
     })();
 
@@ -371,7 +399,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         correctAnswer: slide?.correctAnswer || null,
         hotspotConfig: slide?.hotspotConfig || null,
         pointsConfig: slide?.pointsConfig || null,
-        branches: slide?.branches || null
+        branches: slide?.branches || null,
+        slideTitle: slide?.title || null,
+        slideNotes: slide?.notes || null,
+        totalSlides: presentation.slides.length
       });
     }
   };
@@ -672,7 +703,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       } else {
         setAtClosingSlide(true);
         if (socket) {
-          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null });
+          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null, slideTitle: 'Encerramento', slideNotes: null, totalSlides: presentation.slides.length });
         }
       }
     } else {
@@ -681,7 +712,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       } else {
         setAtClosingSlide(true);
         if (socket) {
-          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null });
+          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null, slideTitle: 'Encerramento', slideNotes: null, totalSlides: presentation.slides.length });
         }
       }
     }
@@ -709,6 +740,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       }
     }
   };
+
+  useEffect(() => {
+    handleNextRef.current = handleNext;
+    handlePrevRef.current = handlePrev;
+  });
 
   const toggleFullscreen = () => {
     if (!stageRef.current) return;
@@ -1540,6 +1576,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         onAddTemplate={() => handleOpenTemplateGallery(activeIndex + 1)}
         onAddSlideWithAI={() => handleOpenAISingleSlide(activeIndex + 1)}
         onAddSlideWithCode={() => handleOpenCodeSlide(activeIndex + 1)}
+        onOpenPromptGenerator={() => setPromptGeneratorOpen(true)}
         onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
         onToggleHideSlide={handleToggleHideSlide}
         onDeleteSlide={(idxToDelete) => {
@@ -1803,6 +1840,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               </button>
               <button className="btn-icon" onClick={() => setIsReportOpen(true)} title="Relatórios da sessão">
                 <BarChart3 size={18} />
+              </button>
+              <button className="btn-icon" onClick={() => setRemoteControlOpen(true)} title="Controle remoto pelo celular (avançar/voltar slide à distância)">
+                <Smartphone size={18} />
+              </button>
+              <button className="btn-icon" onClick={() => setExportModalOpen(true)} disabled={!presentation.slides?.length} title="Baixar apresentação em PDF ou PPTX">
+                <Download size={18} />
               </button>
               {!atClosingSlide && (
                 <button
@@ -2742,6 +2785,26 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         onClose={() => setIsShareOpen(false)}
         presentationId={presentation.id}
         presentationTitle={presentation.title}
+      />
+
+      {/* Modal de Controle Remoto (QR/PIN pro celular) */}
+      <RemoteControlModal
+        isOpen={remoteControlOpen}
+        onClose={() => setRemoteControlOpen(false)}
+        pin={pin}
+      />
+
+      {/* Modal de Exportar (PDF/PPTX) */}
+      <ExportModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        presentation={presentation}
+      />
+
+      {/* Modal do Gerador de Prompt (Gemini Canvas) */}
+      <PromptGeneratorModal
+        isOpen={promptGeneratorOpen}
+        onClose={() => setPromptGeneratorOpen(false)}
       />
 
       {/* Modal de Relatório Pós-Aula */}

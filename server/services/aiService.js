@@ -715,6 +715,75 @@ export async function generateSlideQuestions({ slideTitle, slideText, apiKey }) 
   }
 }
 
+// Gera um prompt PRONTO (não a página em si — o Gemini Canvas é um produto à
+// parte, sem API pública pra chamar direto) pro usuário colar junto com a
+// mesma imagem no Gemini Canvas. Em vez de reusar sempre o mesmo prompt
+// genérico ("faça uma página interativa com base na imagem..."), pede pro
+// Gemini OLHAR a imagem primeiro e ancorar o prompt gerado nos elementos
+// REAIS dela (rótulos, estruturas, setas/vias, categorias) — o "espírito" do
+// prompt-modelo do usuário (didático, interativo, com animação) é fixo no
+// meta-prompt abaixo; o que muda a cada imagem é a especificidade.
+export async function generateCanvasPrompt({ imageBase64, mimeType, apiKey }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+
+  if (!effectiveApiKey) {
+    return { prompt: null, warning: 'Nenhuma chave de API do Gemini configurada. Configure uma chave em Configurações para usar o gerador de prompt.' };
+  }
+  if (!imageBase64 || !mimeType) {
+    return { prompt: null, warning: 'Envie uma imagem para gerar o prompt.' };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const metaPrompt = `
+    Você vai ANALISAR a imagem anexada (uma figura/diagrama/ilustração de material didático) e, a
+    partir do que ela REALMENTE mostra, escrever UM prompt pronto para ser colado no Gemini Canvas
+    junto com essa mesma imagem, pedindo a criação de uma página HTML interativa que será usada
+    como slide de uma aula.
+
+    O prompt que você escrever precisa seguir este espírito, sempre:
+    - Pede uma página da internet interativa, com base no conteúdo da imagem anexada.
+    - A página será usada em sala de aula: precisa ser didática, e a interação em si precisa
+      ENSINAR (revelar informação, comparar, simular, testar o aluno) — não é decoração.
+    - Pede animações de entrada dos elementos (não só o conteúdo estático) para deixar a aula
+      mais dinâmica.
+
+    O que você PRECISA fazer diferente de um prompt genérico: identifique na imagem os elementos
+    específicos (rótulos, estruturas anatômicas/químicas, setas ou vias, categorias, legendas,
+    números, relações entre partes) e escreva instruções de interatividade AMARRADAS a esses
+    elementos específicos — nunca instruções vagas tipo "adicione elementos clicáveis". Por
+    exemplo: se a imagem tem várias vias/mecanismos rotulados, peça que CADA um vire um ponto
+    clicável que revela informação relacionada a ele especificamente (com uma citação textual do
+    que está rotulado ali); se há uma sequência ou fluxo, peça uma animação que percorra esse
+    fluxo passo a passo; se há categorias/grupos visíveis, peça um jeito de comparar ou filtrar
+    entre eles.
+
+    Regras de formato da sua resposta:
+    - Responda APENAS com o texto do prompt final, pronto para copiar e colar — sem explicações,
+      sem comentários sobre o que você viu, sem markdown, sem aspas ao redor.
+    - Escreva em português.
+    - Um único bloco de texto corrido (pode ter parágrafos), não uma lista de instruções numeradas.
+    - Não descreva a imagem em si no prompt (quem vai ler o prompt no Gemini Canvas já vai anexar
+      a mesma imagem junto) — em vez disso, referencie os elementos dela diretamente nas
+      instruções de interatividade (ex.: "cada [elemento específico da imagem] deve...").
+    `;
+
+    const result = await generateContentWithRetry(model, buildParts(metaPrompt, [{ mimeType, data: imageBase64 }]));
+    const generatedPrompt = result.response.text().trim();
+
+    if (!generatedPrompt) {
+      return { prompt: null, warning: 'A IA não conseguiu gerar um prompt a partir desta imagem. Tente novamente.' };
+    }
+
+    return { prompt: generatedPrompt };
+  } catch (error) {
+    console.error('Erro na API Gemini (Gerador de Prompt Canvas):', error.message);
+    return { prompt: null, warning: `Falha ao gerar o prompt com IA (${error.message}).` };
+  }
+}
+
 // Pesquisa de verdade na web (Google Search via grounding nativo do Gemini) — antes
 // era um mock com setTimeout que sempre devolvia 2 respostas de template com o termo
 // buscado interpolado no meio, sem nenhuma busca real acontecer. Retorna uma resposta

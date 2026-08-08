@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Plus, Trash2, X, GripVertical, LayoutTemplate, Copy, Sparkles, Code, Eye, EyeOff } from 'lucide-react';
+import { Plus, Trash2, X, GripVertical, LayoutTemplate, Copy, Sparkles, Code, Eye, EyeOff, Wand2 } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
 
 // Só monta a prévia real (iframe sandboxed com fontes/Chart.js, ver
@@ -30,7 +30,7 @@ function LazySlidePreview({ html }) {
   );
 }
 
-export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onAddSlideWithCode, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onToggleHideSlide, onReorderSlides, className = '', onClose, style }) {
+export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onAddSlideWithCode, onOpenPromptGenerator, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onToggleHideSlide, onReorderSlides, className = '', onClose, style }) {
   const listRef = useRef(null);
   // Índice sendo arrastado e índice "bruto" (antes do ajuste de deslocamento,
   // ver handlePointerUp) sobre o qual o ponteiro está no momento — null
@@ -125,6 +125,16 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
               style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.08)' }}
             >
               <Code size={16} />
+            </button>
+          )}
+          {onOpenPromptGenerator && (
+            <button
+              className="btn-icon"
+              onClick={onOpenPromptGenerator}
+              title="Gerar Prompt pro Gemini Canvas (a partir de uma imagem)"
+              style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.08)' }}
+            >
+              <Wand2 size={16} />
             </button>
           )}
           {onClose && (

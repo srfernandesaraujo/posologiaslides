@@ -6,6 +6,7 @@ import SettingsModal from './components/SettingsModal';
 import ConflictModal from './components/ConflictModal';
 import Login from './components/Login';
 import StudentJoin from './mobile/StudentJoin';
+import RemoteControl from './mobile/RemoteControl';
 import PublicPresentationView from './pages/PublicPresentationView';
 import { useAuth } from './context/AuthContext';
 import { apiFetch } from './lib/api';
@@ -15,6 +16,14 @@ import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loade
 const AUTOSAVE_DEBOUNCE_MS = 1200;
 
 export default function App() {
+  // Controle remoto (celular) — checado ANTES da rota de aluno abaixo: como
+  // /remote também é acessado com "?pin=" na URL (QR Code, ver
+  // RemoteControlModal.jsx), o match genérico de isStudentRoute por "pin=" na
+  // querystring capturaria essa rota também se viesse depois.
+  if (window.location.pathname === '/remote') {
+    return <RemoteControl />;
+  }
+
   // Verifica se o usuário está acessando a página de participação mobile do aluno (/join)
   const isStudentRoute = window.location.pathname === '/join' || window.location.search.includes('pin=');
 

@@ -30,7 +30,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, pointsConfig, branches }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, pointsConfig, branches, slideTitle, slideNotes, totalSlides }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -62,6 +62,14 @@ export function setupSocketIO(httpServer) {
         // (ver PresentationEditor.jsx). targetSlideId nunca é retransmitido pro
         // aluno (ver sync_slide/joined_successfully abaixo), só o texto da opção.
         currentBranches: branches || null,
+        // Título/anotações do apresentador + total de slides do slide atual —
+        // só usados pelo controle remoto (ver join_as_remote/remote_navigate
+        // abaixo), pra o celular mostrar contexto de verdade (não só o índice
+        // numérico). Não é sigiloso feito o gabarito, então também é
+        // retransmitido como está.
+        currentSlideTitle: slideTitle || null,
+        currentSlideNotes: slideNotes || null,
+        totalSlides: totalSlides || null,
         scores: new Map(), // socketId -> { name, score }
         participants: new Map(), // socketId -> { name, joinedAt }
         responses: {}, // slideIndex -> { answers: [], words: [], irat: [], hotspots: [], points: [] }
@@ -94,7 +102,10 @@ export function setupSocketIO(httpServer) {
         slideType: session.currentSlideType,
         hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null,
         pointsConfig: session.currentPointsConfig,
-        branches: publicBranches(session.currentBranches)
+        branches: publicBranches(session.currentBranches),
+        slideTitle: session.currentSlideTitle,
+        slideNotes: session.currentSlideNotes,
+        totalSlides: session.totalSlides
       });
 
       // Notifica apresentador sobre novo aluno
@@ -104,6 +115,37 @@ export function setupSocketIO(httpServer) {
       });
 
       console.log(`📱 Aluno "${name}" entrou na sessão ${pin}`);
+    });
+
+    // 2b. Celular entra na sessão como CONTROLE REMOTO (não é aluno: não conta
+    // como participante, não responde quiz, só manda/recebe navegação — ver
+    // remote_navigate abaixo). PIN é o mesmo já exibido na apresentação.
+    socket.on('join_as_remote', ({ pin }) => {
+      const session = activeSessions.get(pin);
+      if (!session) {
+        return socket.emit('join_error', { message: 'Sessão não encontrada ou encerrada. Verifique o PIN.' });
+      }
+
+      socket.join(`session_${pin}`);
+      socket.emit('remote_joined', {
+        pin,
+        title: session.title,
+        currentSlideIndex: session.currentSlideIndex,
+        totalSlides: session.totalSlides,
+        slideTitle: session.currentSlideTitle,
+        slideNotes: session.currentSlideNotes
+      });
+
+      console.log(`🎮 Controle remoto conectado à sessão ${pin}`);
+    });
+
+    // 2c. Controle remoto pede pra avançar/voltar slide — quem decide a
+    // navegação de verdade (limites, slide de encerramento etc.) é o próprio
+    // apresentador, então só repassamos o pedido pro socket dele.
+    socket.on('remote_navigate', ({ pin, direction }) => {
+      const session = activeSessions.get(pin);
+      if (!session) return;
+      io.to(session.presenterSocketId).emit('remote_navigate', { direction });
     });
 
     // 3. Aluno envia resposta (Quiz / Wordcloud / iRAT / Hotspot)
@@ -163,7 +205,7 @@ export function setupSocketIO(httpServer) {
     });
 
     // 4. Apresentador altera slide
-    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, pointsConfig, branches }) => {
+    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, pointsConfig, branches, slideTitle, slideNotes, totalSlides }) => {
       const session = activeSessions.get(pin);
       if (session) {
         commitDwellTime(session);
@@ -173,15 +215,22 @@ export function setupSocketIO(httpServer) {
         session.currentHotspotConfig = hotspotConfig || null;
         session.currentPointsConfig = pointsConfig || null;
         session.currentBranches = branches || null;
-        // Transmite para todos os alunos sincronizarem o celular — só o necessário
-        // pra responder (nunca o gabarito, as coordenadas certas do hotspot, ou
-        // pra onde cada trilha de decisão leva).
+        session.currentSlideTitle = slideTitle || null;
+        session.currentSlideNotes = slideNotes || null;
+        if (totalSlides) session.totalSlides = totalSlides;
+        // Transmite para todos os alunos/controle remoto sincronizarem o
+        // celular — só o necessário pra responder ou navegar (nunca o
+        // gabarito, as coordenadas certas do hotspot, ou pra onde cada
+        // trilha de decisão leva).
         io.to(`session_${pin}`).emit('sync_slide', {
           currentSlideIndex: newIndex,
           slideType: session.currentSlideType,
           hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null,
           pointsConfig: session.currentPointsConfig,
-          branches: publicBranches(session.currentBranches)
+          branches: publicBranches(session.currentBranches),
+          slideTitle: session.currentSlideTitle,
+          slideNotes: session.currentSlideNotes,
+          totalSlides: session.totalSlides
         });
       }
     });
