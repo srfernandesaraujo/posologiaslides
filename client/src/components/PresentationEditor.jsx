@@ -1663,8 +1663,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               )}
             </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '0.5rem', columnGap: '0.6rem', alignItems: 'center' }}>
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexWrap: 'nowrap', columnGap: '0.6rem', alignItems: 'center', overflowX: 'auto', minWidth: 0, flex: '1 1 auto', paddingBottom: '2px' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
               {!atClosingSlide && (() => {
                 const currentTransition = resolveTransition(currentSlide.transition);
                 const currentPreset = TRANSITION_PRESETS.find((p) => p.id === currentTransition.type) || TRANSITION_PRESETS[0];
@@ -1756,7 +1756,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
             <ToolbarDivider />
 
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
               <button className="btn-icon" onClick={handleUndo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
                 <Undo2 size={18} />
               </button>
@@ -1767,7 +1767,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
             <ToolbarDivider />
 
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
               <button className="btn-icon" onClick={() => setIsMediaDrawerOpen(!isMediaDrawerOpen)} title="Biblioteca de Mídias (Drag & Drop)">
                 <Image size={18} />
               </button>
@@ -1822,7 +1822,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
             <ToolbarDivider />
 
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
               <button
                 className={`btn-icon ${presentation.relatedPresentationId ? 'active' : ''}`}
                 onClick={() => setRelatedPickerOpen(true)}
