@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import SlideThumbnail from './SlideThumbnail';
 import { apiFetch } from '../lib/api';
 import {
@@ -154,6 +155,34 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
   const [folderMenuFor, setFolderMenuFor] = useState(null);
   // Id da apresentação cujo popover "Mover para..." está aberto, ou null
   const [moveMenuFor, setMoveMenuFor] = useState(null);
+  // Posição (calculada do botão) + pasta atual da apresentação, pro popover
+  // portalado em document.body abaixo (ver comentário no handler)
+  const [moveMenuAnchor, setMoveMenuAnchor] = useState(null);
+
+  // A tabela em modo "detalhes" tem overflow-y:hidden no container (evita uma
+  // segunda barra de rolagem, ver .library-finder-table) — um popover
+  // position:absolute dentro dela fica cortado sempre que a linha está perto
+  // da borda inferior (era o caso da última/única linha, sumia sem erro
+  // nenhum). Calculando a posição em tela e desenhando via portal em
+  // document.body com position:fixed, o popover escapa desse corte.
+  const handleToggleMoveMenu = (e, presentationId, currentFolderId) => {
+    e.stopPropagation();
+    if (moveMenuFor === presentationId) {
+      setMoveMenuFor(null);
+      setMoveMenuAnchor(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const openUp = window.innerHeight - rect.bottom < 230;
+    setMoveMenuAnchor({
+      top: rect.bottom + 4,
+      bottom: window.innerHeight - rect.top + 4,
+      right: window.innerWidth - rect.right,
+      openUp,
+      folderId: currentFolderId
+    });
+    setMoveMenuFor(presentationId);
+  };
 
   const loadTree = () => {
     setLoading(true);
@@ -623,29 +652,14 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
                       >
                         <Pencil size={13} />
                       </button>
-                      <div style={{ position: 'relative', display: 'inline-block' }}>
-                        <button
-                          className="btn-icon"
-                          onClick={(e) => { e.stopPropagation(); setMoveMenuFor(moveMenuFor === p.id ? null : p.id); }}
-                          title="Mover para pasta"
-                          style={{ width: '28px', height: '28px' }}
-                        >
-                          <FolderInput size={13} />
-                        </button>
-                        {moveMenuFor === p.id && (
-                          <>
-                            <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setMoveMenuFor(null); }} />
-                            <div className="library-folder-menu" onClick={(e) => e.stopPropagation()} style={{ top: '100%', right: 0, marginTop: '0.3rem' }}>
-                              {folders.filter((f) => f.id !== p.folderId).map((f) => (
-                                <button key={f.id} onClick={(e) => handleMoveToFolder(e, p.id, f.id)}>
-                                  <Folder size={12} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
-                                  {f.name}
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                      </div>
+                      <button
+                        className="btn-icon"
+                        onClick={(e) => handleToggleMoveMenu(e, p.id, p.folderId)}
+                        title="Mover para pasta"
+                        style={{ width: '28px', height: '28px' }}
+                      >
+                        <FolderInput size={13} />
+                      </button>
                       <button
                         className="btn-icon danger"
                         onClick={(e) => handleDelete(e, p)}
@@ -711,28 +725,13 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
                         >
                           <Pencil size={13} />
                         </button>
-                        <div style={{ position: 'relative' }}>
-                          <button
-                            className="library-card-delete"
-                            onClick={(e) => { e.stopPropagation(); setMoveMenuFor(moveMenuFor === p.id ? null : p.id); }}
-                            title="Mover para pasta"
-                          >
-                            <FolderInput size={13} />
-                          </button>
-                          {moveMenuFor === p.id && (
-                            <>
-                              <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setMoveMenuFor(null); }} />
-                              <div className="library-folder-menu" onClick={(e) => e.stopPropagation()} style={{ bottom: '100%', right: 0, top: 'auto', marginBottom: '0.3rem' }}>
-                                {folders.filter((f) => f.id !== p.folderId).map((f) => (
-                                  <button key={f.id} onClick={(e) => handleMoveToFolder(e, p.id, f.id)}>
-                                    <Folder size={12} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
-                                    {f.name}
-                                  </button>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                        </div>
+                        <button
+                          className="library-card-delete"
+                          onClick={(e) => handleToggleMoveMenu(e, p.id, p.folderId)}
+                          title="Mover para pasta"
+                        >
+                          <FolderInput size={13} />
+                        </button>
                         <button className="library-card-delete" onClick={(e) => handleDelete(e, p)} title="Excluir">
                           <Trash2 size={13} />
                         </button>
@@ -745,6 +744,30 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
           )
         )}
       </main>
+
+      {moveMenuFor && moveMenuAnchor && createPortal(
+        <>
+          <div className="dropdown-backdrop" onClick={() => { setMoveMenuFor(null); setMoveMenuAnchor(null); }} />
+          <div
+            className="library-folder-menu"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              top: moveMenuAnchor.openUp ? 'auto' : `${moveMenuAnchor.top}px`,
+              bottom: moveMenuAnchor.openUp ? `${moveMenuAnchor.bottom}px` : 'auto',
+              right: `${moveMenuAnchor.right}px`
+            }}
+          >
+            {folders.filter((f) => f.id !== moveMenuAnchor.folderId).map((f) => (
+              <button key={f.id} onClick={(e) => handleMoveToFolder(e, moveMenuFor, f.id)}>
+                <Folder size={12} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
+                {f.name}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }
