@@ -11,7 +11,8 @@ export default function ActiveMethodologiesOverlay({
   slideIndex,
   onNavigateBranch,
   expanded = false,
-  onToggleExpand
+  onToggleExpand,
+  isFullscreen = false
 }) {
   const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   const [participantCount, setParticipantCount] = useState(0);
@@ -136,7 +137,16 @@ export default function ActiveMethodologiesOverlay({
           onClick={onToggleExpand}
           className="btn-icon"
           title={expanded ? 'Voltar ao tamanho normal' : 'Ampliar QR Code / resultados ao vivo pra turma ver melhor'}
-          style={{ position: 'fixed', top: '16px', left: '16px', zIndex: 210, background: 'rgba(15, 23, 42, 0.85)' }}
+          style={{
+            position: 'fixed',
+            // Fora da tela cheia real, o .app-header (64px, sticky no topo) ocupa
+            // esse canto com a seta "Voltar" — sem este deslocamento os dois
+            // botões ficam empilhados no mesmo lugar (16,16).
+            top: isFullscreen ? '16px' : '80px',
+            left: '16px',
+            zIndex: 210,
+            background: 'rgba(15, 23, 42, 0.85)'
+          }}
         >
           {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
         </button>

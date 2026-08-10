@@ -2642,6 +2642,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             onNavigateBranch={handleNavigateBranch}
             expanded={overlayExpanded}
             onToggleExpand={() => setOverlayExpanded((v) => !v)}
+            isFullscreen={isFullscreen}
           />
 
           <DrawingCanvas
