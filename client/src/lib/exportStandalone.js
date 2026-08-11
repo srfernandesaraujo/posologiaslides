@@ -30,6 +30,7 @@ import { resolveTransition } from './transitionCatalog';
 const GOOGLE_FONTS_CSS_URL = "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Geist:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700;800&family=Merriweather:wght@300;400;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap";
 
 const FETCH_CONCURRENCY = 6; // baixar tudo de uma vez trava a aba num deck grande; sequencial é lento demais
+const FETCH_TIMEOUT_MS = 20000; // uma URL de imagem/fonte travada (sem erro, sem resposta) não pode segurar o export inteiro pra sempre
 
 function blobToDataUri(blob) {
   return new Promise((resolve, reject) => {
@@ -41,9 +42,15 @@ function blobToDataUri(blob) {
 }
 
 async function urlToDataUri(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return blobToDataUri(await res.blob());
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await blobToDataUri(await res.blob());
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // Roda `worker` sobre `items` com no máximo `limit` chamadas simultâneas —
@@ -99,7 +106,7 @@ function inlineImagesInHtml(html, imageMap) {
 // quebra o export inteiro: o navegador só cai pra fonte do sistema.
 async function buildInlineFontsCss() {
   try {
-    const cssText = await fetch(GOOGLE_FONTS_CSS_URL).then((r) => r.text());
+    const cssText = await fetchTextWithTimeout(GOOGLE_FONTS_CSS_URL);
     const fontUrls = [...new Set([...cssText.matchAll(/url\(([^)]+)\)/g)].map((m) => m[1].replace(/["']/g, '')))];
     let result = cssText;
     await mapWithConcurrency(fontUrls, FETCH_CONCURRENCY, async (url) => {
@@ -117,11 +124,21 @@ async function buildInlineFontsCss() {
   }
 }
 
-async function fetchVendorScriptText(path) {
+async function fetchTextWithTimeout(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(path);
+    const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchVendorScriptText(path) {
+  try {
+    return await fetchTextWithTimeout(path);
   } catch (err) {
     console.error(`Falha ao baixar script vendor para o export: ${path}`, err);
     return '';
@@ -185,27 +202,6 @@ function buildNavRelayScript() {
   });
 })();
 </script>`;
-}
-
-function buildSlideDoc({ content, fontsCss, vendorScriptsHtml }) {
-  return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8" />
-<style>
-${fontsCss}
-${baseSlideStyles()}
-</style>
-${vendorScriptsHtml}
-</head>
-<body>
-${content}
-${buildSpotlightScript(true)}
-${buildZoomGestureScript(true)}
-${buildAnimationTriggerScript(true)}
-${buildNavRelayScript()}
-</body>
-</html>`;
 }
 
 function escapeHtml(text) {
@@ -286,9 +282,29 @@ body { display: flex; flex-direction: column; }
 // tamanho da janela (mesma matemática de useCanvasFit.js) e trata teclado/
 // tela cheia/pinça de zoom — tudo que já roda ao vivo no app, reimplementado
 // sem dependências porque o arquivo final não carrega nenhum bundle.
-function buildShellScript(slidesJsonLiteral) {
+//
+// `dataJsonLiteral` carrega fontes/Chart.js/Mermaid/scripts de comportamento
+// (spotlight, zoom, animação, relay de teclado) e os estilos base UMA VEZ SÓ
+// (DATA.*) — cada slide guarda só o próprio conteúdo (`content`) já com as
+// imagens embutidas. `buildSlideDoc` (abaixo, dentro do runtime) MONTA o
+// documento completo do iframe em tempo real, a cada troca de slide, a partir
+// desses pedaços compartilhados. Isto é o oposto de pré-montar um documento
+// completo por slide no momento do export: um deck de 20 slides com fontes
+// (várias MB em base64) e Chart.js embutidos em CADA slide inflava o arquivo
+// pra centenas de MB — pesado o bastante pra travar o download ou o
+// navegador ao abrir (reportado pelo usuário como "só baixou o primeiro
+// slide"). Montar sob demanda custa uma remontagem de string barata a cada
+// troca de slide, em troca de um arquivo ordens de magnitude menor.
+function buildShellScript(dataJsonLiteral) {
   return `
-const SLIDES = ${slidesJsonLiteral};
+const DATA = ${dataJsonLiteral};
+const SLIDES = DATA.slides;
+
+function buildSlideDoc(slide) {
+  var vendor = '<scr' + 'ipt>' + DATA.chartJs + '</scr' + 'ipt>' + (slide.needsMermaid ? ('<scr' + 'ipt>' + DATA.mermaidJs + '</scr' + 'ipt>') : '');
+  return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" /><style>' + DATA.fontsCss + DATA.baseStyles + '</style>' + vendor + '</head><body>' + slide.content + DATA.behaviorScripts + '</body></html>';
+}
+
 (function () {
   var idx = 0;
   var zoomFactor = 1;
@@ -315,7 +331,7 @@ const SLIDES = ${slidesJsonLiteral};
 
   function render() {
     var slide = SLIDES[idx];
-    frame.srcdoc = slide.doc;
+    frame.srcdoc = buildSlideDoc(slide);
     transitionEl.className = 'pos-transition-wrapper pos-transition-' + slide.transition.type;
     transitionEl.style.setProperty('--pos-transition-duration', slide.transition.duration + 's');
     void transitionEl.offsetWidth; // força reflow: reinicia a animação de transição a cada troca
@@ -382,14 +398,15 @@ const SLIDES = ${slidesJsonLiteral};
 `;
 }
 
-function buildShellHtml(title, slidesPayload) {
+function buildShellHtml(title, data) {
   const safeTitle = escapeHtml(title || 'Apresentação');
-  // \\u003c em vez de "<": slide.doc contém <script> de verdade (Chart.js,
-  // Mermaid, animação) — sem escapar, o parser HTML encontraria um
-  // "</script" líterall DENTRO do JSON e cortaria a tag <script> do shell no
-  // meio, corrompendo o arquivo inteiro. \\u003c decodifica de volta pra "<"
-  // quando o JS do shell é interpretado, então o conteúdo final não muda.
-  const slidesJsonLiteral = JSON.stringify(slidesPayload).replace(/</g, '\\u003c');
+  // \\u003c em vez de "<": o conteúdo de cada slide (e os próprios
+  // Chart.js/Mermaid embutidos) contém <script> de verdade — sem escapar, o
+  // parser HTML encontraria um "</script" literal DENTRO do JSON e cortaria a
+  // tag <script> do shell no meio, corrompendo o arquivo inteiro. \\u003c
+  // decodifica de volta pra "<" quando o JS do shell é interpretado, então o
+  // conteúdo final não muda.
+  const dataJsonLiteral = JSON.stringify(data).replace(/</g, '\\u003c');
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -417,7 +434,7 @@ function buildShellHtml(title, slidesPayload) {
     </div>
   </div>
 </div>
-<script>${buildShellScript(slidesJsonLiteral)}</script>
+<script>${buildShellScript(dataJsonLiteral)}</script>
 </body>
 </html>`;
 }
@@ -457,20 +474,34 @@ export async function buildStandaloneHtml(presentation, { onProgress } = {}) {
   const mermaidJsText = needsMermaidGlobal ? await fetchVendorScriptText('/vendor/mermaid.min.js') : '';
   onProgress?.({ phase: 'scripts', current: 1, total: 1 });
 
+  // Só o CONTEÚDO de cada slide é por-slide — fontes, Chart.js/Mermaid,
+  // estilos base e os scripts de comportamento (spotlight/zoom/animação/
+  // relay de teclado) vão UMA VEZ no objeto DATA embutido no shell (ver
+  // buildShellScript) e são reaproveitados por todos os slides em tempo real,
+  // em vez de duplicados em cada um — ver comentário em buildShellScript
+  // sobre o inchaço de arquivo (e a falha real) que essa duplicação causava.
   const slidesPayload = visibleSlides.map((slide, i) => {
     onProgress?.({ phase: 'slides', current: i + 1, total: visibleSlides.length });
-    const inlinedHtml = inlineImagesInHtml(slide.html, imageMap);
-    const needsMermaid = /mermaid/i.test(inlinedHtml);
-    const vendorScriptsHtml = `<script>${chartJsText}</script>${needsMermaid ? `<script>${mermaidJsText}</script>` : ''}`;
+    const content = inlineImagesInHtml(slide.html, imageMap);
     return {
       id: slide.id,
       title: slide.title || '',
-      doc: buildSlideDoc({ content: inlinedHtml, fontsCss, vendorScriptsHtml }),
+      content,
+      needsMermaid: /mermaid/i.test(content),
       transition: resolveTransition(slide.transition)
     };
   });
 
-  return buildShellHtml(presentation.title, slidesPayload);
+  const behaviorScripts = buildSpotlightScript(true) + buildZoomGestureScript(true) + buildAnimationTriggerScript(true) + buildNavRelayScript();
+
+  return buildShellHtml(presentation.title, {
+    fontsCss,
+    chartJs: chartJsText,
+    mermaidJs: mermaidJsText,
+    baseStyles: baseSlideStyles(),
+    behaviorScripts,
+    slides: slidesPayload
+  });
 }
 
 export function standaloneHtmlFileName(presentationTitle) {
