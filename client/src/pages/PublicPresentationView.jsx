@@ -7,6 +7,7 @@ import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE } from '.
 import { resolveTransition } from '../lib/transitionCatalog';
 import { apiFetch } from '../lib/api';
 import useScreenWakeLock from '../lib/useScreenWakeLock';
+import { primeOfflineImageCache } from '../lib/offlineImageCache';
 
 // Visualizador público só-visualização: alvo de rota de /view/:shareId (ver
 // App.jsx), fora da parede de login do Firebase — busca a apresentação via
@@ -30,8 +31,12 @@ export default function PublicPresentationView({ shareId }) {
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
-        if (data.success) setPresentation(data.presentation);
-        else setError(data.error || 'Não foi possível carregar esta apresentação.');
+        if (data.success) {
+          setPresentation(data.presentation);
+          primeOfflineImageCache(data.presentation.slides);
+        } else {
+          setError(data.error || 'Não foi possível carregar esta apresentação.');
+        }
       })
       .catch(() => {
         if (!cancelled) setError('Não foi possível carregar esta apresentação.');

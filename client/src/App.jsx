@@ -11,6 +11,7 @@ import PublicPresentationView from './pages/PublicPresentationView';
 import { useAuth } from './context/AuthContext';
 import { apiFetch } from './lib/api';
 import { findInvalidNestedArrayPath, findOversizedSlide } from './lib/dataValidation';
+import { primeOfflineImageCache } from './lib/offlineImageCache';
 import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loader2 } from 'lucide-react';
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
@@ -311,6 +312,7 @@ export default function App() {
         setPresentationState(data.presentation);
         setView('editor');
         apiFetch(`/api/presentations/${id}/touch`, { method: 'POST' }).catch(() => {});
+        primeOfflineImageCache(data.presentation.slides);
       }
     } catch {
       alert('Não foi possível carregar esta apresentação.');
