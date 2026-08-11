@@ -41,7 +41,7 @@ function blobToDataUri(blob) {
   });
 }
 
-async function urlToDataUri(url) {
+async function fetchOnceAsDataUri(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -50,6 +50,20 @@ async function urlToDataUri(url) {
     return await blobToDataUri(await res.blob());
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+// Uma falha de rede transitória (não CORS/link quebrado — esses falham toda
+// vez da mesma forma) derruba a imagem do mapa sem essa segunda chance,
+// mesmo com o host saudável e o arquivo de tamanho normal — confirmado na
+// prática: mesmo bucket, imagens de tamanho parecido, uma falha e outra não,
+// sem padrão de tamanho. Uma retentativa cobre a maioria desses casos sem
+// custar nada no caminho feliz (só roda quando a primeira tentativa falha).
+async function urlToDataUri(url) {
+  try {
+    return await fetchOnceAsDataUri(url);
+  } catch {
+    return await fetchOnceAsDataUri(url);
   }
 }
 
