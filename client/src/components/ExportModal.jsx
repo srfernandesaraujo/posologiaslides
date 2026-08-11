@@ -1,15 +1,29 @@
 import React, { useState } from 'react';
-import { Download, X, FileText, Presentation as PresentationIcon, Loader2 } from 'lucide-react';
+import { Download, X, FileText, Presentation as PresentationIcon, Loader2, Globe } from 'lucide-react';
 
-// Baixa o deck inteiro em PDF ou PPTX — como todo slide é HTML/CSS/JS livre
-// gerado por IA (gráficos, diagramas, animações, embeds), a única forma
-// confiável de exportar é capturar cada slide como imagem em alta resolução
-// e montar um arquivo com uma imagem cheia por página/slide (ver
-// client/src/lib/exportDeck.js; decisão confirmada com o usuário — sem texto
-// editável no PPTX gerado).
+// Rótulo de progresso do export HTML — cada fase de buildStandaloneHtml
+// (ver client/src/lib/exportStandalone.js) baixa e embute um tipo de recurso
+// diferente (imagens, fontes, Chart.js/Mermaid, por fim monta o doc de cada
+// slide), então a barra de progresso do PDF/PPTX (um contador "slide N/total"
+// só) não serve aqui — precisa dizer qual fase está rodando.
+const HTML_PHASE_LABELS = {
+  images: 'Baixando imagens',
+  fonts: 'Preparando fontes',
+  scripts: 'Preparando gráficos (Chart.js/Mermaid)',
+  slides: 'Montando slide'
+};
+
+// Baixa o deck inteiro em PDF, PPTX ou HTML autocontido. PDF/PPTX capturam
+// cada slide como imagem em alta resolução (única forma confiável pra
+// HTML/CSS/JS livre gerado por IA — ver client/src/lib/exportDeck.js). O
+// HTML standalone é diferente: mantém o slide como HTML/CSS/JS de verdade
+// (gráficos, animações, zoom, holofote continuam funcionando), só que num
+// único arquivo que roda sozinho no navegador, sem backend/internet — ver
+// client/src/lib/exportStandalone.js pro que fica de fora (interatividade ao
+// vivo com a turma, que depende de servidor).
 export default function ExportModal({ isOpen, onClose, presentation }) {
-  const [format, setFormat] = useState(null); // 'pdf' | 'pptx' | null (enquanto roda)
-  const [progress, setProgress] = useState(null); // { current, total }
+  const [format, setFormat] = useState(null); // 'pdf' | 'pptx' | 'html' | null (enquanto roda)
+  const [progress, setProgress] = useState(null); // { current, total } ou { phase, current, total }
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
@@ -22,6 +36,13 @@ export default function ExportModal({ isOpen, onClose, presentation }) {
     setProgress({ current: 0, total: presentation.slides?.filter((s) => !s.hidden).length || 0 });
 
     try {
+      if (targetFormat === 'html') {
+        const { buildStandaloneHtml, standaloneHtmlFileName, downloadHtmlFile } = await import('../lib/exportStandalone');
+        const html = await buildStandaloneHtml(presentation, { onProgress: setProgress });
+        downloadHtmlFile(html, standaloneHtmlFileName(presentation.title));
+        return;
+      }
+
       // Import dinâmico: jspdf/pptxgenjs/html2canvas só entram no bundle
       // quando o usuário de fato exporta — sem isto, toda carga do app
       // (inclusive as páginas mobile /join e /remote, que nunca exportam
@@ -45,6 +66,10 @@ export default function ExportModal({ isOpen, onClose, presentation }) {
       setProgress(null);
     }
   };
+
+  const progressText = format === 'html' && progress?.phase
+    ? `${HTML_PHASE_LABELS[progress.phase] || 'Preparando'}${progress.total ? ` (${progress.current}/${progress.total})` : '...'}`
+    : (progress?.total ? `Renderizando slide ${progress.current}/${progress.total}...` : 'Preparando...');
 
   return (
     <div className="modal-overlay">
@@ -70,23 +95,25 @@ export default function ExportModal({ isOpen, onClose, presentation }) {
           <div style={{ padding: '1.5rem 0', textAlign: 'center' }}>
             <Loader2 size={28} className="animate-spin" style={{ marginBottom: '1rem', color: 'var(--accent-primary)' }} />
             <p style={{ fontSize: '0.9rem', color: '#e5e7eb', fontWeight: 600 }}>
-              {progress?.total ? `Renderizando slide ${progress.current}/${progress.total}...` : 'Preparando...'}
+              {progressText}
             </p>
             <p style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.4rem' }}>
-              Isso pode levar alguns segundos por slide — não feche esta janela.
+              {format === 'html'
+                ? 'Baixando e embutindo imagens/fontes no arquivo — pode levar um pouco mais que o PDF/PPTX.'
+                : 'Isso pode levar alguns segundos por slide — não feche esta janela.'}
             </p>
           </div>
         ) : (
           <>
             <p style={{ fontSize: '0.85rem', color: '#9ca3af', marginBottom: '1.25rem' }}>
-              Cada slide é capturado como imagem em alta resolução, mantendo o visual exato (gráficos, animações no estado final, fontes). O texto não fica editável no arquivo gerado.
+              PDF/PPTX capturam cada slide como imagem em alta resolução (texto não editável). O HTML autocontido mantém gráficos, animações e zoom funcionando — um único arquivo que abre em qualquer navegador, offline. Em todos os formatos, recursos ao vivo com a turma (quiz, nuvem de palavras, controle remoto) não são incluídos.
             </p>
 
             {error && (
               <div style={{ color: '#f87171', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</div>
             )}
 
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem' }}>
               <button className="btn-primary" onClick={() => handleExport('pdf')} style={{ flex: 1, justifyContent: 'center', padding: '0.8rem' }}>
                 <FileText size={18} /> Baixar PDF
               </button>
@@ -94,6 +121,9 @@ export default function ExportModal({ isOpen, onClose, presentation }) {
                 <PresentationIcon size={18} /> Baixar PPTX
               </button>
             </div>
+            <button className="btn-primary" onClick={() => handleExport('html')} style={{ width: '100%', justifyContent: 'center', padding: '0.8rem' }}>
+              <Globe size={18} /> Baixar HTML autocontido
+            </button>
           </>
         )}
       </div>

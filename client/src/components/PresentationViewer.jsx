@@ -785,7 +785,7 @@ function buildEditorScript(initialSelected, initialCropMode) {
 // resolvido pelo chamador (ver PresentationEditor: só true em apresentação
 // de verdade, nunca ao mesmo tempo que o script de edição acima, senão os
 // dois listeners de clique no body competiriam entre si).
-function buildSpotlightScript(spotlightEnabled) {
+export function buildSpotlightScript(spotlightEnabled) {
   if (!spotlightEnabled) return '';
   return `
 <style>
@@ -833,7 +833,7 @@ function buildSpotlightScript(spotlightEnabled) {
 // NAVEGAÇÃO (arrastar a visão já com zoom) não passa por aqui — é rolagem
 // nativa do navegador em cima de .zoom-scrollport, por isso roda "solta"
 // (sem Ctrl) é deliberadamente ignorada aqui, pra não competir com ela.
-function buildZoomGestureScript(zoomGestureEnabled) {
+export function buildZoomGestureScript(zoomGestureEnabled) {
   if (!zoomGestureEnabled) return '';
   return `
 <script>
@@ -901,7 +901,7 @@ function buildZoomGestureScript(zoomGestureEnabled) {
 // elemento tanto acende o holofote nele QUANTO consome um passo pendente de
 // animação, se houver um. Não tratado como conflito de propósito (nenhum dos
 // dois deveria bloquear o outro), só documentado pra não surpreender.
-function buildAnimationTriggerScript(enabled) {
+export function buildAnimationTriggerScript(enabled) {
   if (!enabled) return '';
   // Mapa keyframe -> estilo estático "antes de tocar" pros presets de ENTRADA
   // pendentes (ver `pendingStyle` em animationCatalog.js) — sem isto, um

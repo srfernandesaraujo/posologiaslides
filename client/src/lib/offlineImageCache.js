@@ -14,7 +14,7 @@ function addIfFetchable(set, url) {
   set.add(url);
 }
 
-function extractImageUrls(slides) {
+export function extractImageUrls(slides) {
   const urls = new Set();
   (slides || []).forEach((slide) => {
     const html = slide?.html || '';

@@ -127,7 +127,7 @@ export async function renderSlidesToImages(slides, { onProgress } = {}) {
 // em vez de derrubar o "a" acentuado inteiro.
 const COMBINING_MARKS_REGEX = /[̀-ͯ]/g;
 
-function slugify(text) {
+export function slugify(text) {
   return (text || 'apresentacao')
     .toLowerCase()
     .normalize('NFD').replace(COMBINING_MARKS_REGEX, '')
