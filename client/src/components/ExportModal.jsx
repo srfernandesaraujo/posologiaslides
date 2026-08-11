@@ -25,6 +25,13 @@ export default function ExportModal({ isOpen, onClose, presentation }) {
   const [format, setFormat] = useState(null); // 'pdf' | 'pptx' | 'html' | null (enquanto roda)
   const [progress, setProgress] = useState(null); // { current, total } ou { phase, current, total }
   const [error, setError] = useState('');
+  // Preenchido só depois de um export HTML terminar com alguma imagem que o
+  // fetch() não conseguiu baixar pra embutir (bucket sem CORS liberado pra
+  // leitura via JS, link quebrado, etc. — ver buildImageDataUriMap em
+  // exportStandalone.js). O arquivo ainda baixa normalmente (o slide mantém
+  // a URL remota original), só deixa de ser 100% offline pra essas imagens
+  // específicas — sem este aviso o usuário só percebe abrindo sem internet.
+  const [imageWarning, setImageWarning] = useState(null);
 
   if (!isOpen) return null;
 
@@ -32,14 +39,20 @@ export default function ExportModal({ isOpen, onClose, presentation }) {
 
   const handleExport = async (targetFormat) => {
     setError('');
+    setImageWarning(null);
     setFormat(targetFormat);
     setProgress({ current: 0, total: presentation.slides?.filter((s) => !s.hidden).length || 0 });
 
     try {
       if (targetFormat === 'html') {
         const { buildStandaloneHtml, standaloneHtmlFileName, downloadHtmlFile } = await import('../lib/exportStandalone');
-        const html = await buildStandaloneHtml(presentation, { onProgress: setProgress });
+        const { html, failedImageUrls } = await buildStandaloneHtml(presentation, { onProgress: setProgress });
         downloadHtmlFile(html, standaloneHtmlFileName(presentation.title));
+        if (failedImageUrls.length > 0) {
+          setImageWarning(
+            `${failedImageUrls.length} imagem${failedImageUrls.length > 1 ? 'ns' : ''} não pôde${failedImageUrls.length > 1 ? 'ram' : ''} ser baixada${failedImageUrls.length > 1 ? 's' : ''} pra dentro do arquivo — ele vai continuar exigindo internet pra mostrar essa${failedImageUrls.length > 1 ? 's' : ''} imagem${failedImageUrls.length > 1 ? 'ns' : ''} específica${failedImageUrls.length > 1 ? 's' : ''}.`
+          );
+        }
         return;
       }
 
@@ -111,6 +124,12 @@ export default function ExportModal({ isOpen, onClose, presentation }) {
 
             {error && (
               <div style={{ color: '#f87171', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</div>
+            )}
+
+            {imageWarning && (
+              <div style={{ color: '#fbbf24', fontSize: '0.8rem', marginBottom: '1rem', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '0.5rem', padding: '0.6rem 0.75rem' }}>
+                Arquivo baixado, mas: {imageWarning}
+              </div>
             )}
 
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem' }}>

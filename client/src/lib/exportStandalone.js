@@ -77,18 +77,20 @@ async function mapWithConcurrency(items, limit, worker) {
 async function buildImageDataUriMap(slides, onProgress) {
   const urls = extractImageUrls(slides);
   const map = new Map();
+  const failed = [];
   let done = 0;
   await mapWithConcurrency(urls, FETCH_CONCURRENCY, async (url) => {
     try {
       map.set(url, await urlToDataUri(url));
     } catch (err) {
       console.error(`Falha ao baixar imagem para embutir no export: ${url}`, err);
+      failed.push(url);
     } finally {
       done++;
       onProgress?.(done, urls.length);
     }
   });
-  return map;
+  return { map, failed };
 }
 
 function inlineImagesInHtml(html, imageMap) {
@@ -457,10 +459,12 @@ export function downloadHtmlFile(htmlString, filename) {
 // resolução pode levar bem mais tempo que gerar o PDF/PPTX, já que tudo é
 // baixado de novo e reconvertido pra base64 (ver comentário no topo do
 // arquivo sobre por que não dá pra reaproveitar nenhum cache existente).
+// Retorna `{ html, failedImageUrls }` (não só a string) — ver comentário
+// junto do `return` mais abaixo sobre por que essa lista importa.
 export async function buildStandaloneHtml(presentation, { onProgress } = {}) {
   const visibleSlides = (presentation.slides || []).filter((s) => !s.hidden);
 
-  const imageMap = await buildImageDataUriMap(visibleSlides, (current, total) => {
+  const { map: imageMap, failed: failedImageUrls } = await buildImageDataUriMap(visibleSlides, (current, total) => {
     onProgress?.({ phase: 'images', current, total });
   });
 
@@ -494,7 +498,7 @@ export async function buildStandaloneHtml(presentation, { onProgress } = {}) {
 
   const behaviorScripts = buildSpotlightScript(true) + buildZoomGestureScript(true) + buildAnimationTriggerScript(true) + buildNavRelayScript();
 
-  return buildShellHtml(presentation.title, {
+  const html = buildShellHtml(presentation.title, {
     fontsCss,
     chartJs: chartJsText,
     mermaidJs: mermaidJsText,
@@ -502,6 +506,14 @@ export async function buildStandaloneHtml(presentation, { onProgress } = {}) {
     behaviorScripts,
     slides: slidesPayload
   });
+
+  // `failedImageUrls`: imagens que o fetch() não conseguiu baixar (ex.: bucket
+  // sem CORS liberado pra leitura via JS, link quebrado) — o slide mantém a
+  // URL remota original (ver inlineImagesInHtml/comentário no topo do
+  // arquivo), então o arquivo final SÓ é realmente "sem depender de
+  // internet" se esta lista vier vazia. O chamador (ExportModal) decide como
+  // avisar o usuário; aqui só reportamos o fato.
+  return { html, failedImageUrls };
 }
 
 export function standaloneHtmlFileName(presentationTitle) {
