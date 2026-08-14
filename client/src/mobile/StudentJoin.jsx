@@ -66,6 +66,7 @@ export default function StudentJoin() {
   const [slideType, setSlideType] = useState(null);
   const [hotspotImageUrl, setHotspotImageUrl] = useState(null);
   const [pointsConfig, setPointsConfig] = useState(null);
+  const [wordcloudConfig, setWordcloudConfig] = useState(null);
   const [branches, setBranches] = useState(null);
   const [scoreFeedback, setScoreFeedback] = useState(null);
 
@@ -84,21 +85,23 @@ export default function StudentJoin() {
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
 
-    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, branches }) => {
+    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches }) => {
       setJoined(true);
       setSessionTitle(title);
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
       setHotspotImageUrl(hotspotImageUrl || null);
       setPointsConfig(pointsConfig || null);
+      setWordcloudConfig(wordcloudConfig || null);
       setBranches(branches || null);
     });
 
-    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, branches }) => {
+    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches }) => {
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
       setHotspotImageUrl(hotspotImageUrl || null);
       setPointsConfig(pointsConfig || null);
+      setWordcloudConfig(wordcloudConfig || null);
       setBranches(branches || null);
       setSubmitted(false); // Reseta estado de envio para o novo slide
       setScoreFeedback(null);
@@ -382,6 +385,11 @@ export default function StudentJoin() {
 
             {/* Nuvem de Palavras Input */}
             <form onSubmit={handleSendWord} style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)' }}>
+              {wordcloudConfig?.question && (
+                <p style={{ fontSize: '0.9rem', color: '#f1f5f9', fontWeight: 700, margin: '0 0 0.6rem' }}>
+                  {wordcloudConfig.question}
+                </p>
+              )}
               <label style={{ display: 'block', fontSize: '0.85rem', color: '#38bdf8', fontWeight: 700, marginBottom: '0.5rem' }}>
                 Ou envie uma palavra para a Nuvem de Palavras:
               </label>

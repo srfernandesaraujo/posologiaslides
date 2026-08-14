@@ -341,6 +341,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         correctAnswer: presentation.slides?.[0]?.correctAnswer || null,
         hotspotConfig: presentation.slides?.[0]?.hotspotConfig || null,
         pointsConfig: presentation.slides?.[0]?.pointsConfig || null,
+        wordcloudConfig: presentation.slides?.[0]?.wordcloudConfig || null,
         branches: presentation.slides?.[0]?.branches || null,
         slideTitle: presentation.slides?.[0]?.title || null,
         slideNotes: presentation.slides?.[0]?.notes || null,
@@ -489,6 +490,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         correctAnswer: slide?.correctAnswer || null,
         hotspotConfig: slide?.hotspotConfig || null,
         pointsConfig: slide?.pointsConfig || null,
+        wordcloudConfig: slide?.wordcloudConfig || null,
         branches: slide?.branches || null,
         slideTitle: slide?.title || null,
         slideNotes: slide?.notes || null,
@@ -600,6 +602,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     const nextConfig = { ...prevConfig, ...patch };
     if (patch.labels) nextConfig.labels = { ...prevConfig.labels, ...patch.labels };
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], pointsConfig: nextConfig };
+    commitDebounced({ ...presentation, slides: updatedSlides });
+  };
+
+  // Nuvem de Palavras: pergunta disparadora exibida pro apresentador e pro
+  // aluno (ver ActiveMethodologiesOverlay/StudentJoin) — sem isso, o aluno só
+  // via um campo genérico "envie uma palavra" sem saber sobre o quê.
+  const handleChangeWordcloudConfig = (patch) => {
+    const updatedSlides = [...presentation.slides];
+    const prevConfig = updatedSlides[activeIndex].wordcloudConfig || { question: '' };
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], wordcloudConfig: { ...prevConfig, ...patch } };
     commitDebounced({ ...presentation, slides: updatedSlides });
   };
 
@@ -830,7 +842,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       } else {
         setAtClosingSlide(true);
         if (socket) {
-          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null, slideTitle: 'Encerramento', slideNotes: null, totalSlides: presentation.slides.length });
+          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, wordcloudConfig: null, branches: null, slideTitle: 'Encerramento', slideNotes: null, totalSlides: presentation.slides.length });
         }
       }
     } else {
@@ -839,7 +851,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       } else {
         setAtClosingSlide(true);
         if (socket) {
-          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, branches: null, slideTitle: 'Encerramento', slideNotes: null, totalSlides: presentation.slides.length });
+          socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, wordcloudConfig: null, branches: null, slideTitle: 'Encerramento', slideNotes: null, totalSlides: presentation.slides.length });
         }
       }
     }
@@ -2042,6 +2054,19 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 {opt}
               </button>
             ))}
+          </div>
+        )}
+
+        {!isFullscreen && currentSlide.type === 'wordcloud' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px' }}>
+            <input
+              type="text"
+              className="chat-input"
+              placeholder='Pergunta disparadora (ex: "Qual a primeira palavra que vem à mente sobre efeitos adversos?")'
+              value={currentSlide.wordcloudConfig?.question || ''}
+              onChange={(e) => handleChangeWordcloudConfig({ question: e.target.value })}
+              style={{ flex: 1, fontSize: '0.8rem', boxSizing: 'border-box' }}
+            />
           </div>
         )}
 

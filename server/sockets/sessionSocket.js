@@ -30,7 +30,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, pointsConfig, branches, slideTitle, slideNotes, totalSlides }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, pointsConfig, wordcloudConfig, branches, slideTitle, slideNotes, totalSlides }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -58,6 +58,9 @@ export function setupSocketIO(httpServer) {
         // resposta "certa" aqui), então é retransmitido pro aluno como está
         // (ver joined_successfully/sync_slide abaixo).
         currentPointsConfig: pointsConfig || null,
+        // Pergunta disparadora da Nuvem de Palavras — mesmo caso do pointsConfig
+        // acima: não é sigiloso, retransmitido pro aluno como está.
+        currentWordcloudConfig: wordcloudConfig || null,
         // Opções da Trilha de Decisão do slide atual — { optionText, targetSlideId }[]
         // (ver PresentationEditor.jsx). targetSlideId nunca é retransmitido pro
         // aluno (ver sync_slide/joined_successfully abaixo), só o texto da opção.
@@ -102,6 +105,7 @@ export function setupSocketIO(httpServer) {
         slideType: session.currentSlideType,
         hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null,
         pointsConfig: session.currentPointsConfig,
+        wordcloudConfig: session.currentWordcloudConfig,
         branches: publicBranches(session.currentBranches),
         slideTitle: session.currentSlideTitle,
         slideNotes: session.currentSlideNotes,
@@ -231,7 +235,7 @@ export function setupSocketIO(httpServer) {
     });
 
     // 4. Apresentador altera slide
-    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, pointsConfig, branches, slideTitle, slideNotes, totalSlides }) => {
+    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, pointsConfig, wordcloudConfig, branches, slideTitle, slideNotes, totalSlides }) => {
       const session = activeSessions.get(pin);
       if (session) {
         commitDwellTime(session);
@@ -240,6 +244,7 @@ export function setupSocketIO(httpServer) {
         session.currentCorrectAnswer = correctAnswer || null;
         session.currentHotspotConfig = hotspotConfig || null;
         session.currentPointsConfig = pointsConfig || null;
+        session.currentWordcloudConfig = wordcloudConfig || null;
         session.currentBranches = branches || null;
         session.currentSlideTitle = slideTitle || null;
         session.currentSlideNotes = slideNotes || null;
@@ -253,6 +258,7 @@ export function setupSocketIO(httpServer) {
           slideType: session.currentSlideType,
           hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null,
           pointsConfig: session.currentPointsConfig,
+          wordcloudConfig: session.currentWordcloudConfig,
           branches: publicBranches(session.currentBranches),
           slideTitle: session.currentSlideTitle,
           slideNotes: session.currentSlideNotes,

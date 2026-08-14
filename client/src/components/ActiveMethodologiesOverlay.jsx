@@ -252,9 +252,12 @@ export default function ActiveMethodologiesOverlay({
       {currentSlide?.type === 'wordcloud' && (
         <div style={expanded ? { transform: `scale(${1 / EXPANDED_SCALE})`, transformOrigin: 'center center' } : undefined}>
           <div className="glass-panel" style={{ padding: '1.1rem', width: `min(${WORD_CLOUD_AREA.width + 50}px, calc(100% - 2rem))`, background: 'rgba(15, 23, 42, 0.92)' }}>
-            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: currentSlide.wordcloudConfig?.question ? '0.25rem' : '0.75rem' }}>
               <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
             </div>
+            {currentSlide.wordcloudConfig?.question && (
+              <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>{currentSlide.wordcloudConfig.question}</div>
+            )}
 
             <div style={{ position: 'relative', width: `${WORD_CLOUD_AREA.width}px`, height: `${WORD_CLOUD_AREA.height}px`, margin: '0 auto' }}>
               {wordLayout.map((entry, idx) => (
