@@ -1,6 +1,6 @@
 {
   "name": "presentation-ai-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backend para o Sistema de Apresentação HTML Interativa com IA",
   "main": "index.js",
   "type": "module",
