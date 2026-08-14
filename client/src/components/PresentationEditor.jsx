@@ -48,7 +48,7 @@ import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
   GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2, StickyNote,
-  Smartphone, MousePointer2
+  Smartphone, MousePointer2, Minus
 } from 'lucide-react';
 
 // Tamanho do canvas ANTES da migração pra 1920x1080 (ver lib/canvasConstants.js)
@@ -1450,9 +1450,29 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { fontFamily }));
   };
 
+  // Lê o tamanho JÁ RENDERIZADO do elemento selecionado direto do iframe
+  // (getComputedStyle) — títulos/parágrafos não têm font-size inline por
+  // padrão (vem da tag <h1>/<p> ou do CSS que a IA gerou), então sem isto o
+  // botão "+"/"-" não teria de onde partir na primeira vez que o usuário
+  // mexe no tamanho.
+  const getSelectedElComputedFontSize = () => {
+    if (!selectedEl) return null;
+    const doc = stageIframeRef.current?.contentDocument;
+    const container = doc?.querySelector('.slide-root') || doc?.body;
+    const el = container?.children?.[selectedEl.index];
+    if (!el) return null;
+    const size = parseFloat(doc.defaultView.getComputedStyle(el).fontSize);
+    return Number.isFinite(size) ? Math.round(size) : null;
+  };
+
+  const handleSetFontSize = (fontSizePx) => {
+    if (!selectedEl) return;
+    updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { fontSize: fontSizePx ? `${fontSizePx}px` : '' }), { debounced: true });
+  };
+
   const handleClearTextStyle = () => {
     if (!selectedEl) return;
-    updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { color: '', fontFamily: '' }));
+    updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { color: '', fontFamily: '', fontSize: '' }));
   };
 
   // Desfaz o arrasto (ver 'reposition' em handleMessage): devolve o elemento
@@ -2301,6 +2321,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             const cropped = isCroppedAt(currentSlide.html, selectedEl.index);
             const hasTable = hasTableAt(currentSlide.html, selectedEl.index);
             const textStyle = getTextStyleAt(currentSlide.html, selectedEl.index);
+            // Sem override ainda: parte do tamanho REALMENTE renderizado (não
+            // um valor fixo qualquer) pro "+"/"-" da primeira mexida já fazer
+            // sentido — um título grande e um texto pequeno não deveriam
+            // começar do mesmo número.
+            const displayFontSize = parseInt(textStyle.fontSize, 10) || getSelectedElComputedFontSize() || 24;
             const btnStyle = { width: '30px', height: '30px' };
             const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
             // Fixa no topo/centro do CANVAS (não mais junto do elemento) —
@@ -2659,7 +2684,36 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                       ))}
                     </select>
 
-                    {(textStyle.color || textStyle.fontFamily) && (
+                    <label style={{ display: 'block', fontSize: '0.68rem', color: '#9ca3af', margin: '0.65rem 0 0.35rem' }}>Tamanho da fonte</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <button
+                        className="btn-icon"
+                        style={{ width: '26px', height: '26px', flexShrink: 0 }}
+                        title="Diminuir fonte"
+                        onClick={() => handleSetFontSize(Math.max(6, displayFontSize - 2))}
+                      >
+                        <Minus size={13} />
+                      </button>
+                      <input
+                        type="number"
+                        className="chat-input"
+                        min="6"
+                        max="400"
+                        value={displayFontSize}
+                        onChange={(e) => handleSetFontSize(e.target.value)}
+                        style={{ width: '100%', textAlign: 'center', fontSize: '0.78rem' }}
+                      />
+                      <button
+                        className="btn-icon"
+                        style={{ width: '26px', height: '26px', flexShrink: 0 }}
+                        title="Aumentar fonte"
+                        onClick={() => handleSetFontSize(displayFontSize + 2)}
+                      >
+                        <Plus size={13} />
+                      </button>
+                    </div>
+
+                    {(textStyle.color || textStyle.fontFamily || textStyle.fontSize) && (
                       <button
                         className="btn-icon"
                         style={{ width: '100%', marginTop: '0.6rem', color: '#f87171', fontSize: '0.75rem', gap: '0.35rem' }}

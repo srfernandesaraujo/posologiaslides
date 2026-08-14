@@ -213,7 +213,7 @@ export function setAlignmentAt(html, index, align) {
 // cor/fonte herdam normalmente pros filhos, igual `setCropAt`/`setAnimationEntryAt`
 // não desembrulham). `color`/`fontFamily` ausentes (undefined) deixam aquele
 // valor intacto; string vazia remove o override (volta a herdar do slide).
-export function setTextStyleAt(html, index, { color, fontFamily } = {}) {
+export function setTextStyleAt(html, index, { color, fontFamily, fontSize } = {}) {
   const template = parseFragment(html);
   const el = getContainer(template).children[index];
   if (!el) return html;
@@ -243,17 +243,30 @@ export function setTextStyleAt(html, index, { color, fontFamily } = {}) {
       el.style.removeProperty('font-family');
     }
   }
+  // Mesma lógica de cor/fonte acima: um <h1>/<h2> de título tem tamanho fixo
+  // vindo da tag (ver blockCatalog.js/aiService.js), e a IA às vezes grava
+  // font-size inline em trechos internos — por isso limpa os descendentes
+  // também, senão um <span> com tamanho próprio no meio do texto continuava
+  // do jeito antigo mesmo depois do usuário aumentar a fonte do elemento todo.
+  if (fontSize !== undefined) {
+    if (fontSize) {
+      el.style.fontSize = fontSize;
+      el.querySelectorAll('*').forEach((child) => { if (child.style.fontSize) child.style.removeProperty('font-size'); });
+    } else {
+      el.style.removeProperty('font-size');
+    }
+  }
   return serializeFragment(template);
 }
 
-// Lê a cor/fonte aplicadas via `setTextStyleAt` (inline style do próprio
-// elemento) — usada pra pré-preencher o painel "Texto" com o que o elemento
-// selecionado já tem, se houver.
+// Lê a cor/fonte/tamanho aplicados via `setTextStyleAt` (inline style do
+// próprio elemento) — usada pra pré-preencher o painel "Texto" com o que o
+// elemento selecionado já tem, se houver.
 export function getTextStyleAt(html, index) {
   const template = parseFragment(html);
   const el = getContainer(template).children[index];
-  if (!el) return { color: '', fontFamily: '' };
-  return { color: el.style.color || '', fontFamily: el.style.fontFamily || '' };
+  if (!el) return { color: '', fontFamily: '', fontSize: '' };
+  return { color: el.style.color || '', fontFamily: el.style.fontFamily || '', fontSize: el.style.fontSize || '' };
 }
 
 // Agrupa o elemento em `index` com o vizinho anterior ("prev") ou seguinte
