@@ -55,12 +55,23 @@ function paragraph(text, delayIndex, size = '1.02rem') {
   return `<p style="font-size:${size};color:#94a3b8;line-height:1.65;margin:0;max-width:640px;${fadeUp(delayIndex)}">${text}</p>`;
 }
 
-function imagePlaceholder(hint) {
+// `minHeight` customizável: o padrão (280px) serve pra uma foto sozinha ao
+// lado de texto, mas é alto demais numa grade de 3 colunas e baixo demais
+// numa foto única em destaque — ver buildPhotoHero/buildPhotoGallery abaixo.
+function imagePlaceholder(hint, minHeight = 280) {
   return `
-<div style="flex:1;min-height:280px;border-radius:1rem;border:2px dashed rgba(255,255,255,0.18);background:rgba(255,255,255,0.02);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.75rem;text-align:center;padding:2rem;box-sizing:border-box;">
+<div style="flex:1;min-height:${minHeight}px;border-radius:1rem;border:2px dashed rgba(255,255,255,0.18);background:rgba(255,255,255,0.02);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.75rem;text-align:center;padding:2rem;box-sizing:border-box;">
   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#4b5563" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-  <div style="color:#6b7280;font-size:0.85rem;max-width:260px;">${hint || 'Substitua por uma imagem real — abra a Biblioteca de Mídias e insira a foto/diagrama.'}</div>
+  <div style="color:#6b7280;font-size:0.85rem;max-width:260px;">${hint || 'Substitua por uma imagem real — abra "Biblioteca de Mídias" e envie a foto pela aba Upload.'}</div>
 </div>`;
+}
+
+// Rótulo pequeno acima de uma foto (usado no template Antes/Depois) — mesmo
+// estilo visual de patientCard/optionRow mais abaixo, mas isolado porque
+// aqui só precisa do rótulo, sem o card ao redor.
+function photoLabel(text, accent = 'cyan') {
+  const a = ACCENTS[accent];
+  return `<div style="font-size:0.72rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:${a.fg};margin-bottom:0.6rem;">${text}</div>`;
 }
 
 function twoColumns(leftHtml, rightHtml, ratio = '1fr 1fr', delayIndex = 1) {
@@ -126,6 +137,58 @@ function buildTextImage() {
     [
       { html: tagChip('Tópico', 'cyan', 0) },
       { html: twoColumns(left, imagePlaceholder(), '1fr 1fr', 1) }
+    ]
+  );
+}
+
+// Foto sozinha, grande, como protagonista do slide (raio-x, lesão, estrutura
+// molecular, foto de aula...) — diferente de "Texto + Imagem" (foto do lado
+// de um bloco de texto), aqui ela É o slide, só com tag/título acima e
+// legenda opcional embaixo.
+function buildPhotoHero() {
+  return assemble(
+    `${ROOT_BASE}display:flex;flex-direction:column;gap:1rem;padding:3rem 4rem;justify-content:center;align-items:center;background:${BG.flatDeep};`,
+    [
+      { html: tagChip('Mídia', 'cyan', 0) },
+      { html: heading('Título da Imagem', '2rem', 1) },
+      { html: `<div style="width:100%;max-width:820px;${fadeUp(2)}">${imagePlaceholder('Envie a foto pelo menu "Biblioteca de Mídias" → aba Upload.', 380)}</div>` },
+      { html: paragraph('Legenda ou fonte da imagem (opcional).', 3, '0.9rem') }
+    ]
+  );
+}
+
+// Grade de 3 fotos lado a lado, cada uma com legenda própria — pra comparar
+// exemplos/casos/espécimes diferentes no mesmo slide (upload de 3 imagens).
+function buildPhotoGallery() {
+  const captions = ['Foto 1', 'Foto 2', 'Foto 3'];
+  const cells = captions.map((caption) => `
+    <div style="display:flex;flex-direction:column;gap:0.5rem;min-width:0;">
+      ${imagePlaceholder('Envie uma foto (Biblioteca de Mídias → Upload).', 200)}
+      <div style="text-align:center;color:#9ca3af;font-size:0.8rem;font-weight:600;">${caption}</div>
+    </div>`).join('');
+  return assemble(
+    `${ROOT_BASE}display:flex;flex-direction:column;gap:1.5rem;padding:3.5rem 4.5rem;justify-content:center;background:${BG.flat};`,
+    [
+      { html: tagChip('Galeria', 'violet', 0) },
+      { html: heading('Título da Galeria', '2rem', 0) },
+      { html: `<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:1.5rem;width:100%;${fadeUp(1)}">${cells}</div>` }
+    ]
+  );
+}
+
+// Antes/Depois com DUAS FOTOS ENVIADAS (upload), lado a lado, cada uma com
+// rótulo próprio — diferente do widget "Comparador Antes/Depois" (Biblioteca
+// de Conteúdo → Interativos), que é um slider por CIMA de duas imagens já
+// hospedadas numa URL. Aqui é o caso simples: duas fotos fixas lado a lado.
+function buildPhotoBeforeAfter() {
+  const left = [photoLabel('Antes', 'cyan'), imagePlaceholder('Envie a foto "antes" (Biblioteca de Mídias → Upload).', 320)].join('');
+  const right = [photoLabel('Depois', 'emerald'), imagePlaceholder('Envie a foto "depois" (Biblioteca de Mídias → Upload).', 320)].join('');
+  return assemble(
+    `${ROOT_BASE}display:flex;flex-direction:column;gap:1.5rem;padding:3.5rem 4.5rem;justify-content:center;background:${BG.emeraldAmber};`,
+    [
+      { html: tagChip('Comparação', 'amber', 0) },
+      { html: heading('Antes / Depois', '2rem', 0) },
+      { html: twoColumns(left, right, '1fr 1fr', 1) }
     ]
   );
 }
@@ -426,6 +489,9 @@ export const SLIDE_TEMPLATE_CATALOG = [
   { id: 'title-top-content', title: 'Título no Topo + Lista', description: 'Cabeçalho no alto seguido de uma lista de pontos-chave.', category: 'Título', iconName: 'Heading1', layoutTag: 'titulo-topo', buildHtml: buildTitleTopContent },
   { id: 'academic-calendar', title: 'Cronograma · Calendário Acadêmico', description: 'Calendário interativo para exibir o cronograma das aulas e avaliações aos alunos.', category: 'Conteúdo', iconName: 'CalendarDays', layoutTag: 'cronograma-calendario', buildHtml: buildAcademicCalendar },
   { id: 'text-image', title: 'Texto + Imagem', description: 'Texto de um lado, área reservada para foto/diagrama do outro.', category: 'Conteúdo', iconName: 'Image', layoutTag: 'texto-imagem', buildHtml: buildTextImage },
+  { id: 'photo-hero', title: 'Foto em Destaque', description: 'Uma foto grande como protagonista do slide — envie pelo Upload da Biblioteca de Mídias.', category: 'Mídia', iconName: 'Image', layoutTag: 'foto-destaque', buildHtml: buildPhotoHero },
+  { id: 'photo-gallery', title: 'Galeria de Fotos', description: 'Três fotos lado a lado, cada uma com legenda — envie as três pelo Upload.', category: 'Mídia', iconName: 'Images', layoutTag: 'galeria-fotos', buildHtml: buildPhotoGallery },
+  { id: 'photo-before-after', title: 'Antes / Depois (Fotos)', description: 'Duas fotos lado a lado com rótulo "Antes" e "Depois" — envie as duas pelo Upload.', category: 'Mídia', iconName: 'Columns2', layoutTag: 'antes-depois-fotos', buildHtml: buildPhotoBeforeAfter },
   { id: 'text-chart', title: 'Texto + Gráfico', description: 'Texto explicativo ao lado de um gráfico já funcional (Chart.js).', category: 'Dados', iconName: 'BarChart3', layoutTag: 'texto-grafico', buildHtml: buildTextChart },
   { id: 'text-simulator', title: 'Texto + Simulador', description: 'Texto de contexto seguido de um simulador de sliders já funcional.', category: 'Dados', iconName: 'Activity', layoutTag: 'simulador-slider', buildHtml: buildTextSimulator },
   { id: 'only-elements-grid', title: 'Somente Elementos (Grade)', description: 'Grade de cartões, sem bloco de texto corrido — direto ao ponto.', category: 'Elementos', iconName: 'LayoutGrid', layoutTag: 'grade-elementos', buildHtml: buildOnlyElementsGrid },

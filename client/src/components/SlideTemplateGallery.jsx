@@ -1,13 +1,13 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
-  X, LayoutTemplate, Type, Heading1, Image, BarChart3, Activity, LayoutGrid,
+  X, LayoutTemplate, Type, Heading1, Image, Images, BarChart3, Activity, LayoutGrid,
   StickyNote, Columns2, Hash, Workflow, History, Layers, Quote, CheckCircle2, Stethoscope, CalendarDays
 } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
 import { SLIDE_TEMPLATE_CATALOG } from '../lib/slideTemplateCatalog';
 
 const ICONS = {
-  Type, Heading1, Image, BarChart3, Activity, LayoutGrid,
+  Type, Heading1, Image, Images, BarChart3, Activity, LayoutGrid,
   StickyNote, Columns2, Hash, Workflow, History, Layers, Quote, CheckCircle2, Stethoscope, CalendarDays
 };
 
