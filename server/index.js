@@ -17,6 +17,7 @@ import settingsRoutes from './routes/settingsRoutes.js';
 import mediaSearchRoutes from './routes/mediaSearchRoutes.js';
 import backupRoutes from './routes/backupRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
+import deployWebhookRoutes from './routes/deployWebhookRoutes.js';
 import multer from 'multer';
 import { requireAuth } from './middleware/auth.js';
 import { setupSocketIO } from './sockets/sessionSocket.js';
@@ -53,13 +54,26 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.options('*', cors());
-app.use(express.json({ limit: '10mb' }));
+// `verify` guarda os bytes crus do corpo em req.rawBody ANTES de parsear —
+// necessário pro webhook de deploy validar a assinatura HMAC do GitHub
+// (ver deployWebhookRoutes.js), que é calculada sobre o payload exato, não
+// sobre o objeto já reserializado. Roda pra toda requisição JSON (custo
+// desprezível: já é o mesmo buffer que o parser ia ler de qualquer forma),
+// não só pra rota do webhook.
+app.use(express.json({ limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Healthcheck
+// Healthcheck — também usado pelo deploy.sh pra confirmar que o restart
+// funcionou antes de considerar o deploy concluído (ver scripts/deploy.sh).
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Servidor de Apresentações HTML com IA e Socket.io operacional.' });
 });
+
+// Webhook do GitHub (push → auto-deploy, ver deployWebhookRoutes.js) — sem
+// requireAuth de propósito: o GitHub não tem como mandar um Bearer token do
+// Firebase. A segurança aqui vem da assinatura HMAC (DEPLOY_WEBHOOK_SECRET),
+// verificada dentro da própria rota.
+app.use('/api/deploy-webhook', deployWebhookRoutes);
 
 // Rotas da API
 app.use('/api/auth', authRoutes);

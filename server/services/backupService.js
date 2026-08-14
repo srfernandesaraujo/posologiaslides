@@ -96,7 +96,13 @@ async function listUserMediaFiles(bucket, userId) {
 // não apaga o arquivo no final: a posse dele passa pro registro, que só o
 // remove quando o cliente efetivamente baixar (ou depois de expirar, se
 // nunca baixar). Em caso de erro ANTES de registrar, aí sim limpa.
-export async function createBackup({ userId, user, bucket, onEvent = () => {}, store = defaultStore }) {
+//
+// `destPath`: usado só pelo backup AGENDADO (ver scripts/scheduledBackup.js),
+// que roda fora de uma requisição HTTP e não tem um cliente esperando pra
+// baixar o arquivo — em vez de registrar pra download de uso único, move o
+// zip pronto direto pro destino final em disco (pasta de backups com
+// retenção, fora do tmpdir) e devolve o caminho.
+export async function createBackup({ userId, user, bucket, onEvent = () => {}, store = defaultStore, destPath = null }) {
   const emit = (evt) => onEvent(evt);
   const zipPath = tmpZipPath('posologia-backup');
 
@@ -154,6 +160,17 @@ export async function createBackup({ userId, user, bucket, onEvent = () => {}, s
 
     const fileName = buildBackupFileName();
     const size = fs.statSync(zipPath).size;
+
+    if (destPath) {
+      // copyFile+unlink em vez de rename: zipPath está em os.tmpdir(), que
+      // pode ser um filesystem/partição diferente do destino — rename entre
+      // dispositivos diferentes falha com EXDEV.
+      await fs.promises.copyFile(zipPath, destPath);
+      await fs.promises.unlink(zipPath).catch(() => {});
+      emit({ type: 'done', success: true, filePath: destPath, fileName, size });
+      return { filePath: destPath, fileName, size };
+    }
+
     const downloadId = registerDownload({ filePath: zipPath, userId, fileName });
 
     emit({ type: 'done', success: true, downloadId, fileName, size });
