@@ -4,6 +4,11 @@ import { Users, BarChart2, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, C
 import { layoutWordCloud } from '../lib/wordCloudLayout';
 import { apiFetch } from '../lib/api';
 
+// Fator do `transform: scale(...)` aplicado a TODOS os widgets no modo
+// ampliado (ver `expanded` mais abaixo) — extraído pra constante porque a
+// nuvem de palavras precisa cancelá-lo localmente (ver EXPANDED_WORD_CLOUD_AREA).
+const EXPANDED_SCALE = 1.7;
+
 export default function ActiveMethodologiesOverlay({
   socket,
   pin,
@@ -113,12 +118,22 @@ export default function ActiveMethodologiesOverlay({
   // Cap nas 40 palavras mais frequentes — além disso o layout em espiral fica
   // lento pra achar espaço livre e a nuvem vira ruído visual ilegível.
   const wordEntries = [...wordCounts.values()].sort((a, b) => b.count - a.count).slice(0, 40);
-  const WORD_CLOUD_AREA = { width: 360, height: 250, maxFontSize: 38 };
+  // No modo ampliado, o painel ainda mora dentro do wrapper com
+  // `transform: scale(EXPANDED_SCALE)` (ver `expanded` mais abaixo), mas o
+  // PRÓPRIO painel da nuvem aplica um contra-scale (1/EXPANDED_SCALE) pra
+  // anular esse zoom e recalcular o layout numa área real maior — só dar
+  // scale visual na área pequena (360x250) deixava tudo proporcionalmente
+  // maior mas com os MESMOS vãos vazios entre as palavras; recalculando de
+  // verdade numa área maior, o empacotamento em espiral tem mais espaço pra
+  // preencher e a fonte cresce mais que um simples 1.7x linear.
+  const WORD_CLOUD_AREA = expanded
+    ? { width: 620, height: 420, maxFontSize: 72, minFontSize: 14 }
+    : { width: 360, height: 250, maxFontSize: 38 };
   const WORD_COLORS = ['#22d3ee', '#34d399', '#a78bfa', '#38bdf8', '#f472b6', '#fbbf24'];
   const wordLayout = useMemo(
     () => layoutWordCloud(wordEntries, WORD_CLOUD_AREA),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [JSON.stringify(wordEntries)]
+    [JSON.stringify(wordEntries), expanded]
   );
 
   // Nada pra ampliar (nenhum widget seria mostrado mesmo) — sem isto o botão
@@ -158,7 +173,7 @@ export default function ActiveMethodologiesOverlay({
             ? {
                 position: 'fixed', inset: 0, zIndex: 200, display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: '1.25rem',
-                background: 'rgba(9, 13, 22, 0.95)', transform: 'scale(1.7)', transformOrigin: 'center center'
+                background: 'rgba(9, 13, 22, 0.95)', transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center'
               }
             : { position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }
         }
@@ -229,55 +244,62 @@ export default function ActiveMethodologiesOverlay({
         </div>
       )}
 
-      {/* Widget de Nuvem de Palavras */}
+      {/* Widget de Nuvem de Palavras — no modo ampliado, o contra-scale abaixo
+          cancela o `scale(EXPANDED_SCALE)` do wrapper pai (ver `expanded` mais
+          acima): sem ele, WORD_CLOUD_AREA maior + esse zoom se multiplicariam
+          e o painel ficaria gigante/cortado. Com o contra-scale, o painel
+          aparece do tamanho real em pixels da área recalculada. */}
       {currentSlide?.type === 'wordcloud' && (
-        <div className="glass-panel" style={{ padding: '1.1rem', width: 'min(410px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
-            <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
-          </div>
+        <div style={expanded ? { transform: `scale(${1 / EXPANDED_SCALE})`, transformOrigin: 'center center' } : undefined}>
+          <div className="glass-panel" style={{ padding: '1.1rem', width: `min(${WORD_CLOUD_AREA.width + 50}px, calc(100% - 2rem))`, background: 'rgba(15, 23, 42, 0.92)' }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+              <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
+            </div>
 
-          <div style={{ position: 'relative', width: `${WORD_CLOUD_AREA.width}px`, height: `${WORD_CLOUD_AREA.height}px`, margin: '0 auto' }}>
-            {wordLayout.map((entry, idx) => (
-              <span
-                key={entry.word}
-                title={`${entry.count}x`}
-                style={{
-                  position: 'absolute',
-                  left: `calc(50% + ${entry.x}px)`,
-                  top: `calc(50% + ${entry.y}px)`,
-                  fontSize: `${entry.fontSize}px`,
-                  fontWeight: 800,
-                  color: WORD_COLORS[idx % WORD_COLORS.length],
-                  lineHeight: 1.15,
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                {entry.word}
-              </span>
-            ))}
-            {wordEntries.length === 0 && (
-              <span style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', fontSize: '0.78rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
-                Aguardando palavras enviadas pelos alunos...
-              </span>
-            )}
-          </div>
-
-          {wordEntries.length > 0 && (
-            <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              <button
-                className="btn-secondary"
-                onClick={handleSummarize}
-                disabled={summaryLoading}
-                style={{ padding: '0.35rem 0.7rem', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: '#67e8f9' }}
-              >
-                {summaryLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                Resumir com IA
-              </button>
-              {summary && (
-                <p style={{ fontSize: '0.78rem', color: '#cbd5e1', marginTop: '0.5rem', lineHeight: 1.5 }}>{summary}</p>
+            <div style={{ position: 'relative', width: `${WORD_CLOUD_AREA.width}px`, height: `${WORD_CLOUD_AREA.height}px`, margin: '0 auto' }}>
+              {wordLayout.map((entry, idx) => (
+                <span
+                  key={entry.word}
+                  title={`${entry.count}x`}
+                  style={{
+                    position: 'absolute',
+                    left: `calc(50% + ${entry.x + entry.width / 2}px)`,
+                    top: `calc(50% + ${entry.y + entry.height / 2}px)`,
+                    transform: `translate(-50%, -50%) rotate(${entry.rotation || 0}deg)`,
+                    fontSize: `${entry.fontSize}px`,
+                    fontWeight: 800,
+                    color: WORD_COLORS[idx % WORD_COLORS.length],
+                    lineHeight: 1.15,
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {entry.word}
+                </span>
+              ))}
+              {wordEntries.length === 0 && (
+                <span style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', fontSize: '0.78rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                  Aguardando palavras enviadas pelos alunos...
+                </span>
               )}
             </div>
-          )}
+
+            {wordEntries.length > 0 && (
+              <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                <button
+                  className="btn-secondary"
+                  onClick={handleSummarize}
+                  disabled={summaryLoading}
+                  style={{ padding: '0.35rem 0.7rem', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 600, color: '#67e8f9' }}
+                >
+                  {summaryLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                  Resumir com IA
+                </button>
+                {summary && (
+                  <p style={{ fontSize: '0.78rem', color: '#cbd5e1', marginTop: '0.5rem', lineHeight: 1.5 }}>{summary}</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
