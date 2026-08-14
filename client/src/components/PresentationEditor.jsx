@@ -38,6 +38,7 @@ import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
 import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closingSlideTemplate';
+import { buildQuizPlaceholderHtml, QUIZ_PLACEHOLDER_MARKER } from '../lib/quizPlaceholderTemplate';
 import useCanvasFit from '../lib/useCanvasFit';
 import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDIT_RANGE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
 import useUndoHistory from '../lib/useUndoHistory';
@@ -529,7 +530,18 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
   const handleChangeSlideType = (type) => {
     const updatedSlides = [...presentation.slides];
-    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], type: type || undefined };
+    let targetSlide = { ...updatedSlides[activeIndex], type: type || undefined };
+    // "Quiz ao Vivo" só ativava o seletor de resposta certa (A/B/C/D) e o
+    // painel de resultados — nada aparecia no canvas pra digitar a pergunta
+    // e as alternativas, o que deixava o slide em branco e confuso (usuário
+    // reportou não achar onde adicionar isso). Insere um placeholder editável
+    // (mesmo mecanismo de texto/lista de qualquer outro bloco) só na primeira
+    // vez — QUIZ_PLACEHOLDER_MARKER evita duplicar se o usuário ligar/desligar
+    // o tipo várias vezes sem apagar o bloco.
+    if (type === 'quiz' && !targetSlide.html?.includes(QUIZ_PLACEHOLDER_MARKER)) {
+      targetSlide = { ...targetSlide, html: appendIntoRoot(targetSlide.html, buildQuizPlaceholderHtml()) };
+    }
+    updatedSlides[activeIndex] = targetSlide;
     commit({ ...presentation, slides: updatedSlides });
   };
 
