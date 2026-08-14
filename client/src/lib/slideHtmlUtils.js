@@ -213,7 +213,7 @@ export function setAlignmentAt(html, index, align) {
 // cor/fonte herdam normalmente pros filhos, igual `setCropAt`/`setAnimationEntryAt`
 // não desembrulham). `color`/`fontFamily` ausentes (undefined) deixam aquele
 // valor intacto; string vazia remove o override (volta a herdar do slide).
-export function setTextStyleAt(html, index, { color, fontFamily, fontSize } = {}) {
+export function setTextStyleAt(html, index, { color, fontFamily, fontSize, background } = {}) {
   const template = parseFragment(html);
   const el = getContainer(template).children[index];
   if (!el) return html;
@@ -256,17 +256,51 @@ export function setTextStyleAt(html, index, { color, fontFamily, fontSize } = {}
       el.style.removeProperty('font-size');
     }
   }
+  // Fundo da CAIXA de texto (sólido ou `linear-gradient(...)`, ver painel
+  // "Texto" → "Fundo da caixa") — só pra melhorar contraste de título/
+  // cabeçalho contra o fundo do slide, não é o fundo do slide em si. Um
+  // <h1>/<p> é block-level e ocupa a largura toda do container por padrão;
+  // sem `display:inline-block` o fundo viraria uma faixa esticada de ponta a
+  // ponta em vez de uma "caixa" abraçando só o texto. `data-el-bg-auto` marca
+  // que FOMOS nós que adicionamos display/padding/border-radius — assim, ao
+  // remover o fundo depois, só desfaz o que a gente mesmo criou, nunca um
+  // padding/display customizado que já viesse do bloco (ex.: blockCatalog.js
+  // já dá padding/border-radius próprios pra citação/callout).
+  if (background !== undefined) {
+    if (background) {
+      el.style.background = background;
+      if (!el.hasAttribute('data-el-bg-auto') && !el.style.display && !el.style.padding && !el.style.borderRadius) {
+        el.style.display = 'inline-block';
+        el.style.padding = '0.3em 0.6em';
+        el.style.borderRadius = '0.4em';
+        el.setAttribute('data-el-bg-auto', '1');
+      }
+    } else {
+      el.style.removeProperty('background');
+      if (el.hasAttribute('data-el-bg-auto')) {
+        el.style.removeProperty('display');
+        el.style.removeProperty('padding');
+        el.style.removeProperty('border-radius');
+        el.removeAttribute('data-el-bg-auto');
+      }
+    }
+  }
   return serializeFragment(template);
 }
 
-// Lê a cor/fonte/tamanho aplicados via `setTextStyleAt` (inline style do
-// próprio elemento) — usada pra pré-preencher o painel "Texto" com o que o
-// elemento selecionado já tem, se houver.
+// Lê a cor/fonte/tamanho/fundo aplicados via `setTextStyleAt` (inline style
+// do próprio elemento) — usada pra pré-preencher o painel "Texto" com o que
+// o elemento selecionado já tem, se houver.
 export function getTextStyleAt(html, index) {
   const template = parseFragment(html);
   const el = getContainer(template).children[index];
-  if (!el) return { color: '', fontFamily: '', fontSize: '' };
-  return { color: el.style.color || '', fontFamily: el.style.fontFamily || '', fontSize: el.style.fontSize || '' };
+  if (!el) return { color: '', fontFamily: '', fontSize: '', background: '' };
+  return {
+    color: el.style.color || '',
+    fontFamily: el.style.fontFamily || '',
+    fontSize: el.style.fontSize || '',
+    background: el.style.background || ''
+  };
 }
 
 // Agrupa o elemento em `index` com o vizinho anterior ("prev") ou seguinte

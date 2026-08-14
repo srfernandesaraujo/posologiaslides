@@ -35,7 +35,7 @@ import {
   scaleSlideToCanvas, unscaleSlideFromCanvas, isSlideScaledToCanvas
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
-import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
+import { FONT_OPTIONS, TEXT_COLOR_SWATCHES, BG_COLOR_SWATCHES, GRADIENT_SWATCHES } from '../lib/fontCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
 import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closingSlideTemplate';
 import { buildDefaultQuizQuestionWidget } from '../lib/widgetCatalog';
@@ -1470,9 +1470,21 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { fontSize: fontSizePx ? `${fontSizePx}px` : '' }), { debounced: true });
   };
 
+  // Fundo da CAIXA de texto (não confundir com o fundo do slide inteiro) —
+  // aceita tanto uma cor sólida ("#123456") quanto um `linear-gradient(...)`
+  // pronto (ver GRADIENT_SWATCHES/handleSetTextBackgroundGradient abaixo).
+  const handleSetTextBackground = (background) => {
+    if (!selectedEl) return;
+    updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { background }), { debounced: true });
+  };
+
+  const handleSetTextBackgroundGradient = (from, to) => {
+    handleSetTextBackground(`linear-gradient(135deg, ${from}, ${to})`);
+  };
+
   const handleClearTextStyle = () => {
     if (!selectedEl) return;
-    updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { color: '', fontFamily: '', fontSize: '' }));
+    updateCurrentSlideHtml((html) => setTextStyleAt(html, selectedEl.index, { color: '', fontFamily: '', fontSize: '', background: '' }));
   };
 
   // Desfaz o arrasto (ver 'reposition' em handleMessage): devolve o elemento
@@ -2326,6 +2338,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             // sentido — um título grande e um texto pequeno não deveriam
             // começar do mesmo número.
             const displayFontSize = parseInt(textStyle.fontSize, 10) || getSelectedElComputedFontSize() || 24;
+            const bgIsGradient = textStyle.background?.startsWith('linear-gradient');
+            const gradientMatch = bgIsGradient && textStyle.background.match(/linear-gradient\([^,]+,\s*([^,]+),\s*([^)]+)\)/);
+            const gradientFrom = gradientMatch ? gradientMatch[1].trim() : GRADIENT_SWATCHES[0].from;
+            const gradientTo = gradientMatch ? gradientMatch[2].trim() : GRADIENT_SWATCHES[0].to;
             const btnStyle = { width: '30px', height: '30px' };
             const divider = <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.15)', margin: '0 0.15rem' }} />;
             // Fixa no topo/centro do CANVAS (não mais junto do elemento) —
@@ -2713,7 +2729,98 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                       </button>
                     </div>
 
-                    {(textStyle.color || textStyle.fontFamily || textStyle.fontSize) && (
+                    <label style={{ display: 'block', fontSize: '0.68rem', color: '#9ca3af', margin: '0.65rem 0 0.35rem' }}>Fundo da caixa</label>
+                    <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.5rem' }}>
+                      <button
+                        className="btn-icon"
+                        style={{ flex: 1, height: '24px', fontSize: '0.68rem', fontWeight: 700, background: !bgIsGradient ? 'var(--accent-primary)' : undefined, color: !bgIsGradient ? '#071019' : undefined }}
+                        onClick={() => handleSetTextBackground(textStyle.background && !bgIsGradient ? textStyle.background : BG_COLOR_SWATCHES[0])}
+                      >
+                        Sólido
+                      </button>
+                      <button
+                        className="btn-icon"
+                        style={{ flex: 1, height: '24px', fontSize: '0.68rem', fontWeight: 700, background: bgIsGradient ? 'var(--accent-primary)' : undefined, color: bgIsGradient ? '#071019' : undefined }}
+                        onClick={() => handleSetTextBackgroundGradient(gradientFrom, gradientTo)}
+                      >
+                        Gradiente
+                      </button>
+                    </div>
+
+                    {bgIsGradient ? (
+                      <>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.5rem' }}>
+                          {GRADIENT_SWATCHES.map((g) => (
+                            <button
+                              key={g.from + g.to}
+                              title={`${g.from} → ${g.to}`}
+                              onClick={() => handleSetTextBackgroundGradient(g.from, g.to)}
+                              style={{
+                                width: '22px',
+                                height: '22px',
+                                borderRadius: '50%',
+                                background: `linear-gradient(135deg, ${g.from}, ${g.to})`,
+                                cursor: 'pointer',
+                                padding: 0,
+                                border: (gradientFrom === g.from && gradientTo === g.to) ? '2px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.25)'
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.68rem', color: '#9ca3af' }}>
+                            De
+                            <input type="color" value={gradientFrom} onChange={(e) => handleSetTextBackgroundGradient(e.target.value, gradientTo)} style={{ width: '26px', height: '26px', padding: 0, border: 'none', cursor: 'pointer' }} />
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.68rem', color: '#9ca3af' }}>
+                            Até
+                            <input type="color" value={gradientTo} onChange={(e) => handleSetTextBackgroundGradient(gradientFrom, e.target.value)} style={{ width: '26px', height: '26px', padding: 0, border: 'none', cursor: 'pointer' }} />
+                          </label>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.4rem' }}>
+                        {BG_COLOR_SWATCHES.map((swatch) => (
+                          <button
+                            key={swatch}
+                            title={swatch}
+                            onClick={() => handleSetTextBackground(swatch)}
+                            style={{
+                              width: '22px',
+                              height: '22px',
+                              borderRadius: '50%',
+                              background: swatch,
+                              cursor: 'pointer',
+                              padding: 0,
+                              border: colorToHex(textStyle.background) === swatch ? '2px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.25)'
+                            }}
+                          />
+                        ))}
+                        <label
+                          title="Cor personalizada"
+                          style={{
+                            width: '22px',
+                            height: '22px',
+                            borderRadius: '50%',
+                            cursor: 'pointer',
+                            border: '1px solid rgba(255,255,255,0.25)',
+                            background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)',
+                            position: 'relative',
+                            overflow: 'hidden',
+                            display: 'block'
+                          }}
+                        >
+                          <input
+                            type="color"
+                            value={colorToHex(textStyle.background) || '#0f172a'}
+                            onChange={(e) => handleSetTextBackground(e.target.value)}
+                            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', border: 0, padding: 0 }}
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    {(textStyle.color || textStyle.fontFamily || textStyle.fontSize || textStyle.background) && (
                       <button
                         className="btn-icon"
                         style={{ width: '100%', marginTop: '0.6rem', color: '#f87171', fontSize: '0.75rem', gap: '0.35rem' }}

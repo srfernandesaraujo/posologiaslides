@@ -19,3 +19,21 @@ export const FONT_OPTIONS = [
 export const TEXT_COLOR_SWATCHES = [
   '#ffffff', '#0f172a', '#f9fafb', '#22d3ee', '#10b981', '#ec4899', '#f59e0b', '#ef4444'
 ];
+
+// Paleta pro fundo da CAIXA de texto (painel "Texto" → "Fundo da caixa") —
+// tons sólidos e escuros/claros de bom contraste, pensados pra combinar com
+// TEXT_COLOR_SWATCHES acima (ex.: fundo #0f172a + texto #ffffff).
+export const BG_COLOR_SWATCHES = [
+  '#0f172a', '#1e293b', '#ffffff', '#f9fafb', '#22d3ee', '#10b981', '#ec4899', '#f59e0b', '#ef4444', '#7c3aed'
+];
+
+// Pares rápidos de gradiente (from/to) — mesmo diagonal 135deg de sempre no
+// app (ver blockCatalog.js/index.css), só varia a dupla de cor.
+export const GRADIENT_SWATCHES = [
+  { from: '#22d3ee', to: '#0ea5e9' },
+  { from: '#a78bfa', to: '#6366f1' },
+  { from: '#f472b6', to: '#ec4899' },
+  { from: '#fbbf24', to: '#f59e0b' },
+  { from: '#34d399', to: '#059669' },
+  { from: '#0f172a', to: '#1e293b' }
+];
