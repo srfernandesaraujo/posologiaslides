@@ -8,6 +8,22 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_DIR" || exit 1
 
+# Carrega server/.env pra pegar PM2_PROCESS_NAME/DEPLOY_BRANCH/HEALTH_URL/PORT
+# — não dá pra confiar em variável de ambiente HERDADA de quem chamou este
+# script: `systemd-run` (ver deployWebhookRoutes.js) NÃO repassa o ambiente
+# do processo que o invoca pro processo que ele cria, diferente de um spawn
+# direto. Sem isto, PM2_PROCESS_NAME caía no valor padrão do script (errado)
+# e o pm2 restart falhava silenciosamente — bug real visto em produção
+# (2026-08-14): o healthcheck passava mesmo assim, só porque o processo
+# ANTIGO continuava no ar sem reiniciar de verdade.
+ENV_FILE="$REPO_DIR/server/.env"
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
 LOCK_FILE="/tmp/posologia-deploy.lock"
 STATE_FILE="$REPO_DIR/server/.deploy-last-good"
 LOG_DIR="$REPO_DIR/server/logs"
@@ -60,7 +76,15 @@ if ! (cd server && npm install >> "$LOG_FILE" 2>&1); then
 fi
 
 log "Reiniciando pm2 ($PM2_PROCESS_NAME)..."
-pm2 restart "$PM2_PROCESS_NAME" >> "$LOG_FILE" 2>&1
+if ! pm2 restart "$PM2_PROCESS_NAME" >> "$LOG_FILE" 2>&1; then
+  # Antes disto, uma falha aqui (ex.: nome de processo errado) era ignorada
+  # e o script seguia pro healthcheck mesmo assim — que passava de qualquer
+  # jeito porque o processo ANTIGO continuava no ar, sem reiniciar de
+  # verdade, e o deploy era marcado como sucesso sem o código novo estar
+  # rodando (bug real visto em produção, 2026-08-14).
+  rollback "pm2 restart falhou em $NEW_COMMIT (processo '$PM2_PROCESS_NAME' não encontrado? confira PM2_PROCESS_NAME no .env)"
+  exit 1
+fi
 
 log "Aguardando o servidor responder em $HEALTH_URL..."
 sleep 5
