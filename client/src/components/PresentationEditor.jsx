@@ -38,7 +38,7 @@ import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES } from '../lib/fontCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
 import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closingSlideTemplate';
-import { buildQuizPlaceholderHtml, QUIZ_PLACEHOLDER_MARKER } from '../lib/quizPlaceholderTemplate';
+import { buildDefaultQuizQuestionWidget } from '../lib/widgetCatalog';
 import useCanvasFit from '../lib/useCanvasFit';
 import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDIT_RANGE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
 import useUndoHistory from '../lib/useUndoHistory';
@@ -534,12 +534,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     // "Quiz ao Vivo" só ativava o seletor de resposta certa (A/B/C/D) e o
     // painel de resultados — nada aparecia no canvas pra digitar a pergunta
     // e as alternativas, o que deixava o slide em branco e confuso (usuário
-    // reportou não achar onde adicionar isso). Insere um placeholder editável
-    // (mesmo mecanismo de texto/lista de qualquer outro bloco) só na primeira
-    // vez — QUIZ_PLACEHOLDER_MARKER evita duplicar se o usuário ligar/desligar
-    // o tipo várias vezes sem apagar o bloco.
-    if (type === 'quiz' && !targetSlide.html?.includes(QUIZ_PLACEHOLDER_MARKER)) {
-      targetSlide = { ...targetSlide, html: appendIntoRoot(targetSlide.html, buildQuizPlaceholderHtml()) };
+    // reportou não achar onde adicionar isso). Insere o widget "Pergunta do
+    // Quiz ao Vivo" (ver widgetCatalog.js) só na primeira vez — o
+    // data-el-source que appendIntoRoot grava evita duplicar se o usuário
+    // ligar/desligar o tipo várias vezes sem apagar o bloco, e é o que
+    // deixa "Editar campos" (barra do elemento) abrir um formulário normal
+    // em vez de obrigar a mexer no HTML bruto.
+    if (type === 'quiz' && !targetSlide.html?.includes('data-el-source="interativos:quiz-question"')) {
+      const quizWidget = buildDefaultQuizQuestionWidget();
+      targetSlide = { ...targetSlide, html: appendIntoRoot(targetSlide.html, quizWidget.html, { source: quizWidget.source, config: quizWidget.config }) };
     }
     updatedSlides[activeIndex] = targetSlide;
     commit({ ...presentation, slides: updatedSlides });
