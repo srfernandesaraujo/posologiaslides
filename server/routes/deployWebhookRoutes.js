@@ -33,22 +33,42 @@ function isValidSignature(req) {
   return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 }
 
-// Dispara o deploy.sh como processo destacado — precisa sobreviver ao PRÓPRIO
-// pm2 restart que o script vai disparar lá dentro (ver deploy.sh); se
-// rodasse anexado a este processo Node, o restart mataria o script no meio
-// do caminho. stdio vai pra um arquivo de log (não pros pipes do processo
-// pai, que fecham quando ele reinicia) e unref() solta o processo filho do
-// event loop do pai sem esperar por ele.
+// Dispara o deploy.sh via `systemd-run --user`, NÃO via child_process.spawn
+// direto — testado em produção (2026-08-14) e o spawn direto falha: mesmo
+// com { detached: true }, o processo filho continua sendo filho DESTE
+// processo Node até ele morrer de verdade (detached só cria uma nova
+// sessão/grupo de processos, não muda o PPID). `pm2 restart` mata a árvore
+// de processos INTEIRA do PID que está sendo reiniciado — inclusive esse
+// filho "detached" — matando o deploy.sh no meio do próprio passo em que
+// ELE manda reiniciar o pm2 (log ficava truncado logo após "Reiniciando
+// pm2...", sem nunca chegar no healthcheck).
+// `systemd-run --user` entrega o processo pro gerenciador systemd do
+// usuário (um daemon completamente separado, nunca descendente do pm2/Node)
+// — a partir do instante em que nasce, não numa corrida de reparentamento.
+// Precisa de `loginctl enable-linger <user>` rodado uma vez no servidor,
+// senão essa sessão do systemd para de existir quando ninguém está logado.
+// `--collect` remove a unit transiente sozinho quando o processo termina.
 function triggerDeploy() {
   fs.mkdirSync(path.dirname(TRIGGER_LOG), { recursive: true });
-  const out = fs.openSync(TRIGGER_LOG, 'a');
-  const child = spawn('bash', [DEPLOY_SCRIPT], {
+  const unitName = `posologia-deploy-${Date.now()}`;
+
+  const child = spawn('systemd-run', [
+    '--user', '--collect', `--unit=${unitName}`,
+    'bash', DEPLOY_SCRIPT
+  ], {
     cwd: REPO_DIR,
-    detached: true,
-    stdio: ['ignore', out, out],
+    stdio: 'ignore',
     env: process.env
   });
-  child.unref();
+
+  // O `systemd-run` em si só entrega o comando pro systemd e sai rápido — o
+  // que importa aqui é só saber se a ENTREGA falhou (ex.: bus do systemd
+  // inacessível), não o resultado do deploy (esse fica em logs/deploy.log,
+  // escrito pelo próprio deploy.sh independente de quem o lançou).
+  child.on('error', (err) => {
+    fs.appendFileSync(TRIGGER_LOG, `[${new Date().toISOString()}] Falha ao disparar systemd-run (unit ${unitName}): ${err.message}\n`);
+  });
+  fs.appendFileSync(TRIGGER_LOG, `[${new Date().toISOString()}] Deploy disparado via systemd-run, unit=${unitName}\n`);
 }
 
 router.post('/', (req, res) => {
