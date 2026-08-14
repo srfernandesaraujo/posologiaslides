@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Plus, Trash2, X, GripVertical, LayoutTemplate, Copy, Sparkles, Code, Eye, EyeOff, Wand2 } from 'lucide-react';
+import { Plus, Trash2, X, GripVertical, LayoutTemplate, Copy, Sparkles, Code, Eye, EyeOff, Wand2, Archive } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
+import ConfirmDialog from './ConfirmDialog';
 
 // Só monta a prévia real (iframe sandboxed com fontes/Chart.js, ver
 // PresentationViewer.jsx) quando o cartão entra na viewport, e mantém montada
@@ -30,13 +31,18 @@ function LazySlidePreview({ html }) {
   );
 }
 
-export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onAddSlideWithCode, onOpenPromptGenerator, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onToggleHideSlide, onReorderSlides, className = '', onClose, style }) {
+export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSlide, onAddTemplate, onAddSlideWithAI, onAddSlideWithCode, onOpenPromptGenerator, onInsertSlideAfter, onDeleteSlide, onDuplicateSlide, onToggleHideSlide, onReorderSlides, trashedSlidesCount = 0, onOpenSlideTrash, className = '', onClose, style }) {
   const listRef = useRef(null);
   // Índice sendo arrastado e índice "bruto" (antes do ajuste de deslocamento,
   // ver handlePointerUp) sobre o qual o ponteiro está no momento — null
   // quando não há arrasto em andamento.
   const [dragIndex, setDragIndex] = useState(null);
   const [overIndex, setOverIndex] = useState(null);
+  // Índice do slide pendente de confirmação de exclusão, ou null — apagar
+  // slide não é mais instantâneo (ver ConfirmDialog abaixo), mas o slide vai
+  // pra lixeira desta apresentação (PresentationEditor#onDeleteSlide), não
+  // some de vez.
+  const [confirmDeleteIndex, setConfirmDeleteIndex] = useState(null);
 
   // Acha, pela posição vertical do ponteiro, onde o slide arrastado cairia —
   // comparando com o retângulo real de cada miniatura (via getBoundingClientRect,
@@ -135,6 +141,25 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
               style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.08)' }}
             >
               <Wand2 size={16} />
+            </button>
+          )}
+          {onOpenSlideTrash && (
+            <button
+              className="btn-icon"
+              onClick={onOpenSlideTrash}
+              title="Lixeira de slides desta apresentação"
+              style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.08)', position: 'relative' }}
+            >
+              <Archive size={16} />
+              {trashedSlidesCount > 0 && (
+                <span style={{
+                  position: 'absolute', top: '-4px', right: '-4px', background: '#ef4444', color: '#fff',
+                  borderRadius: '50%', minWidth: '15px', height: '15px', padding: '0 3px', fontSize: '0.6rem', fontWeight: 800,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  {trashedSlidesCount}
+                </span>
+              )}
             </button>
           )}
           {onClose && (
@@ -254,7 +279,7 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
                 className="btn-icon"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDeleteSlide(idx);
+                  setConfirmDeleteIndex(idx);
                 }}
                 style={{
                   position: 'absolute',
@@ -292,6 +317,19 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
           )}
         </div>
       ))}
+
+      <ConfirmDialog
+        isOpen={confirmDeleteIndex !== null}
+        title="Excluir slide?"
+        message={`"${slides[confirmDeleteIndex]?.title || `Slide ${(confirmDeleteIndex ?? 0) + 1}`}" vai para a lixeira desta apresentação — dá pra restaurar depois.`}
+        confirmLabel="Excluir"
+        danger
+        onCancel={() => setConfirmDeleteIndex(null)}
+        onConfirm={() => {
+          onDeleteSlide(confirmDeleteIndex);
+          setConfirmDeleteIndex(null);
+        }}
+      />
     </div>
   );
 }

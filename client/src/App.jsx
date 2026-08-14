@@ -12,7 +12,7 @@ import { useAuth } from './context/AuthContext';
 import { apiFetch } from './lib/api';
 import { findInvalidNestedArrayPath, findOversizedSlide } from './lib/dataValidation';
 import { primeOfflineImageCache } from './lib/offlineImageCache';
-import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loader2 } from 'lucide-react';
+import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loader2, FileText } from 'lucide-react';
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
 
@@ -324,6 +324,24 @@ export default function App() {
     setLibraryRefreshKey((k) => k + 1);
   };
 
+  // Alternativa a "Nova Apresentação com IA": pula o AIModalGenerator
+  // inteiro e já entra no editor com um único slide em branco (mesmo
+  // placeholder usado por "Adicionar Novo Slide Vazio" dentro do editor, ver
+  // handleAddSlideAt em PresentationEditor.jsx) — pro professor que prefere
+  // montar do zero usando o chat de IA/blocos/mídia depois, sem passar pelo
+  // fluxo de geração de contorno por IA.
+  const handleCreateBlank = () => {
+    setPresentation({
+      title: 'Nova Apresentação',
+      slides: [{
+        id: `slide-${Date.now()}`,
+        title: 'Slide 1',
+        html: '<div class="slide-root" data-blank-placeholder="true" style="display:flex; align-items:center; justify-content:center; height:100%; padding:2rem; color:#4b5563; font-size:1.05rem; text-align:center;">Slide em branco — use o chat de IA ou a biblioteca de blocos pra começar.</div>'
+      }]
+    });
+    setView('editor');
+  };
+
   if (loading) {
     return <div style={{ minHeight: '100vh' }} />;
   }
@@ -357,6 +375,7 @@ export default function App() {
           active={view === 'library'}
           onOpenPresentation={openPresentation}
           onCreateNew={() => setIsModalOpen(true)}
+          onCreateBlank={handleCreateBlank}
           onOpenSettings={() => setIsSettingsOpen(true)}
           refreshKey={libraryRefreshKey}
           user={user}
@@ -399,6 +418,9 @@ export default function App() {
               </button>
               <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
                 <Sparkles size={18} /> <span className="btn-label">Nova Apresentação com IA</span>
+              </button>
+              <button className="btn-secondary" onClick={handleCreateBlank} title="Começar do zero, sem IA">
+                <FileText size={18} /> <span className="btn-label">Criar em branco</span>
               </button>
               <button className="btn-icon" onClick={logout} title="Sair">
                 <LogOut size={18} />

@@ -161,6 +161,7 @@ export async function getFolderTree(userId) {
   const presentationsBySubfolder = new Map();
   presentationsSnap.forEach((doc) => {
     const p = doc.data();
+    if (p.trashed) return; // apresentações na lixeira não aparecem na biblioteca normal
     const list = presentationsBySubfolder.get(p.subfolderId) || [];
     list.push({
       id: doc.id,
@@ -208,6 +209,10 @@ function serializePresentation(id, p) {
     title: p.title,
     description: p.description,
     slides: p.slides,
+    // Slides apagados individualmente dentro do editor (ver SlideTrashModal/
+    // PresentationEditor) — ficam aqui até serem restaurados ou apagados de
+    // vez, persistidos junto do resto pelo autosave normal.
+    trashedSlides: p.trashedSlides || [],
     favorite: !!p.favorite,
     updatedAt: p.updatedAt,
     lastOpenedAt: p.lastOpenedAt || null,
@@ -262,8 +267,13 @@ export function findInvalidNestedArrayPath(value, path = 'slides') {
 export const FIRESTORE_MAX_DOCUMENT_BYTES = 1048576;
 const SIZE_WARNING_THRESHOLD_BYTES = FIRESTORE_MAX_DOCUMENT_BYTES * 0.9;
 
-export function findOversizedSlide(slides) {
-  const totalBytes = Buffer.byteLength(JSON.stringify(slides), 'utf8');
+// `extraBytes` soma o tamanho de outros campos gravados junto de `slides` no
+// mesmo documento (hoje só trashedSlides, ver serializePresentation) — sem
+// isso, um documento perto do limite de 1 MiB por causa da lixeira interna
+// de slides passaria batido neste aviso e só falharia com o erro genérico do
+// Firestore lá na hora de gravar (ver savePresentation acima).
+export function findOversizedSlide(slides, extraBytes = 0) {
+  const totalBytes = Buffer.byteLength(JSON.stringify(slides), 'utf8') + extraBytes;
   if (totalBytes < SIZE_WARNING_THRESHOLD_BYTES) return null;
 
   let biggest = null;
@@ -303,7 +313,7 @@ export async function getPresentation(id, userId) {
 // expectedUpdatedAt desatualizado — só é conflito de verdade quando o último
 // gravador foi uma sessão DIFERENTE.
 export async function savePresentation(presentation, userId) {
-  const { id, title, description, slides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId } = presentation;
+  const { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId } = presentation;
   const now = Date.now();
 
   if (id) {
@@ -327,7 +337,7 @@ export async function savePresentation(presentation, userId) {
         }
 
         data = {
-          title, description: description || null, slides, updatedAt: now,
+          title, description: description || null, slides, trashedSlides: trashedSlides || [], updatedAt: now,
           lastWriterSessionId: sessionId || null,
           relatedPresentationId: relatedPresentationId || null,
           relatedPresentationTitle: relatedPresentationTitle || null
@@ -373,6 +383,7 @@ export async function savePresentation(presentation, userId) {
     title,
     description: description || null,
     slides,
+    trashedSlides: trashedSlides || [],
     favorite: false,
     createdAt: now,
     updatedAt: now,
@@ -437,12 +448,69 @@ export async function touchPresentation(id, userId) {
   return serializePresentation(id, { ...snap.data(), lastOpenedAt });
 }
 
-export async function deletePresentation(id, userId) {
+// --- Lixeira de apresentações --------------------------------------------
+// Exclusão de apresentação é soft-delete (flag `trashed` + `trashedAt`, item
+// some da árvore normal — ver getFolderTree acima) — só some de vez do
+// Firestore ao ser apagada explicitamente DA lixeira (permanentlyDeletePresentation)
+// ou pelo "esvaziar lixeira" (emptyTrash).
+
+export async function trashPresentation(id, userId) {
+  const ref = presentationsRef(userId).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return false;
+  await ref.update({ trashed: true, trashedAt: Date.now() });
+  return true;
+}
+
+export async function restorePresentation(id, userId) {
+  const ref = presentationsRef(userId).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists || !snap.data().trashed) return false;
+  await ref.update({ trashed: false, trashedAt: null });
+  return true;
+}
+
+export async function permanentlyDeletePresentation(id, userId) {
   const ref = presentationsRef(userId).doc(id);
   const snap = await ref.get();
   if (!snap.exists) return false;
   await ref.delete();
   return true;
+}
+
+export async function emptyTrash(userId) {
+  const snap = await presentationsRef(userId).where('trashed', '==', true).get();
+  const batch = db.batch();
+  snap.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+  return snap.size;
+}
+
+export async function getTrash(userId) {
+  const [presentationsSnap, subfoldersSnap, foldersSnap] = await Promise.all([
+    presentationsRef(userId).where('trashed', '==', true).get(),
+    subfoldersRef(userId).get(),
+    foldersRef(userId).get()
+  ]);
+
+  const subfolderById = new Map(subfoldersSnap.docs.map((doc) => [doc.id, doc.data()]));
+  const folderById = new Map(foldersSnap.docs.map((doc) => [doc.id, doc.data()]));
+
+  return presentationsSnap.docs
+    .map((doc) => {
+      const p = doc.data();
+      const subfolder = subfolderById.get(p.subfolderId);
+      const folder = subfolder ? folderById.get(subfolder.folderId) : null;
+      return {
+        id: doc.id,
+        title: p.title,
+        trashedAt: p.trashedAt || null,
+        folderName: folder?.name || null,
+        folderColor: folder?.color || null,
+        firstSlideHtml: Array.isArray(p.slides) ? p.slides[0]?.html || null : null
+      };
+    })
+    .sort((a, b) => (b.trashedAt || 0) - (a.trashedAt || 0));
 }
 
 // --- Link público só-visualização --------------------------------------

@@ -1,8 +1,9 @@
 import express from 'express';
 import {
-  getFolderTree, getPresentation, savePresentation, deletePresentation, setFavorite, touchPresentation,
+  getFolderTree, getPresentation, savePresentation, setFavorite, touchPresentation,
   createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder, renamePresentation,
-  findInvalidNestedArrayPath, findOversizedSlide, FIRESTORE_MAX_DOCUMENT_BYTES
+  findInvalidNestedArrayPath, findOversizedSlide, FIRESTORE_MAX_DOCUMENT_BYTES,
+  trashPresentation, restorePresentation, permanentlyDeletePresentation, emptyTrash, getTrash
 } from '../services/store.js';
 
 const router = express.Router();
@@ -23,6 +24,11 @@ router.get('/tree', asyncHandler(async (req, res) => {
   res.json({ success: true, folders: await getFolderTree(req.user.id), sizeLimitBytes: FIRESTORE_MAX_DOCUMENT_BYTES });
 }));
 
+// Apresentações na lixeira (excluídas da biblioteca normal, ver getFolderTree)
+router.get('/trash', asyncHandler(async (req, res) => {
+  res.json({ success: true, presentations: await getTrash(req.user.id) });
+}));
+
 // Apresentação completa (com slides) por id
 router.get('/:id', asyncHandler(async (req, res) => {
   const presentation = await getPresentation(req.params.id, req.user.id);
@@ -34,7 +40,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 // Cria ou atualiza (upsert) uma apresentação completa
 router.post('/', asyncHandler(async (req, res) => {
-  const { id, title, description, slides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId } = req.body;
+  const { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId } = req.body;
   if (!title || !Array.isArray(slides)) {
     return res.status(400).json({ error: 'title e slides são obrigatórios.' });
   }
@@ -42,7 +48,7 @@ router.post('/', asyncHandler(async (req, res) => {
   // Checa ANTES de tentar gravar — o Firestore recusa a mesma coisa, mas com
   // um erro genérico que não diz onde está o problema (ver comentário em
   // findInvalidNestedArrayPath, store.js).
-  const invalidPath = findInvalidNestedArrayPath(slides);
+  const invalidPath = findInvalidNestedArrayPath(slides) || (Array.isArray(trashedSlides) ? findInvalidNestedArrayPath(trashedSlides, 'trashedSlides') : null);
   if (invalidPath) {
     return res.status(400).json({ error: `Dado inválido em "${invalidPath}": array dentro de array não é permitido.` });
   }
@@ -51,7 +57,10 @@ router.post('/', asyncHandler(async (req, res) => {
   // comentário em findOversizedSlide (store.js). Aponta o slide culpado em
   // vez de deixar isso virar de novo um mistério de horas (Aula 08,
   // 2026-08-07: um slide de 4,5 MB vindo de "Importar Pasta Inteira`).
-  const oversized = findOversizedSlide(slides);
+  // trashedSlides entra só no total (extraBytes) — a lixeira de slides tem
+  // limite próprio de itens no cliente, dificilmente é ela a culpada.
+  const trashedBytes = Array.isArray(trashedSlides) ? Buffer.byteLength(JSON.stringify(trashedSlides), 'utf8') : 0;
+  const oversized = findOversizedSlide(slides, trashedBytes);
   if (oversized) {
     const totalMb = (oversized.totalBytes / 1024 / 1024).toFixed(1);
     const biggestKb = (oversized.biggest.bytes / 1024).toFixed(0);
@@ -61,7 +70,7 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   const result = await savePresentation(
-    { id, title, description, slides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId },
+    { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId },
     req.user.id
   );
   // Ver comentário em store.js#savePresentation: conflito de edição concorrente
@@ -118,8 +127,37 @@ router.post('/:id/touch', asyncHandler(async (req, res) => {
   res.json({ success: true });
 }));
 
+// Restaura uma apresentação da lixeira
+router.post('/:id/restore', asyncHandler(async (req, res) => {
+  const restored = await restorePresentation(req.params.id, req.user.id);
+  if (!restored) {
+    return res.status(404).json({ error: 'Apresentação não encontrada na lixeira.' });
+  }
+  res.json({ success: true });
+}));
+
+// Esvazia a lixeira inteira (apaga definitivamente todas as apresentações
+// marcadas como `trashed`) — precisa vir ANTES de DELETE /:id, senão
+// "trash" seria interpretado como um id de apresentação.
+router.delete('/trash', asyncHandler(async (req, res) => {
+  const count = await emptyTrash(req.user.id);
+  res.json({ success: true, count });
+}));
+
+// Exclusão normal: soft-delete — a apresentação some da biblioteca e vai
+// pra lixeira (ver getFolderTree/getTrash em store.js), não é apagada de
+// verdade ainda.
 router.delete('/:id', asyncHandler(async (req, res) => {
-  const deleted = await deletePresentation(req.params.id, req.user.id);
+  const trashed = await trashPresentation(req.params.id, req.user.id);
+  if (!trashed) {
+    return res.status(404).json({ error: 'Apresentação não encontrada.' });
+  }
+  res.json({ success: true });
+}));
+
+// Exclusão definitiva — só a partir da lixeira, apaga o documento de vez.
+router.delete('/:id/permanent', asyncHandler(async (req, res) => {
+  const deleted = await permanentlyDeletePresentation(req.params.id, req.user.id);
   if (!deleted) {
     return res.status(404).json({ error: 'Apresentação não encontrada.' });
   }

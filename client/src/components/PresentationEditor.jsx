@@ -7,6 +7,7 @@ import ActiveMethodologiesOverlay from './ActiveMethodologiesOverlay';
 import MediaLibraryDrawer from './MediaLibraryDrawer';
 import WidgetLibraryDrawer from './WidgetLibraryDrawer';
 import SlideTemplateGallery from './SlideTemplateGallery';
+import SlideTrashModal from './SlideTrashModal';
 import AISingleSlideModal from './AISingleSlideModal';
 import CodeSlideModal from './CodeSlideModal';
 import SlideBackgroundModal from './SlideBackgroundModal';
@@ -142,6 +143,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // miniatura específica), decidido no momento em que a galeria é aberta.
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const [templateInsertIndex, setTemplateInsertIndex] = useState(0);
+  // Lixeira de slides desta apresentação (ver SlideTrashModal) — os slides
+  // apagados ficam em `presentation.trashedSlides` até serem restaurados ou
+  // apagados de vez, salvos junto do resto no mesmo autosave.
+  const [slideTrashOpen, setSlideTrashOpen] = useState(false);
   // Modal "Novo Slide com IA" (ver AISingleSlideModal) — reaproveita
   // `templateInsertIndex` acima pra guardar onde o slide gerado deve entrar.
   const [aiSingleSlideOpen, setAiSingleSlideOpen] = useState(false);
@@ -623,6 +628,29 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     newSlides.splice(insertIndex, 0, newSlide);
     commit({ ...presentation, slides: newSlides });
     emitSlideChanged(insertIndex);
+  };
+
+  // Limite de slides guardados na lixeira desta apresentação — sem um teto,
+  // apagar/restaurar repetidamente ao longo de uma aula faria esse array
+  // crescer sem parar dentro do MESMO documento do Firestore (que já tem
+  // histórico de bater no limite de 1 MiB, ver FIRESTORE_MAX_DOCUMENT_BYTES
+  // em store.js); os mais antigos caem fora quando o limite é excedido.
+  const TRASHED_SLIDES_LIMIT = 20;
+
+  const handleRestoreTrashedSlide = (trashIndex) => {
+    const trashed = presentation.trashedSlides || [];
+    const { trashedAt, ...slide } = trashed[trashIndex];
+    const newTrashed = trashed.filter((_, i) => i !== trashIndex);
+    commit({ ...presentation, slides: [...presentation.slides, slide], trashedSlides: newTrashed });
+  };
+
+  const handleDeleteTrashedSlideForever = (trashIndex) => {
+    const newTrashed = (presentation.trashedSlides || []).filter((_, i) => i !== trashIndex);
+    commit({ ...presentation, trashedSlides: newTrashed });
+  };
+
+  const handleEmptyTrashedSlides = () => {
+    commit({ ...presentation, trashedSlides: [] });
   };
 
   // Abre a galeria de templates (ver SlideTemplateGallery/slideTemplateCatalog.js)
@@ -1669,10 +1697,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         onOpenPromptGenerator={() => setPromptGeneratorOpen(true)}
         onInsertSlideAfter={(idx) => handleAddSlideAt(idx + 1)}
         onToggleHideSlide={handleToggleHideSlide}
+        trashedSlidesCount={(presentation.trashedSlides || []).length}
+        onOpenSlideTrash={() => setSlideTrashOpen(true)}
         onDeleteSlide={(idxToDelete) => {
           if (presentation.slides.length <= 1) return;
+          const deletedSlide = presentation.slides[idxToDelete];
           const newSlides = presentation.slides.filter((_, i) => i !== idxToDelete);
-          commit({ ...presentation, slides: newSlides });
+          // Vai pra lixeira desta apresentação em vez de sumir de vez — ver
+          // SlideTrashModal/handleRestoreTrashedSlide acima.
+          const newTrashed = [...(presentation.trashedSlides || []), { ...deletedSlide, trashedAt: Date.now() }].slice(-TRASHED_SLIDES_LIMIT);
+          commit({ ...presentation, slides: newSlides, trashedSlides: newTrashed });
           // Sem isto, apagar o slide ativo (ou qualquer um antes dele) deixava
           // activeIndex apontando para fora do novo array — o palco caía no
           // placeholder "Nenhum slide gerado" e parecia que nada tinha acontecido.
@@ -2817,6 +2851,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         isOpen={templateGalleryOpen}
         onClose={() => setTemplateGalleryOpen(false)}
         onSelectTemplate={handleSelectTemplate}
+      />
+
+      {/* Lixeira de slides desta apresentação */}
+      <SlideTrashModal
+        isOpen={slideTrashOpen}
+        trashedSlides={presentation.trashedSlides || []}
+        onClose={() => setSlideTrashOpen(false)}
+        onRestore={handleRestoreTrashedSlide}
+        onDeleteForever={handleDeleteTrashedSlideForever}
+        onEmpty={handleEmptyTrashedSlides}
       />
 
       {/* Novo Slide com IA (prompt + arquivo de referência) */}

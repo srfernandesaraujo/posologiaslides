@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import SlideThumbnail from './SlideThumbnail';
+import ConfirmDialog from './ConfirmDialog';
 import { apiFetch } from '../lib/api';
 import {
   Presentation, Search, Sparkles, Settings, Star, MoreHorizontal,
   Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut, Menu, X,
   Plus, Check, FolderInput, LayoutGrid, List, FileText, Pencil,
-  ArrowUpDown, ChevronUp, ChevronDown
+  ArrowUpDown, ChevronUp, ChevronDown, RotateCcw
 } from 'lucide-react';
 
 // Mesmas cores já usadas em outros pontos do app (quiz, trilha de decisão) —
@@ -100,7 +101,7 @@ function flattenTree(folders) {
   return items;
 }
 
-export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSettings, refreshKey, user, onLogout, active = true }) {
+export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateBlank, onOpenSettings, refreshKey, user, onLogout, active = true }) {
   const [folders, setFolders] = useState([]);
   const [sizeLimitBytes, setSizeLimitBytes] = useState(DEFAULT_SIZE_LIMIT_BYTES);
   const [loading, setLoading] = useState(true);
@@ -109,6 +110,16 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
   const [activeFolderId, setActiveFolderId] = useState(null);
   // Em telas compactas (≤1024px) o rail lateral vira uma gaveta off-canvas
   const [isRailOpen, setIsRailOpen] = useState(false);
+  // Nav lateral: biblioteca normal ou lixeira (apresentações apagadas, ver
+  // trashSection abaixo) — a lixeira só carrega a própria lista quando ativa.
+  const [trashSection, setTrashSection] = useState(false);
+  const [trashItems, setTrashItems] = useState([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  // Apresentação pendente de confirmação: mover pra lixeira, excluir de vez
+  // (a partir da lixeira), ou esvaziar a lixeira inteira.
+  const [confirmDeleteTarget, setConfirmDeleteTarget] = useState(null);
+  const [confirmPermanentTarget, setConfirmPermanentTarget] = useState(null);
+  const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false);
 
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('posologia_library_viewmode') || 'grid');
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('posologia_library_sortby') || 'date_desc');
@@ -210,6 +221,23 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
     loadTree();
   }, [refreshKey, active]);
 
+  const loadTrash = () => {
+    setTrashLoading(true);
+    apiFetch('/api/presentations/trash')
+      .then((res) => res.json())
+      .then((data) => { if (data.success) setTrashItems(data.presentations); })
+      .catch(() => {})
+      .finally(() => setTrashLoading(false));
+  };
+
+  // Só busca a lixeira quando ela está de fato visível (mesma lógica de
+  // `active` acima) — evita uma consulta extra ao Firestore a cada autosave
+  // enquanto o usuário nem está olhando pra essa aba.
+  useEffect(() => {
+    if (!active || !trashSection) return;
+    loadTrash();
+  }, [active, trashSection, refreshKey]);
+
   const allPresentations = useMemo(() => flattenTree(folders), [folders]);
 
   const visiblePresentations = useMemo(() => {
@@ -273,14 +301,55 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
     }
   };
 
-  const handleDelete = async (e, p) => {
+  const handleDelete = (e, p) => {
     e.stopPropagation();
-    if (!window.confirm(`Excluir permanentemente "${p.title}"?`)) return;
+    setConfirmDeleteTarget(p);
+  };
+
+  const confirmDeletePresentation = async () => {
+    const p = confirmDeleteTarget;
+    setConfirmDeleteTarget(null);
+    if (!p) return;
     try {
+      // DELETE /:id agora é soft-delete no servidor — a apresentação some da
+      // biblioteca e vai pra lixeira (ver getFolderTree/trashPresentation em
+      // store.js), não é apagada de verdade ainda.
       await apiFetch(`/api/presentations/${p.id}`, { method: 'DELETE' });
       loadTree();
     } catch {
-      alert('Não foi possível excluir a apresentação.');
+      alert('Não foi possível mover a apresentação para a lixeira.');
+    }
+  };
+
+  const handleRestoreFromTrash = async (id) => {
+    try {
+      await apiFetch(`/api/presentations/${id}/restore`, { method: 'POST' });
+      loadTrash();
+      loadTree();
+    } catch {
+      alert('Não foi possível restaurar a apresentação.');
+    }
+  };
+
+  const confirmPermanentDelete = async () => {
+    const p = confirmPermanentTarget;
+    setConfirmPermanentTarget(null);
+    if (!p) return;
+    try {
+      await apiFetch(`/api/presentations/${p.id}/permanent`, { method: 'DELETE' });
+      loadTrash();
+    } catch {
+      alert('Não foi possível excluir a apresentação definitivamente.');
+    }
+  };
+
+  const handleEmptyTrash = async () => {
+    setConfirmEmptyTrash(false);
+    try {
+      await apiFetch('/api/presentations/trash', { method: 'DELETE' });
+      loadTrash();
+    } catch {
+      alert('Não foi possível esvaziar a lixeira.');
     }
   };
 
@@ -381,10 +450,26 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
         <button className="library-btn-primary" onClick={onCreateNew}>
           <Sparkles size={16} /> Nova Apresentação
         </button>
+        {onCreateBlank && (
+          <button className="btn-secondary" onClick={onCreateBlank} style={{ width: '100%', justifyContent: 'center' }} title="Começar do zero, sem IA">
+            <FileText size={16} /> Criar em branco
+          </button>
+        )}
 
         <nav className="library-nav">
-          <div className="library-nav-item active">
+          <div
+            className={`library-nav-item ${!trashSection ? 'active' : ''}`}
+            onClick={() => setTrashSection(false)}
+            style={{ cursor: 'pointer' }}
+          >
             <Layers size={16} /> Apresentações
+          </div>
+          <div
+            className={`library-nav-item ${trashSection ? 'active' : ''}`}
+            onClick={() => setTrashSection(true)}
+            style={{ cursor: 'pointer' }}
+          >
+            <Trash2 size={16} /> Lixeira{trashItems.length > 0 ? ` (${trashItems.length})` : ''}
           </div>
         </nav>
 
@@ -470,19 +555,77 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
             <button className="btn-icon mobile-toggle-btn" onClick={() => setIsRailOpen(true)} title="Abrir menu" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <Menu size={18} />
             </button>
-            <h1 className="library-page-title">Apresentações</h1>
+            <h1 className="library-page-title">{trashSection ? 'Lixeira' : 'Apresentações'}</h1>
           </div>
-          <div className="library-search">
-            <Search size={16} />
-            <input
-              type="text"
-              placeholder="Buscar apresentação..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+          {!trashSection && (
+            <div className="library-search">
+              <Search size={16} />
+              <input
+                type="text"
+                placeholder="Buscar apresentação..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
+        {trashSection && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+            <p style={{ fontSize: '0.85rem', color: '#9ca3af', margin: 0 }}>
+              Apresentações excluídas ficam aqui até serem restauradas ou apagadas de vez.
+            </p>
+            {trashItems.length > 0 && (
+              <button className="btn-secondary" onClick={() => setConfirmEmptyTrash(true)} style={{ color: '#f87171' }}>
+                <Trash2 size={15} /> Esvaziar lixeira
+              </button>
+            )}
+          </div>
+        )}
+
+        {trashSection && (
+          <>
+            {trashLoading && (
+              <div className="library-loading">
+                <Loader2 className="animate-spin" size={18} /> Carregando...
+              </div>
+            )}
+
+            {!trashLoading && trashItems.length === 0 && (
+              <div className="library-empty">A lixeira está vazia.</div>
+            )}
+
+            {!trashLoading && trashItems.length > 0 && (
+              <div className="library-grid">
+                {trashItems.map((p) => (
+                  <div key={p.id} className="library-card">
+                    <SlideThumbnail html={p.firstSlideHtml} />
+                    <div className="library-card-body">
+                      <div className="library-card-title">{p.title}</div>
+                      <div className="library-card-meta">
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.folderName || 'Sem pasta'}</span>
+                      </div>
+                      <div className="library-card-footer">
+                        <span>{formatRelativeTime(p.trashedAt) ? `Excluída ${formatRelativeTime(p.trashedAt)}` : ''}</span>
+                        <div style={{ display: 'flex', gap: '0.2rem' }}>
+                          <button className="library-card-delete" onClick={() => handleRestoreFromTrash(p.id)} title="Restaurar">
+                            <RotateCcw size={13} />
+                          </button>
+                          <button className="library-card-delete" onClick={() => setConfirmPermanentTarget(p)} title="Excluir definitivamente">
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {!trashSection && (
+        <>
         <div className="library-tabs-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
           <div className="library-tabs" style={{ marginBottom: 0 }}>
             {tabs.map((tab) => (
@@ -743,6 +886,8 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
             </div>
           )
         )}
+        </>
+        )}
       </main>
 
       {moveMenuFor && moveMenuAnchor && createPortal(
@@ -768,6 +913,36 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onOpenSet
         </>,
         document.body
       )}
+
+      <ConfirmDialog
+        isOpen={!!confirmDeleteTarget}
+        title="Mover para a lixeira?"
+        message={confirmDeleteTarget ? `"${confirmDeleteTarget.title}" vai para a lixeira — você pode restaurar de lá quando quiser.` : ''}
+        confirmLabel="Mover para a lixeira"
+        danger
+        onCancel={() => setConfirmDeleteTarget(null)}
+        onConfirm={confirmDeletePresentation}
+      />
+
+      <ConfirmDialog
+        isOpen={!!confirmPermanentTarget}
+        title="Excluir definitivamente?"
+        message={confirmPermanentTarget ? `"${confirmPermanentTarget.title}" será apagada para sempre e não poderá ser restaurada.` : ''}
+        confirmLabel="Excluir de vez"
+        danger
+        onCancel={() => setConfirmPermanentTarget(null)}
+        onConfirm={confirmPermanentDelete}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmEmptyTrash}
+        title="Esvaziar a lixeira?"
+        message={`Todas as ${trashItems.length} apresentações na lixeira serão apagadas para sempre.`}
+        confirmLabel="Esvaziar"
+        danger
+        onCancel={() => setConfirmEmptyTrash(false)}
+        onConfirm={handleEmptyTrash}
+      />
     </div>
   );
 }
