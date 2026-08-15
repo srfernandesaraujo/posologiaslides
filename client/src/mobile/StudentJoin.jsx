@@ -349,7 +349,31 @@ export default function StudentJoin() {
               <Send size={18} /> Enviar Distribuição
             </button>
           </div>
-        ) : (slideType === 'quiz' || slideType === 'wordcloud' || slideType === 'tbl') ? (
+        ) : slideType === 'wordcloud' ? (
+          // Slide de Nuvem de Palavras — só o campo de texto. Antes este
+          // branch era compartilhado com quiz/tbl e sempre desenhava as 4
+          // alternativas A/B/C/D junto, mesmo quando o slide do professor não
+          // tinha quiz nenhum, confundindo o aluno.
+          <div style={{ width: '100%', maxWidth: '400px' }}>
+            <form onSubmit={handleSendWord} style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <p style={{ textAlign: 'center', fontSize: '1.1rem', color: '#f1f5f9', fontWeight: 700, margin: '0 0 1rem' }}>
+                {wordcloudConfig?.question || 'Envie uma palavra para a Nuvem de Palavras:'}
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  type="text"
+                  className="chat-input"
+                  placeholder="Sua palavra..."
+                  value={wordInput}
+                  onChange={(e) => setWordInput(e.target.value)}
+                />
+                <button type="submit" className="btn-primary" style={{ padding: '0.6rem 1rem' }}>
+                  <Send size={16} />
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : (slideType === 'quiz' || slideType === 'tbl') ? (
           <div style={{ width: '100%', maxWidth: '400px' }}>
             <h4 style={{ textAlign: 'center', fontSize: '1.1rem', color: '#9ca3af', marginBottom: '1.5rem' }}>
               {slideType === 'tbl'
@@ -358,7 +382,7 @@ export default function StudentJoin() {
             </h4>
 
             {/* Alternativas de Quiz (A, B, C, D) */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
               {['A', 'B', 'C', 'D'].map((opt, idx) => {
                 const colors = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981'];
                 return (
@@ -382,30 +406,6 @@ export default function StudentJoin() {
                 );
               })}
             </div>
-
-            {/* Nuvem de Palavras Input */}
-            <form onSubmit={handleSendWord} style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)' }}>
-              {wordcloudConfig?.question && (
-                <p style={{ fontSize: '0.9rem', color: '#f1f5f9', fontWeight: 700, margin: '0 0 0.6rem' }}>
-                  {wordcloudConfig.question}
-                </p>
-              )}
-              <label style={{ display: 'block', fontSize: '0.85rem', color: '#38bdf8', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Ou envie uma palavra para a Nuvem de Palavras:
-              </label>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input
-                  type="text"
-                  className="chat-input"
-                  placeholder="Sua palavra..."
-                  value={wordInput}
-                  onChange={(e) => setWordInput(e.target.value)}
-                />
-                <button type="submit" className="btn-primary" style={{ padding: '0.6rem 1rem' }}>
-                  <Send size={16} />
-                </button>
-              </div>
-            </form>
           </div>
         ) : (
           // Slide sem NENHUMA interatividade escolhida pelo professor (dropdown

@@ -167,42 +167,15 @@ export default function ActiveMethodologiesOverlay({
     || (!!currentSlide?.type && currentSlide.type !== 'quiz')
     || (currentSlide?.branches && currentSlide.branches.length > 0);
 
-  return (
+  // Conteúdo dos widgets — extraído pra variável porque, no modo ampliado,
+  // precisa entrar num wrapper que aplica o `transform:scale(EXPANDED_SCALE)`
+  // no tamanho do PRÓPRIO conteúdo (ver `return` abaixo). Antes o scale
+  // ficava direto no container "position:fixed;inset:0" (o viewport
+  // inteiro): crescer 1.7x a partir do centro empurrava o primeiro item (QR
+  // Code) pra fora da tela, cortado e sem como rolar pra ver (position:fixed
+  // não ganha scroll do documento).
+  const overlayPanels = (
     <>
-      {/* Botão de ampliar/recolher — posição fixa própria (não entra no
-          transform:scale do container abaixo), pra continuar do mesmo
-          tamanho e no mesmo lugar nos dois estados. */}
-      {hasAnythingToShow && onToggleExpand && (
-        <button
-          onClick={onToggleExpand}
-          className="btn-icon"
-          title={expanded ? 'Voltar ao tamanho normal' : 'Ampliar QR Code / resultados ao vivo pra turma ver melhor'}
-          style={{
-            position: 'fixed',
-            // Fora da tela cheia real, o .app-header (64px, sticky no topo) ocupa
-            // esse canto com a seta "Voltar" — sem este deslocamento os dois
-            // botões ficam empilhados no mesmo lugar (16,16).
-            top: isFullscreen ? '16px' : '80px',
-            left: '16px',
-            zIndex: 210,
-            background: 'rgba(15, 23, 42, 0.85)'
-          }}
-        >
-          {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-        </button>
-      )}
-
-      <div
-        style={
-          expanded
-            ? {
-                position: 'fixed', inset: 0, zIndex: 200, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', gap: '1.25rem',
-                background: 'rgba(9, 13, 22, 0.95)', transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center'
-              }
-            : { position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }
-        }
-      >
       {/* Widget do QR Code no Slide de Abertura / Capa */}
       {isIntroSlide && pin && (
         <div className="glass-panel" style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'rgba(15, 23, 42, 0.9)' }}>
@@ -439,6 +412,57 @@ export default function ActiveMethodologiesOverlay({
           </p>
         </div>
       )}
+    </>
+  );
+
+  return (
+    <>
+      {/* Botão de ampliar/recolher — posição fixa própria (não entra no
+          transform:scale do container abaixo), pra continuar do mesmo
+          tamanho e no mesmo lugar nos dois estados. */}
+      {hasAnythingToShow && onToggleExpand && (
+        <button
+          onClick={onToggleExpand}
+          className="btn-icon"
+          title={expanded ? 'Voltar ao tamanho normal' : 'Ampliar QR Code / resultados ao vivo pra turma ver melhor'}
+          style={{
+            position: 'fixed',
+            // Fora da tela cheia real, o .app-header (64px, sticky no topo) ocupa
+            // esse canto com a seta "Voltar" — sem este deslocamento os dois
+            // botões ficam empilhados no mesmo lugar (16,16).
+            top: isFullscreen ? '16px' : '80px',
+            left: '16px',
+            zIndex: 210,
+            background: 'rgba(15, 23, 42, 0.85)'
+          }}
+        >
+          {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+        </button>
+      )}
+
+      {/* Fundo escurecido do modo ampliado, agora SEM transform: o scale
+          mora só no wrapper interno logo abaixo (do tamanho do próprio
+          conteúdo) — `overflow:auto` aqui é rede de segurança: se o grupo de
+          widgets ainda assim passar da altura da tela, dá pra rolar até o
+          fim em vez de simplesmente cortar. `safe center` faz o mesmo:
+          centraliza quando cabe, mas cai pro início (topo) sem esconder nada
+          quando não cabe. */}
+      <div
+        style={
+          expanded
+            ? {
+                position: 'fixed', inset: 0, zIndex: 200, display: 'flex',
+                alignItems: 'safe center', justifyContent: 'safe center',
+                background: 'rgba(9, 13, 22, 0.95)', overflow: 'auto', padding: '2rem 1rem'
+              }
+            : { position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }
+        }
+      >
+        {expanded ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.6rem', margin: 'auto', transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center' }}>
+            {overlayPanels}
+          </div>
+        ) : overlayPanels}
       </div>
     </>
   );
