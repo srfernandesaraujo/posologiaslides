@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { Users, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { layoutWordCloud } from '../lib/wordCloudLayout';
@@ -167,13 +168,10 @@ export default function ActiveMethodologiesOverlay({
     || (!!currentSlide?.type && currentSlide.type !== 'quiz')
     || (currentSlide?.branches && currentSlide.branches.length > 0);
 
-  // Conteúdo dos widgets — extraído pra variável porque, no modo ampliado,
-  // precisa entrar num wrapper que aplica o `transform:scale(EXPANDED_SCALE)`
-  // no tamanho do PRÓPRIO conteúdo (ver `return` abaixo). Antes o scale
-  // ficava direto no container "position:fixed;inset:0" (o viewport
-  // inteiro): crescer 1.7x a partir do centro empurrava o primeiro item (QR
-  // Code) pra fora da tela, cortado e sem como rolar pra ver (position:fixed
-  // não ganha scroll do documento).
+  // Conteúdo dos widgets — extraído pra variável porque é reaproveitado nos
+  // dois estados do `return` abaixo (ampliado, via Portal; e o card pequeno
+  // de canto, normal). Ver comentário perto do Portal pra entender POR QUE
+  // o modo ampliado precisou virar Portal.
   const overlayPanels = (
     <>
       {/* Widget do QR Code no Slide de Abertura / Capa */}
@@ -213,19 +211,35 @@ export default function ActiveMethodologiesOverlay({
         </div>
       )}
 
-      {/* Widget de Nuvem de Palavras — no modo ampliado, o contra-scale abaixo
-          cancela o `scale(EXPANDED_SCALE)` do wrapper pai (ver `expanded` mais
-          acima): sem ele, WORD_CLOUD_AREA maior + esse zoom se multiplicariam
-          e o painel ficaria gigante/cortado. Com o contra-scale, o painel
-          aparece do tamanho real em pixels da área recalculada. */}
+      {/* Widget de Nuvem de Palavras — no modo ampliado, título+pergunta saem
+          do card e viram um heading grande ACIMA dele (pra turma ler de
+          longe, sem competir de tamanho com o card). O contra-scale abaixo
+          cancela o `scale(EXPANDED_SCALE)` do wrapper pai só pro CARD em si —
+          sem ele, WORD_CLOUD_AREA maior + esse zoom se multiplicariam e o
+          card ficaria gigante. */}
       {currentSlide?.type === 'wordcloud' && (
-        <div style={expanded ? { transform: `scale(${1 / EXPANDED_SCALE})`, transformOrigin: 'center center' } : undefined}>
-          <div className="glass-panel" style={{ padding: '1.1rem', width: `min(${WORD_CLOUD_AREA.width + 50}px, calc(100% - 2rem))`, background: 'rgba(15, 23, 42, 0.92)' }}>
-            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: currentSlide.wordcloudConfig?.question ? '0.25rem' : '0.75rem' }}>
-              <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: expanded ? '0.85rem' : 0 }}>
+          {expanded && (
+            <div style={{ textAlign: 'center', maxWidth: '620px' }}>
+              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                <Cloud size={26} /> Nuvem de Palavras {liveData.words.length > 0 && `(${liveData.words.length})`}
+              </div>
+              {currentSlide.wordcloudConfig?.question && (
+                <div style={{ fontSize: '1.15rem', color: '#e2e8f0', marginTop: '0.4rem' }}>{currentSlide.wordcloudConfig.question}</div>
+              )}
             </div>
-            {currentSlide.wordcloudConfig?.question && (
-              <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>{currentSlide.wordcloudConfig.question}</div>
+          )}
+          <div style={expanded ? { transform: `scale(${1 / EXPANDED_SCALE})`, transformOrigin: 'center center' } : undefined}>
+          <div className="glass-panel" style={{ padding: '1.1rem', width: `min(${WORD_CLOUD_AREA.width + 50}px, calc(100% - 2rem))`, background: 'rgba(15, 23, 42, 0.92)' }}>
+            {!expanded && (
+              <>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: currentSlide.wordcloudConfig?.question ? '0.25rem' : '0.75rem' }}>
+                  <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
+                </div>
+                {currentSlide.wordcloudConfig?.question && (
+                  <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>{currentSlide.wordcloudConfig.question}</div>
+                )}
+              </>
             )}
 
             <div style={{ position: 'relative', width: `${WORD_CLOUD_AREA.width}px`, height: `${WORD_CLOUD_AREA.height}px`, margin: '0 auto' }}>
@@ -272,81 +286,120 @@ export default function ActiveMethodologiesOverlay({
               </div>
             )}
           </div>
+          </div>
         </div>
       )}
 
       {/* Widget de TBL/iRAT — Verificação de Prontidão Individual */}
       {currentSlide?.type === 'tbl' && (
-        <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
-            <ClipboardCheck size={16} /> Verificação Individual — iRAT ({liveData.irat.length})
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: expanded ? '0.85rem' : 0 }}>
+          {expanded && (
+            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#a78bfa', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', textAlign: 'center' }}>
+              <ClipboardCheck size={24} /> Verificação Individual — iRAT ({liveData.irat.length})
+            </div>
+          )}
+          <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+            {!expanded && (
+              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                <ClipboardCheck size={16} /> Verificação Individual — iRAT ({liveData.irat.length})
+              </div>
+            )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {['A', 'B', 'C', 'D'].map(opt => {
-              const count = iratCounts[opt];
-              const total = liveData.irat.length || 1;
-              const pct = Math.round((count / total) * 100);
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {['A', 'B', 'C', 'D'].map(opt => {
+                const count = iratCounts[opt];
+                const total = liveData.irat.length || 1;
+                const pct = Math.round((count / total) * 100);
 
-              return (
-                <div key={opt} style={{ fontSize: '0.8rem' }}>
-                  <div style={{ display: 'flex', justifyBetween: 'space-between', color: '#e5e7eb', fontWeight: 700, marginBottom: '0.2rem' }}>
-                    <span>Opção {opt}</span>
-                    <span>{count} ({pct}%)</span>
+                return (
+                  <div key={opt} style={{ fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', justifyBetween: 'space-between', color: '#e5e7eb', fontWeight: 700, marginBottom: '0.2rem' }}>
+                      <span>Opção {opt}</span>
+                      <span>{count} ({pct}%)</span>
+                    </div>
+                    <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #a78bfa, #22d3ee)', transition: 'width 0.3s ease' }} />
+                    </div>
                   </div>
-                  <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #a78bfa, #22d3ee)', transition: 'width 0.3s ease' }} />
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
 
       {/* Widget de Distribuição de 100 Pontos */}
       {currentSlide?.type === 'points' && (
-        <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: currentSlide.pointsConfig?.question ? '0.25rem' : '0.75rem' }}>
-            <PieChart size={16} /> Distribuição de Pontos ({pointsResponses.length})
-          </div>
-          {currentSlide.pointsConfig?.question && (
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>{currentSlide.pointsConfig.question}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: expanded ? '0.85rem' : 0 }}>
+          {expanded && (
+            <div style={{ textAlign: 'center', maxWidth: '520px' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                <PieChart size={24} /> Distribuição de Pontos ({pointsResponses.length})
+              </div>
+              {currentSlide.pointsConfig?.question && (
+                <div style={{ fontSize: '1.1rem', color: '#e2e8f0', marginTop: '0.4rem' }}>{currentSlide.pointsConfig.question}</div>
+              )}
+            </div>
           )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {pointsRanked.map(({ key, avg }) => {
-              const pct = maxPointsAvg > 0 ? (avg / maxPointsAvg) * 100 : 0;
-              return (
-                <div key={key} style={{ fontSize: '0.8rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e5e7eb', fontWeight: 700, marginBottom: '0.2rem' }}>
-                    <span>{currentSlide.pointsConfig?.labels?.[key] || `Opção ${key}`}</span>
-                    <span>{Math.round(avg)} pts</span>
-                  </div>
-                  <div style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #fbbf24, #f59e0b)', transition: 'width 0.6s cubic-bezier(0.16, 1, 0.3, 1)' }} />
-                  </div>
+          <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+            {!expanded && (
+              <>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: currentSlide.pointsConfig?.question ? '0.25rem' : '0.75rem' }}>
+                  <PieChart size={16} /> Distribuição de Pontos ({pointsResponses.length})
                 </div>
-              );
-            })}
-            {pointsResponses.length === 0 && (
-              <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>Aguardando distribuições enviadas pelos alunos...</span>
+                {currentSlide.pointsConfig?.question && (
+                  <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>{currentSlide.pointsConfig.question}</div>
+                )}
+              </>
             )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {pointsRanked.map(({ key, avg }) => {
+                const pct = maxPointsAvg > 0 ? (avg / maxPointsAvg) * 100 : 0;
+                return (
+                  <div key={key} style={{ fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e5e7eb', fontWeight: 700, marginBottom: '0.2rem' }}>
+                      <span>{currentSlide.pointsConfig?.labels?.[key] || `Opção ${key}`}</span>
+                      <span>{Math.round(avg)} pts</span>
+                    </div>
+                    <div style={{ width: '100%', height: '10px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #fbbf24, #f59e0b)', transition: 'width 0.6s cubic-bezier(0.16, 1, 0.3, 1)' }} />
+                    </div>
+                  </div>
+                );
+              })}
+              {pointsResponses.length === 0 && (
+                <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>Aguardando distribuições enviadas pelos alunos...</span>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {/* Widget de Hotspot em Imagem */}
       {currentSlide?.type === 'hotspot' && currentSlide.hotspotConfig?.imageUrl && (
-        <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#22d3ee', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
-            <Target size={16} /> Hotspot ({liveData.hotspots.length})
-            {liveData.hotspots.length > 0 && (
-              <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#34d399' }}>
-                {Math.round((liveData.hotspots.filter((h) => h.correct).length / liveData.hotspots.length) * 100)}% certo
-              </span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: expanded ? '0.85rem' : 0 }}>
+          {expanded && (
+            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', textAlign: 'center' }}>
+              <Target size={24} /> Hotspot ({liveData.hotspots.length})
+              {liveData.hotspots.length > 0 && (
+                <span style={{ fontWeight: 700, color: '#34d399' }}>
+                  · {Math.round((liveData.hotspots.filter((h) => h.correct).length / liveData.hotspots.length) * 100)}% certo
+                </span>
+              )}
+            </div>
+          )}
+          <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+            {!expanded && (
+              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#22d3ee', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                <Target size={16} /> Hotspot ({liveData.hotspots.length})
+                {liveData.hotspots.length > 0 && (
+                  <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#34d399' }}>
+                    {Math.round((liveData.hotspots.filter((h) => h.correct).length / liveData.hotspots.length) * 100)}% certo
+                  </span>
+                )}
+              </div>
             )}
-          </div>
 
           <div style={{ position: 'relative', width: '100%', borderRadius: '0.5rem', overflow: 'hidden' }}>
             <img src={currentSlide.hotspotConfig.imageUrl} alt="Hotspot" style={{ width: '100%', display: 'block' }} />
@@ -370,16 +423,25 @@ export default function ActiveMethodologiesOverlay({
               />
             ))}
           </div>
+          </div>
         </div>
       )}
 
       {/* Widget de Trilha de Decisão (Decision Tree) */}
       {currentSlide?.branches && currentSlide.branches.length > 0 && (
-        <div className="glass-panel" style={{ padding: '1rem', width: 'min(340px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid #38bdf8' }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
-            <GitBranch size={16} /> Tomada de Decisão Médica / Clínica
-          </div>
-          <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '0 0 0.75rem 0' }}>A turma vota no celular — clique na conduta pra revelar o resultado e navegar:</p>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: expanded ? '0.85rem' : 0 }}>
+          {expanded && (
+            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', textAlign: 'center' }}>
+              <GitBranch size={24} /> Tomada de Decisão Médica / Clínica
+            </div>
+          )}
+          <div className="glass-panel" style={{ padding: '1rem', width: 'min(340px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid #38bdf8' }}>
+            {!expanded && (
+              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                <GitBranch size={16} /> Tomada de Decisão Médica / Clínica
+              </div>
+            )}
+            <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '0 0 0.75rem 0' }}>A turma vota no celular — clique na conduta pra revelar o resultado e navegar:</p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {currentSlide.branches.map((b, idx) => {
@@ -410,60 +472,84 @@ export default function ActiveMethodologiesOverlay({
           <p style={{ fontSize: '0.7rem', color: '#6b7280', margin: '0.6rem 0 0 0', textAlign: 'right' }}>
             {liveData.branchVotes.length} de {participantCount} aluno{participantCount === 1 ? '' : 's'} votaram
           </p>
+          </div>
         </div>
       )}
     </>
   );
 
+  // Modo ampliado inteiro (botão + fundo) vai por Portal direto pra
+  // document.body — precisa escapar de `.presentation-stage`. Essa div tem
+  // `overflow:hidden` (recorta o slide certinho no 16:9) e, durante
+  // apresentação de verdade, ganha a classe `.fullscreen-stage`, que tem seu
+  // PRÓPRIO `transform` (centralizar com translate). Qualquer ancestral com
+  // `transform` vira o "containing block" de um `position:fixed` descendente
+  // — então antes do Portal, nosso `inset:0` não era relativo à tela toda,
+  // era relativo ao RETÂNGULO DO SLIDE, e ainda ficava sujeito ao
+  // `overflow:hidden` do próprio `.presentation-stage` (que corta qualquer
+  // conteúdo do slide que vaze da caixa, mesmo sendo `position:fixed`). Era
+  // por isso que o QR "ficava dentro do slide" e cortava — nada de rolagem
+  // resolvia, porque o corte acontecia num ancestral, não neste componente.
+  // Com o Portal, o `position:fixed` volta a ser relativo à janela de
+  // verdade, como deveria.
   return (
     <>
-      {/* Botão de ampliar/recolher — posição fixa própria (não entra no
-          transform:scale do container abaixo), pra continuar do mesmo
-          tamanho e no mesmo lugar nos dois estados. */}
-      {hasAnythingToShow && onToggleExpand && (
-        <button
-          onClick={onToggleExpand}
-          className="btn-icon"
-          title={expanded ? 'Voltar ao tamanho normal' : 'Ampliar QR Code / resultados ao vivo pra turma ver melhor'}
-          style={{
-            position: 'fixed',
-            // Fora da tela cheia real, o .app-header (64px, sticky no topo) ocupa
-            // esse canto com a seta "Voltar" — sem este deslocamento os dois
-            // botões ficam empilhados no mesmo lugar (16,16).
-            top: isFullscreen ? '16px' : '80px',
-            left: '16px',
-            zIndex: 210,
-            background: 'rgba(15, 23, 42, 0.85)'
-          }}
-        >
-          {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-        </button>
-      )}
+      {createPortal(
+        <>
+          {/* Botão de ampliar/recolher — posição fixa própria (não entra no
+              transform:scale do container abaixo), pra continuar do mesmo
+              tamanho e no mesmo lugar nos dois estados. */}
+          {hasAnythingToShow && onToggleExpand && (
+            <button
+              onClick={onToggleExpand}
+              className="btn-icon"
+              title={expanded ? 'Voltar ao tamanho normal' : 'Ampliar QR Code / resultados ao vivo pra turma ver melhor'}
+              style={{
+                position: 'fixed',
+                // Fora da tela cheia real, o .app-header (64px, sticky no topo) ocupa
+                // esse canto com a seta "Voltar" — sem este deslocamento os dois
+                // botões ficam empilhados no mesmo lugar (16,16).
+                top: isFullscreen ? '16px' : '80px',
+                left: '16px',
+                zIndex: 210,
+                background: 'rgba(15, 23, 42, 0.85)'
+              }}
+            >
+              {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+          )}
 
-      {/* Fundo escurecido do modo ampliado, agora SEM transform: o scale
-          mora só no wrapper interno logo abaixo (do tamanho do próprio
-          conteúdo) — `overflow:auto` aqui é rede de segurança: se o grupo de
-          widgets ainda assim passar da altura da tela, dá pra rolar até o
-          fim em vez de simplesmente cortar. `safe center` faz o mesmo:
-          centraliza quando cabe, mas cai pro início (topo) sem esconder nada
-          quando não cabe. */}
-      <div
-        style={
-          expanded
-            ? {
+          {expanded && (
+            <div
+              style={{
                 position: 'fixed', inset: 0, zIndex: 200, display: 'flex',
                 alignItems: 'safe center', justifyContent: 'safe center',
-                background: 'rgba(9, 13, 22, 0.95)', overflow: 'auto', padding: '2rem 1rem'
-              }
-            : { position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }
-        }
-      >
-        {expanded ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.6rem', margin: 'auto', transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center' }}>
-            {overlayPanels}
-          </div>
-        ) : overlayPanels}
-      </div>
+                background: 'rgba(9, 13, 22, 0.95)', overflow: 'auto', padding: '2rem'
+              }}
+            >
+              {/* Linha (não coluna): QR/ranking ficam do LADO da interação, não
+                  empilhados em cima — pedido do usuário, e reduz bastante a
+                  altura total do grupo (menos chance de precisar rolar). */}
+              <div
+                style={{
+                  display: 'flex', flexDirection: 'row', flexWrap: 'wrap',
+                  alignItems: 'center', justifyContent: 'center', gap: '2rem',
+                  margin: 'auto', transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center'
+                }}
+              >
+                {overlayPanels}
+              </div>
+            </div>
+          )}
+        </>,
+        document.body
+      )}
+
+      {!expanded && (
+        <div style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
+          {overlayPanels}
+        </div>
+      )}
     </>
   );
 }
