@@ -457,9 +457,17 @@ button.mobile-toggle-btn {
    backdrop nativo da Fullscreen API por trás do elemento fullscreen. */
 .fullscreen-stage {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  /* Centralizado via inset:0 + margin:auto (não mais top/left 50% +
+     transform:translate) — QUALQUER ancestral com `transform` vira o
+     "containing block" de um `position:fixed` descendente e passa a
+     recortá-lo pelo PRÓPRIO overflow:hidden desta classe (ver
+     ActiveMethodologiesOverlay.jsx: era por isso que o painel "ampliar"
+     ficava preso dentro do retângulo do slide, cortado, mesmo sendo
+     position:fixed). margin:auto com os 4 lados presos em 0 centraliza a
+     caixa de tamanho fixo (width/height abaixo) sem precisar de transform
+     nenhum — mesmo resultado visual, sem criar containing block novo. */
+  inset: 0;
+  margin: auto;
   width: min(100vw, calc(100vh * 16 / 9)) !important;
   height: min(100vh, calc(100vw * 9 / 16)) !important;
   max-width: none !important;

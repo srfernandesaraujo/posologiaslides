@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { Users, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { layoutWordCloud } from '../lib/wordCloudLayout';
@@ -478,85 +477,83 @@ export default function ActiveMethodologiesOverlay({
     </>
   );
 
-  // Modo ampliado inteiro (botão + fundo) vai por Portal direto pra
-  // document.body — precisa escapar de `.presentation-stage`. Essa div tem
-  // `overflow:hidden` (recorta o slide certinho no 16:9) e, durante
-  // apresentação de verdade, ganha a classe `.fullscreen-stage`, que tem seu
-  // PRÓPRIO `transform` (centralizar com translate). Qualquer ancestral com
-  // `transform` vira o "containing block" de um `position:fixed` descendente
-  // — então antes do Portal, nosso `inset:0` não era relativo à tela toda,
-  // era relativo ao RETÂNGULO DO SLIDE, e ainda ficava sujeito ao
-  // `overflow:hidden` do próprio `.presentation-stage` (que corta qualquer
-  // conteúdo do slide que vaze da caixa, mesmo sendo `position:fixed`). Era
-  // por isso que o QR "ficava dentro do slide" e cortava — nada de rolagem
-  // resolvia, porque o corte acontecia num ancestral, não neste componente.
-  // Com o Portal, o `position:fixed` volta a ser relativo à janela de
-  // verdade, como deveria.
+  // Voltou a renderizar DENTRO de `.presentation-stage` (nada de Portal) —
+  // a tentativa anterior desta correção usava createPortal pra document.body
+  // achando que o problema era só o `overflow:hidden` de `.presentation-stage`,
+  // mas isso quebrou uma coisa mais importante: `toggleFullscreen`
+  // (PresentationEditor.jsx) chama a Fullscreen API DE VERDADE do navegador
+  // (`stageRef.current.requestFullscreen()`) em cima de `.presentation-stage`.
+  // Isso promove ESSE elemento — e SÓ ele + seus descendentes — pro "top
+  // layer" do navegador: nada fora dessa árvore aparece por cima dele,
+  // NENHUM z-index resolve. Por isso o Portal (que muda o botão pra
+  // document.body, fora da árvore) sumia com ele de vez durante apresentação
+  // real.
+  //
+  // A correção de verdade ficou em index.css: `.fullscreen-stage` centralizava
+  // com `top/left:50%; transform:translate(-50%,-50%)`, e QUALQUER ancestral
+  // com transform vira o "containing block" de um `position:fixed`
+  // descendente — foi ISSO (não a falta de Portal) que causava o corte
+  // original: o painel ficava preso ao RETÂNGULO DO SLIDE (containing block
+  // redirecionado pra .presentation-stage) e sujeito ao overflow:hidden dele.
+  // Trocando a centralização por `inset:0; margin:auto` (sem transform), um
+  // `position:fixed` aqui dentro volta a ser relativo à JANELA de verdade e
+  // ESCAPA do overflow:hidden sozinho — sem precisar de Portal, e
+  // continuando dentro da árvore promovida pro top layer.
   return (
     <>
-      {createPortal(
-        <>
-          {/* Botão de ampliar/recolher — posição fixa própria (não entra no
-              transform:scale do container abaixo), pra continuar do mesmo
-              tamanho e no mesmo lugar nos dois estados. */}
-          {hasAnythingToShow && onToggleExpand && (
-            <button
-              onClick={onToggleExpand}
-              className="btn-icon"
-              title={expanded ? 'Voltar ao tamanho normal' : 'Ampliar QR Code / resultados ao vivo pra turma ver melhor'}
-              style={{
-                position: 'fixed',
-                // Fora da tela cheia real, o .app-header (64px, sticky no topo) ocupa
-                // esse canto com a seta "Voltar" — sem este deslocamento os dois
-                // botões ficam empilhados no mesmo lugar (16,16).
-                top: isFullscreen ? '16px' : '80px',
-                left: '16px',
-                // Antes do Portal (ver comentário acima), este z-index só
-                // precisava vencer outros filhos de .presentation-stage. Como
-                // portado pra document.body, agora compete DIRETO com
-                // `.fullscreen-stage` (z-index 9999, ver index.css) — um
-                // valor baixo (era 210) ficava atrás do slide inteiro,
-                // sumindo o botão. Subiu pra acima disso (mas abaixo de
-                // .modal-overlay, 10100, de propósito).
-                zIndex: 10050,
-                background: 'rgba(15, 23, 42, 0.85)'
-              }}
-            >
-              {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-            </button>
-          )}
+      {/* Botão de ampliar/recolher — posição fixa própria (não entra no
+          transform:scale do container abaixo), pra continuar do mesmo
+          tamanho e no mesmo lugar nos dois estados. */}
+      {hasAnythingToShow && onToggleExpand && (
+        <button
+          onClick={onToggleExpand}
+          className="btn-icon"
+          title={expanded ? 'Voltar ao tamanho normal' : 'Ampliar QR Code / resultados ao vivo pra turma ver melhor'}
+          style={{
+            position: 'fixed',
+            // Fora da tela cheia real, o .app-header (64px, sticky no topo) ocupa
+            // esse canto com a seta "Voltar" — sem este deslocamento os dois
+            // botões ficam empilhados no mesmo lugar (16,16).
+            top: isFullscreen ? '16px' : '80px',
+            left: '16px',
+            zIndex: 210,
+            background: 'rgba(15, 23, 42, 0.85)'
+          }}
+        >
+          {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+        </button>
+      )}
 
-          {expanded && (
-            <div
-              style={{
-                position: 'fixed', inset: 0, zIndex: 10040, display: 'flex',
+      {/* `overflow:auto` + `safe center`: rede de segurança — se o grupo de
+          widgets ainda assim passar da altura da tela (não deveria mais,
+          com o `.fullscreen-stage` sem transform), dá pra rolar até o fim
+          em vez de cortar em silêncio. */}
+      <div
+        style={
+          expanded
+            ? {
+                position: 'fixed', inset: 0, zIndex: 200, display: 'flex',
                 alignItems: 'safe center', justifyContent: 'safe center',
                 background: 'rgba(9, 13, 22, 0.95)', overflow: 'auto', padding: '2rem'
-              }}
-            >
-              {/* Linha (não coluna): QR/ranking ficam do LADO da interação, não
-                  empilhados em cima — pedido do usuário, e reduz bastante a
-                  altura total do grupo (menos chance de precisar rolar). */}
-              <div
-                style={{
-                  display: 'flex', flexDirection: 'row', flexWrap: 'wrap',
-                  alignItems: 'center', justifyContent: 'center', gap: '2rem',
-                  margin: 'auto', transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center'
-                }}
-              >
-                {overlayPanels}
-              </div>
-            </div>
-          )}
-        </>,
-        document.body
-      )}
-
-      {!expanded && (
-        <div style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
-          {overlayPanels}
-        </div>
-      )}
+              }
+            : { position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }
+        }
+      >
+        {expanded ? (
+          // Linha (não coluna): QR/ranking ficam do LADO da interação, não
+          // empilhados em cima — pedido do usuário, e reduz bastante a
+          // altura total do grupo.
+          <div
+            style={{
+              display: 'flex', flexDirection: 'row', flexWrap: 'wrap',
+              alignItems: 'center', justifyContent: 'center', gap: '2rem',
+              margin: 'auto', transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center'
+            }}
+          >
+            {overlayPanels}
+          </div>
+        ) : overlayPanels}
+      </div>
     </>
   );
 }
