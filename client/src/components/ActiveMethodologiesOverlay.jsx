@@ -54,9 +54,15 @@ export default function ActiveMethodologiesOverlay({
     };
   }, [socket, slideIndex]);
 
-  // Reseta o resumo de IA ao trocar de slide — evita mostrar o resumo do slide anterior
+  // Reseta o resumo de IA e os dados ao vivo ao trocar de slide — sem isto, o
+  // painel continuava mostrando as respostas do slide ANTERIOR (ex.: duas
+  // nuvens de palavras em slides diferentes: a segunda herdava visualmente
+  // as palavras da primeira até o primeiro aluno responder nela, porque
+  // `handleUpdate` só atualiza `liveData` quando chega um evento cujo
+  // `slideIndex` bate com o slide atual — navegar sozinho não dispara nada).
   useEffect(() => {
     setSummary(null);
+    setLiveData({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   }, [slideIndex]);
 
   const handleSummarize = async () => {

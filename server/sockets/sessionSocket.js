@@ -264,6 +264,18 @@ export function setupSocketIO(httpServer) {
           slideNotes: session.currentSlideNotes,
           totalSlides: session.totalSlides
         });
+
+        // Reenvia pro Apresentador/Telão as respostas que ESTE slide já
+        // acumulou (ex.: professor volta pra um slide já respondido antes) —
+        // sem isto, o painel ficava mostrando os dados do slide anterior até
+        // chegar a primeira resposta NOVA neste, porque `live_results_update`
+        // só é emitido reativamente em `submit_response` (ver abaixo).
+        io.to(`session_${pin}`).emit('live_results_update', {
+          slideIndex: newIndex,
+          responseType: null,
+          responses: session.responses[newIndex] || { answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] },
+          totalParticipants: session.participants.size
+        });
       }
     });
 
