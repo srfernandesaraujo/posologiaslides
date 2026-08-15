@@ -241,9 +241,9 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
                   left: '4px',
                   width: '22px',
                   height: '22px',
-                  opacity: slide.hidden ? 1 : 0.6,
-                  background: slide.hidden ? 'rgba(239, 68, 68, 0.4)' : 'rgba(0, 0, 0, 0.5)',
-                  color: slide.hidden ? '#f87171' : '#fff',
+                  background: slide.hidden ? 'rgba(239, 68, 68, 0.55)' : 'rgba(0, 0, 0, 0.6)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#fff',
                   zIndex: 3
                 }}
                 title={slide.hidden ? "Slide oculto — Clicar para exibir na apresentação" : "Ocultar slide na apresentação"}
@@ -265,7 +265,14 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
                   right: slides.length > 1 ? '30px' : '4px',
                   width: '22px',
                   height: '22px',
-                  opacity: 0.6,
+                  // Fundo escuro semitransparente + borda clara: contraste
+                  // garantido em cima de QUALQUER miniatura (clara, escura,
+                  // com foto de fundo etc.) — antes o ícone era só um traço
+                  // fraco (opacity:0.6, sem fundo próprio) direto sobre a
+                  // imagem do slide, sumindo em miniaturas mais claras.
+                  background: 'rgba(0, 0, 0, 0.6)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#fff',
                   zIndex: 3
                 }}
                 title="Duplicar Slide"
@@ -287,7 +294,9 @@ export default function SlideList({ slides, activeIndex, onSelectSlide, onAddSli
                   right: '4px',
                   width: '22px',
                   height: '22px',
-                  opacity: 0.6,
+                  background: 'rgba(0, 0, 0, 0.6)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#fca5a5',
                   zIndex: 3
                 }}
                 title="Excluir Slide"
