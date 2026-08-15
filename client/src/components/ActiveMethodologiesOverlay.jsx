@@ -511,7 +511,14 @@ export default function ActiveMethodologiesOverlay({
                 // botões ficam empilhados no mesmo lugar (16,16).
                 top: isFullscreen ? '16px' : '80px',
                 left: '16px',
-                zIndex: 210,
+                // Antes do Portal (ver comentário acima), este z-index só
+                // precisava vencer outros filhos de .presentation-stage. Como
+                // portado pra document.body, agora compete DIRETO com
+                // `.fullscreen-stage` (z-index 9999, ver index.css) — um
+                // valor baixo (era 210) ficava atrás do slide inteiro,
+                // sumindo o botão. Subiu pra acima disso (mas abaixo de
+                // .modal-overlay, 10100, de propósito).
+                zIndex: 10050,
                 background: 'rgba(15, 23, 42, 0.85)'
               }}
             >
@@ -522,7 +529,7 @@ export default function ActiveMethodologiesOverlay({
           {expanded && (
             <div
               style={{
-                position: 'fixed', inset: 0, zIndex: 200, display: 'flex',
+                position: 'fixed', inset: 0, zIndex: 10040, display: 'flex',
                 alignItems: 'safe center', justifyContent: 'safe center',
                 background: 'rgba(9, 13, 22, 0.95)', overflow: 'auto', padding: '2rem'
               }}
