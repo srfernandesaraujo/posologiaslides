@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Users, BarChart2, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2 } from 'lucide-react';
+import { Users, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { layoutWordCloud } from '../lib/wordCloudLayout';
 import { apiFetch } from '../lib/api';
+import { PARENT_TO_SLIDE_MESSAGE_SOURCE } from './PresentationViewer';
 
 // Fator do `transform: scale(...)` aplicado a TODOS os widgets no modo
 // ampliado (ver `expanded` mais abaixo) — extraído pra constante porque a
@@ -17,7 +18,8 @@ export default function ActiveMethodologiesOverlay({
   onNavigateBranch,
   expanded = false,
   onToggleExpand,
-  isFullscreen = false
+  isFullscreen = false,
+  stageIframeRef = null
 }) {
   const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   const [participantCount, setParticipantCount] = useState(0);
@@ -85,6 +87,22 @@ export default function ActiveMethodologiesOverlay({
     if (quizCounts[a.answer] !== undefined) quizCounts[a.answer]++;
   });
 
+  // Manda os votos direto pro iframe do slide, que desenha a barra de
+  // resultado em cima da própria alternativa (ver data-quiz-option em
+  // widgetCatalog.js e buildLiveQuizVoteScript em PresentationViewer.jsx) —
+  // antes existia um card flutuante só pra isso (removido abaixo), duplicando
+  // a mesma informação que já aparece nas alternativas do slide.
+  useEffect(() => {
+    if (currentSlide?.type !== 'quiz') return;
+    const iframe = stageIframeRef?.current;
+    if (!iframe || !iframe.contentWindow) return;
+    iframe.contentWindow.postMessage(
+      { source: PARENT_TO_SLIDE_MESSAGE_SOURCE, type: 'quiz-vote-update', counts: quizCounts, total: liveData.answers.length },
+      '*'
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveData.answers, currentSlide?.type, stageIframeRef]);
+
   // Calcula estatísticas de TBL/iRAT (Verificação de Prontidão Individual)
   const iratCounts = { A: 0, B: 0, C: 0, D: 0 };
   liveData.irat.forEach(r => {
@@ -139,7 +157,8 @@ export default function ActiveMethodologiesOverlay({
   // Nada pra ampliar (nenhum widget seria mostrado mesmo) — sem isto o botão
   // de ampliar aparecia mesmo em slides sem QR/leaderboard/interatividade
   // nenhuma, expandindo pra uma tela vazia.
-  const hasAnythingToShow = (isIntroSlide && pin) || leaderboard.length > 0 || !!currentSlide?.type
+  const hasAnythingToShow = (isIntroSlide && pin) || leaderboard.length > 0
+    || (!!currentSlide?.type && currentSlide.type !== 'quiz')
     || (currentSlide?.branches && currentSlide.branches.length > 0);
 
   return (
@@ -211,35 +230,6 @@ export default function ActiveMethodologiesOverlay({
                 <span style={{ fontWeight: 700 }}>{entry.score}</span>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Widget de Quiz ao Vivo */}
-      {currentSlide?.type === 'quiz' && (
-        <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
-            <BarChart2 size={16} /> Respostas ao Vivo ({liveData.answers.length})
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {['A', 'B', 'C', 'D'].map(opt => {
-              const count = quizCounts[opt];
-              const total = liveData.answers.length || 1;
-              const pct = Math.round((count / total) * 100);
-
-              return (
-                <div key={opt} style={{ fontSize: '0.8rem' }}>
-                  <div style={{ display: 'flex', justifyBetween: 'space-between', color: '#e5e7eb', fontWeight: 700, marginBottom: '0.2rem' }}>
-                    <span>Opção {opt}</span>
-                    <span>{count} ({pct}%)</span>
-                  </div>
-                  <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #38bdf8, #10b981)', transition: 'width 0.3s ease' }} />
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       )}

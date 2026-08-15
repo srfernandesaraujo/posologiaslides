@@ -359,10 +359,16 @@ function buildBeforeAfter(config = {}) {
 
 function buildOptionRow(letter, text) {
   const label = (text || `Alternativa ${letter}`).trim();
+  // data-quiz-option/-vote-bar/-vote-pct: alvos do listener injetado por
+  // buildLiveQuizVoteScript (PresentationViewer.jsx) — a própria alternativa
+  // do slide vira a barra de resultado ao vivo, em vez de existir um card
+  // separado só pra mostrar os votos (ver ActiveMethodologiesOverlay).
   return `
-    <div style="display:flex; align-items:center; gap:0.75rem; padding:0.85rem 1.1rem; border-radius:0.65rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1);">
-      <span style="flex-shrink:0; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:50%; background:rgba(34,211,238,0.15); border:1px solid rgba(34,211,238,0.4); color:#67e8f9; font-size:0.8rem; font-weight:800;">${letter}</span>
-      <span style="color:#e2e8f0; font-size:1.05rem; line-height:1.4;">${label}</span>
+    <div data-quiz-option="${letter}" style="position:relative; overflow:hidden; display:flex; align-items:center; gap:0.75rem; padding:0.85rem 1.1rem; border-radius:0.65rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1);">
+      <div data-quiz-vote-bar style="position:absolute; inset:0; width:0%; background:rgba(34,211,238,0.18); transition:width 0.4s ease;"></div>
+      <span style="position:relative; flex-shrink:0; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:50%; background:rgba(34,211,238,0.15); border:1px solid rgba(34,211,238,0.4); color:#67e8f9; font-size:0.8rem; font-weight:800;">${letter}</span>
+      <span style="position:relative; color:#e2e8f0; font-size:1.05rem; line-height:1.4; flex:1;">${label}</span>
+      <span data-quiz-vote-pct style="position:relative; display:none; color:#67e8f9; font-size:0.85rem; font-weight:800; white-space:nowrap;"></span>
     </div>`;
 }
 
@@ -370,7 +376,7 @@ function buildQuizQuestion(config = {}) {
   const question = (config.question || 'Digite a pergunta aqui').trim();
   const rows = ['A', 'B', 'C', 'D'].map((letter) => buildOptionRow(letter, config[`option${letter}`])).join('');
   return `
-<div style="width:100%; max-width:640px; text-align:left;">
+<div data-quiz-widget="live-quiz" style="width:100%; max-width:640px; text-align:left;">
   <h2 style="font-size:2rem; font-weight:800; color:#fff; letter-spacing:-0.01em; line-height:1.25; margin:0 0 1.5rem;">${question}</h2>
   <div style="display:flex; flex-direction:column; gap:0.65rem;">${rows}</div>
 </div>`;

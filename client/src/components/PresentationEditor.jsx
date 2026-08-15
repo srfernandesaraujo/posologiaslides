@@ -2293,6 +2293,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     spotlightEnabled={isFullscreen && spotlightOn}
                     zoomGestureEnabled={isFullscreen}
                     animationTriggersEnabled={isFullscreen && !atClosingSlide}
+                    liveQuizEnabled={isFullscreen && !atClosingSlide}
                     selectedElement={selectedEl}
                     cropMode={cropMode}
                   />
@@ -2878,6 +2879,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             expanded={overlayExpanded}
             onToggleExpand={() => setOverlayExpanded((v) => !v)}
             isFullscreen={isFullscreen}
+            stageIframeRef={stageIframeRef}
           />
 
           <DrawingCanvas

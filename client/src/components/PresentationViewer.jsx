@@ -39,7 +39,7 @@ export const SLIDE_EDITOR_MESSAGE_SOURCE = 'posologia-slide-editor';
 // desligar o modo de recorte ao vivo (ver useEffect de cropMode abaixo e o
 // listener 'set-crop-mode' dentro de buildEditorScript), sem precisar
 // recarregar o iframe inteiro a cada toggle.
-const PARENT_TO_SLIDE_MESSAGE_SOURCE = 'posologia-slide-editor-control';
+export const PARENT_TO_SLIDE_MESSAGE_SOURCE = 'posologia-slide-editor-control';
 
 // Script injetado apenas quando `editable` é true: permite passar o mouse,
 // clicar nos elementos de topo do slide (filhos diretos de ".slide-root", ou
@@ -990,6 +990,42 @@ export function buildAnimationTriggerScript(enabled) {
 </script>`;
 }
 
+// Script injetado só na apresentação de verdade em tela cheia (mesmo gate de
+// buildAnimationTriggerScript) — recebe do app pai, via postMessage, a
+// contagem de votos ao vivo do quiz e atualiza a barra/percentual dentro da
+// PRÓPRIA alternativa (ver data-quiz-option/-vote-bar/-vote-pct em
+// widgetCatalog.js/buildOptionRow). Existia um card flutuante à parte
+// (ActiveMethodologiesOverlay) só pra mostrar esses números; ele foi
+// removido pra sobrar só um quadro na tela — este script é quem agora
+// desenha o resultado, direto em cima da alternativa que o professor edita.
+export function buildLiveQuizVoteScript(enabled) {
+  if (!enabled) return '';
+  return `
+<script>
+(function () {
+  window.addEventListener('message', function (e) {
+    var data = e.data;
+    if (!data || data.source !== '${PARENT_TO_SLIDE_MESSAGE_SOURCE}' || data.type !== 'quiz-vote-update') return;
+    var counts = data.counts || {};
+    var total = data.total || 0;
+    var rows = document.querySelectorAll('[data-quiz-option]');
+    Array.prototype.forEach.call(rows, function (row) {
+      var letter = row.getAttribute('data-quiz-option');
+      var bar = row.querySelector('[data-quiz-vote-bar]');
+      var pct = row.querySelector('[data-quiz-vote-pct]');
+      var count = counts[letter] || 0;
+      var percent = total > 0 ? Math.round((count / total) * 100) : 0;
+      if (bar) bar.style.width = percent + '%';
+      if (pct) {
+        pct.style.display = total > 0 ? 'inline' : 'none';
+        pct.textContent = count + ' (' + percent + '%)';
+      }
+    });
+  });
+})();
+</script>`;
+}
+
 // `ref` (forwardRef) expõe o nó do <iframe> pra quem monta o viewer fora da
 // tela normal (ver client/src/lib/exportDeck.js — renderiza slide por slide
 // escondido pra capturar cada um como imagem) — quem não passa ref (todo o
@@ -998,7 +1034,7 @@ export function buildAnimationTriggerScript(enabled) {
 // carregado) + `document.fonts.ready` + um pequeno delay extra pra Chart.js/
 // Mermaid/animações CSS assentarem. Só o exportDeck.js usa isto hoje — sem
 // consumidor, o callback nunca dispara e não custa nada pro resto do app.
-const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, selectedElement = null, cropMode = false, staticPreview = false, onReady = null }, forwardedRef) {
+const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, liveQuizEnabled = false, selectedElement = null, cropMode = false, staticPreview = false, onReady = null }, forwardedRef) {
   const iframeRef = useRef(null);
   useImperativeHandle(forwardedRef, () => iframeRef.current, []);
   // Ref (não estado/dependência do efeito abaixo): só precisamos do valor mais
@@ -1138,6 +1174,7 @@ ${content}
 ${buildSpotlightScript(spotlightEnabled)}
 ${buildZoomGestureScript(zoomGestureEnabled)}
 ${buildAnimationTriggerScript(animationTriggersEnabled)}
+${buildLiveQuizVoteScript(liveQuizEnabled)}
 ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) : ''}
 </body>
 </html>`;
@@ -1171,7 +1208,7 @@ ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) 
       if (settleTimeout) clearTimeout(settleTimeout);
       iframe.removeEventListener('load', handleLoad);
     };
-  }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled, animationTriggersEnabled, staticPreview]);
+  }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled, animationTriggersEnabled, liveQuizEnabled, staticPreview]);
 
   return (
     <iframe
