@@ -30,7 +30,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, pointsConfig, wordcloudConfig, branches, slideTitle, slideNotes, totalSlides }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -58,6 +58,12 @@ export function setupSocketIO(httpServer) {
         // resposta "certa" aqui), então é retransmitido pro aluno como está
         // (ver joined_successfully/sync_slide abaixo).
         currentPointsConfig: pointsConfig || null,
+        // Letras (A/B/C/D) das alternativas de Quiz ao Vivo que o professor
+        // realmente preencheu — alternativa deixada em branco não deve
+        // aparecer como botão votável no celular do aluno (ver
+        // getActiveQuizOptions em slideHtmlUtils.js). Mesmo caso do
+        // pointsConfig acima: não é sigiloso, retransmitido como está.
+        currentQuizOptions: quizOptions || null,
         // Pergunta disparadora da Nuvem de Palavras — mesmo caso do pointsConfig
         // acima: não é sigiloso, retransmitido pro aluno como está.
         currentWordcloudConfig: wordcloudConfig || null,
@@ -107,6 +113,7 @@ export function setupSocketIO(httpServer) {
         pointsConfig: session.currentPointsConfig,
         wordcloudConfig: session.currentWordcloudConfig,
         branches: publicBranches(session.currentBranches),
+        quizOptions: session.currentQuizOptions,
         slideTitle: session.currentSlideTitle,
         slideNotes: session.currentSlideNotes,
         totalSlides: session.totalSlides
@@ -235,7 +242,7 @@ export function setupSocketIO(httpServer) {
     });
 
     // 4. Apresentador altera slide
-    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, pointsConfig, wordcloudConfig, branches, slideTitle, slideNotes, totalSlides }) => {
+    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides }) => {
       const session = activeSessions.get(pin);
       if (session) {
         commitDwellTime(session);
@@ -246,6 +253,7 @@ export function setupSocketIO(httpServer) {
         session.currentPointsConfig = pointsConfig || null;
         session.currentWordcloudConfig = wordcloudConfig || null;
         session.currentBranches = branches || null;
+        session.currentQuizOptions = quizOptions || null;
         session.currentSlideTitle = slideTitle || null;
         session.currentSlideNotes = slideNotes || null;
         if (totalSlides) session.totalSlides = totalSlides;
@@ -260,6 +268,7 @@ export function setupSocketIO(httpServer) {
           pointsConfig: session.currentPointsConfig,
           wordcloudConfig: session.currentWordcloudConfig,
           branches: publicBranches(session.currentBranches),
+          quizOptions: session.currentQuizOptions,
           slideTitle: session.currentSlideTitle,
           slideNotes: session.currentSlideNotes,
           totalSlides: session.totalSlides

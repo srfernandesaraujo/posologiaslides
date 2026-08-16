@@ -370,6 +370,19 @@ export function getElementMeta(html, index) {
   return { source: el.getAttribute('data-el-source'), config };
 }
 
+// Letras (A/B/C/D) das alternativas de Quiz ao Vivo que o professor de fato
+// preencheu (ver buildOptionRow em widgetCatalog.js: alternativa em branco
+// não gera o data-quiz-option correspondente) — usada tanto pro seletor de
+// gabarito quanto pra avisar o celular do aluno de quais botões mostrar
+// (ver emitSlideChanged em PresentationEditor.jsx).
+export function getActiveQuizOptions(html) {
+  const template = parseFragment(html || '');
+  const letters = Array.from(template.content.querySelectorAll('[data-quiz-option]'))
+    .map((el) => el.getAttribute('data-quiz-option'))
+    .filter((letter) => ['A', 'B', 'C', 'D'].includes(letter));
+  return letters.length ? letters : ['A', 'B', 'C', 'D'];
+}
+
 // Tira o elemento em `index` do fluxo normal e fixa uma posição livre em
 // porcentagem do container (ver arrasto em PresentationViewer.jsx) — permite
 // colocar o elemento em qualquer lugar do slide, inclusive espaços vazios que

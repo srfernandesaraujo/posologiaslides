@@ -6,14 +6,41 @@ import { Smartphone, Send, CheckCircle2, Sparkles, Users, Clock } from 'lucide-r
 const POINTS_TOTAL = 100;
 const POINTS_KEYS = ['A', 'B', 'C', 'D'];
 const POINTS_COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981'];
-const EVEN_SPLIT = POINTS_KEYS.reduce((acc, k) => ({ ...acc, [k]: POINTS_TOTAL / POINTS_KEYS.length }), {});
 
-// Move o slider de `key` pra `nextValue` e tira/devolve a diferença dos outros
-// três, proporcionalmente ao que cada um já tinha — assim a soma dos 4 nunca
-// sai de 100 e o aluno não precisa acertar as contas na mão.
+// Só as alternativas com rótulo preenchido pelo professor entram na
+// distribuição de pontos — a que ficar em branco no editor não aparece pro
+// aluno votar (ver pointsConfig?.labels em PresentationEditor.jsx). Sem
+// nenhum rótulo preenchido (pointsConfig ainda não customizado), volta a
+// mostrar as 4 opções genéricas de sempre.
+function getActivePointsKeys(pointsConfig) {
+  const active = POINTS_KEYS.filter((k) => (pointsConfig?.labels?.[k] || '').trim());
+  return active.length ? active : POINTS_KEYS;
+}
+
+// Aloca 100 pontos igualmente só entre as alternativas ativas (a última
+// absorve a sobra do arredondamento) — chamada toda vez que o slide muda.
+function buildEvenSplit(pointsConfig) {
+  const keys = getActivePointsKeys(pointsConfig);
+  const base = Math.floor(POINTS_TOTAL / keys.length);
+  const allocation = {};
+  keys.forEach((k, idx) => {
+    allocation[k] = idx === keys.length - 1 ? POINTS_TOTAL - base * (keys.length - 1) : base;
+  });
+  return allocation;
+}
+
+// Move o slider de `key` pra `nextValue` e tira/devolve a diferença das
+// outras alternativas ATIVAS (as chaves presentes em `allocation` — ver
+// buildEvenSplit), proporcionalmente ao que cada uma já tinha — assim a
+// soma delas nunca sai de 100 e o aluno não precisa acertar as contas na mão.
 function rebalancePoints(allocation, key, nextValue) {
+  const keys = Object.keys(allocation);
   const clamped = Math.max(0, Math.min(POINTS_TOTAL, Math.round(nextValue)));
-  const others = POINTS_KEYS.filter((k) => k !== key);
+  const others = keys.filter((k) => k !== key);
+
+  // Única alternativa ativa: não tem de onde tirar/devolver pontos, fica sempre com os 100.
+  if (others.length === 0) return { ...allocation, [key]: POINTS_TOTAL };
+
   const delta = clamped - allocation[key];
   const othersTotal = others.reduce((sum, k) => sum + allocation[k], 0);
 
@@ -22,7 +49,7 @@ function rebalancePoints(allocation, key, nextValue) {
   const next = { ...allocation, [key]: clamped };
 
   if (delta > 0) {
-    // Precisa "roubar" `delta` pontos dos outros três — se eles não têm o
+    // Precisa "roubar" `delta` pontos das outras — se elas não têm o
     // suficiente, o slider nem chega a subir tanto quanto o aluno pediu.
     const actualDelta = Math.min(delta, othersTotal);
     next[key] = allocation[key] + actualDelta;
@@ -35,8 +62,8 @@ function rebalancePoints(allocation, key, nextValue) {
       remaining -= cut;
     });
   } else {
-    // Devolve `-delta` pontos pros outros três, proporcionalmente ao que já tinham
-    // (se todos estiverem em 0, divide igualmente pra não ficar tudo num só).
+    // Devolve `-delta` pontos pras outras, proporcionalmente ao que já tinham
+    // (se todas estiverem em 0, divide igualmente pra não ficar tudo numa só).
     const give = -delta;
     let remaining = give;
     others.forEach((k, idx) => {
@@ -50,7 +77,7 @@ function rebalancePoints(allocation, key, nextValue) {
 
   // Corrige deriva de arredondamento pra soma nunca fugir de 100 — ajusta no
   // próprio slider que o aluno acabou de mexer, é o menos surpreendente.
-  const sum = POINTS_KEYS.reduce((s, k) => s + next[k], 0);
+  const sum = keys.reduce((s, k) => s + next[k], 0);
   next[key] += POINTS_TOTAL - sum;
 
   return next;
@@ -68,12 +95,13 @@ export default function StudentJoin() {
   const [pointsConfig, setPointsConfig] = useState(null);
   const [wordcloudConfig, setWordcloudConfig] = useState(null);
   const [branches, setBranches] = useState(null);
+  const [quizOptions, setQuizOptions] = useState(null);
   const [scoreFeedback, setScoreFeedback] = useState(null);
 
   // Estados de resposta do aluno
   const [quizChoice, setQuizChoice] = useState('');
   const [wordInput, setWordInput] = useState('');
-  const [pointsAllocation, setPointsAllocation] = useState(EVEN_SPLIT);
+  const [pointsAllocation, setPointsAllocation] = useState(() => buildEvenSplit(null));
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
@@ -85,7 +113,7 @@ export default function StudentJoin() {
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
 
-    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches }) => {
+    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions }) => {
       setJoined(true);
       setSessionTitle(title);
       setCurrentSlideIndex(currentSlideIndex);
@@ -94,18 +122,21 @@ export default function StudentJoin() {
       setPointsConfig(pointsConfig || null);
       setWordcloudConfig(wordcloudConfig || null);
       setBranches(branches || null);
+      setQuizOptions(quizOptions || null);
+      setPointsAllocation(buildEvenSplit(pointsConfig));
     });
 
-    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches }) => {
+    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions }) => {
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
       setHotspotImageUrl(hotspotImageUrl || null);
       setPointsConfig(pointsConfig || null);
       setWordcloudConfig(wordcloudConfig || null);
       setBranches(branches || null);
+      setQuizOptions(quizOptions || null);
       setSubmitted(false); // Reseta estado de envio para o novo slide
       setScoreFeedback(null);
-      setPointsAllocation(EVEN_SPLIT);
+      setPointsAllocation(buildEvenSplit(pointsConfig));
     });
 
     newSocket.on('response_scored', ({ correct, points }) => {
@@ -324,10 +355,10 @@ export default function StudentJoin() {
               Arraste um slider — os outros se ajustam sozinhos pra soma sempre dar 100.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-              {POINTS_KEYS.map((key, idx) => (
+              {Object.keys(pointsAllocation).map((key) => (
                 <div key={key}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: POINTS_COLORS[idx] }}>{pointsConfig?.labels?.[key] || `Opção ${key}`}</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: POINTS_COLORS[POINTS_KEYS.indexOf(key)] }}>{pointsConfig?.labels?.[key] || `Opção ${key}`}</span>
                     <span style={{ fontSize: '1.1rem', fontWeight: 800 }}>{pointsAllocation[key]}</span>
                   </div>
                   <input
@@ -336,7 +367,7 @@ export default function StudentJoin() {
                     max={POINTS_TOTAL}
                     value={pointsAllocation[key]}
                     onChange={(e) => handlePointsSlide(key, e.target.value)}
-                    style={{ width: '100%', accentColor: POINTS_COLORS[idx] }}
+                    style={{ width: '100%', accentColor: POINTS_COLORS[POINTS_KEYS.indexOf(key)] }}
                   />
                 </div>
               ))}
@@ -381,10 +412,13 @@ export default function StudentJoin() {
                 : `Slide #${currentSlideIndex + 1} - Selecione sua resposta:`}
             </h4>
 
-            {/* Alternativas de Quiz (A, B, C, D) */}
+            {/* Alternativas de Quiz — só as letras que o professor de fato
+                preencheu no slide (ver quizOptions); "tbl" (iRAT) não tem
+                esse filtro, sempre mostra as 4. */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              {['A', 'B', 'C', 'D'].map((opt, idx) => {
+              {(slideType === 'tbl' ? ['A', 'B', 'C', 'D'] : (quizOptions?.length ? quizOptions : ['A', 'B', 'C', 'D'])).map((opt) => {
                 const colors = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981'];
+                const idx = ['A', 'B', 'C', 'D'].indexOf(opt);
                 return (
                   <button
                     key={opt}

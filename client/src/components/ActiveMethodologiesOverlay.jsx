@@ -124,7 +124,12 @@ export default function ActiveMethodologiesOverlay({
     ['A', 'B', 'C', 'D'].forEach((k) => { pointsTotals[k] += Number(p.allocation?.[k]) || 0; });
   });
   const pointsDivisor = pointsResponses.length || 1;
-  const pointsRanked = ['A', 'B', 'C', 'D']
+  // Só mostra a barra de opções com rótulo preenchido pelo professor (ver
+  // pointsConfig?.labels) — sem nenhum rótulo customizado, volta a mostrar
+  // as 4 genéricas de sempre.
+  const activePointsKeys = ['A', 'B', 'C', 'D'].filter((k) => (currentSlide?.pointsConfig?.labels?.[k] || '').trim());
+  const pointsKeysToShow = activePointsKeys.length ? activePointsKeys : ['A', 'B', 'C', 'D'];
+  const pointsRanked = pointsKeysToShow
     .map((k) => ({ key: k, avg: pointsTotals[k] / pointsDivisor }))
     .sort((a, b) => b.avg - a.avg);
   const maxPointsAvg = pointsRanked[0]?.avg || 1;

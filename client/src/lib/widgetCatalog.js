@@ -358,7 +358,12 @@ function buildBeforeAfter(config = {}) {
 }
 
 function buildOptionRow(letter, text) {
-  const label = (text || `Alternativa ${letter}`).trim();
+  // Alternativa deixada em branco pelo professor não vira linha nenhuma —
+  // nem no canvas, nem (por consequência) na votação do aluno, que deriva
+  // as letras disponíveis a partir dos data-quiz-option presentes no slide
+  // (ver emitSlideChanged em PresentationEditor.jsx).
+  const label = (text || '').trim();
+  if (!label) return '';
   // data-quiz-option/-vote-bar/-vote-pct: alvos do listener injetado por
   // buildLiveQuizVoteScript (PresentationViewer.jsx) — a própria alternativa
   // do slide vira a barra de resultado ao vivo, em vez de existir um card

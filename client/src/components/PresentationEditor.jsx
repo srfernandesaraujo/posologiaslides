@@ -27,6 +27,7 @@ import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
   moveElementAt, bringToFrontAt, sendToBackAt, regenerateElementIds, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
+  getActiveQuizOptions,
   setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setAllAnimationsAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt,
   hasTableAt, getTableRowsAt, setTableRowsAt,
@@ -492,6 +493,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         pointsConfig: slide?.pointsConfig || null,
         wordcloudConfig: slide?.wordcloudConfig || null,
         branches: slide?.branches || null,
+        quizOptions: slide?.type === 'quiz' ? getActiveQuizOptions(slide.html) : null,
         slideTitle: slide?.title || null,
         slideNotes: slide?.notes || null,
         totalSlides: presentation.slides.length
@@ -2071,7 +2073,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         {!isFullscreen && currentSlide.type === 'quiz' && (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', fontSize: '0.8rem', color: '#9ca3af' }}>
             Resposta certa (opcional, ativa pontuação):
-            {['A', 'B', 'C', 'D'].map((opt) => (
+            {getActiveQuizOptions(currentSlide.html).map((opt) => (
               <button
                 key={opt}
                 className="btn-icon"
