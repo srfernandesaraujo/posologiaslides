@@ -169,7 +169,7 @@ async function fetchVendorScriptText(path) {
 function baseSlideStyles() {
   return `
   html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
-  body { margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #090d16; }
+  body { margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; }
   * { box-sizing: border-box; }
   body::-webkit-scrollbar { width: 8px; }
   body::-webkit-scrollbar-track { background: transparent; }
@@ -256,7 +256,7 @@ body { display: flex; flex-direction: column; }
 }
 .pos-canvas { position: absolute; top: 0; left: 0; width: ${SLIDE_NATIVE_WIDTH}px; height: ${SLIDE_NATIVE_HEIGHT}px; transform-origin: top left; }
 .pos-transition-wrapper { position: absolute; inset: 0; --pos-transition-duration: 0.6s; }
-.pos-frame { width: 100%; height: 100%; border: none; display: block; background: #090d16; }
+.pos-frame { width: 100%; height: 100%; border: none; display: block; background: #ffffff; }
 
 .pos-transition-fade { animation: pos-transition-fade var(--pos-transition-duration) ease both; }
 .pos-transition-slide-right { animation: pos-transition-slide-right var(--pos-transition-duration) cubic-bezier(0.22, 1, 0.36, 1) both; }

@@ -211,7 +211,7 @@ button.mobile-toggle-btn {
   border-radius: calc(var(--radius-sm) - 2px);
   overflow: hidden;
   position: relative;
-  background: #090d16;
+  background: #ffffff;
 }
 
 .slide-thumb-caption {

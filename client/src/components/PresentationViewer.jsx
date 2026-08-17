@@ -1103,7 +1103,7 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
      pra só depois rolar a lista e revelar as próximas — mesmo o wrapper de
      fora tendo pointer-events:none, o gesto de rolagem do trackpad ainda
      alcançava o documento do iframe em alguns navegadores. */
-  body { margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: ${staticPreview ? 'hidden' : 'auto'}; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #090d16; }
+  body { margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: ${staticPreview ? 'hidden' : 'auto'}; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; }
   * { box-sizing: border-box; }
   /* Scrollbar fina e discreta (tema escuro), em vez da barra cinza padrão do
      navegador destoando do visual do slide — só aparece quando há de fato

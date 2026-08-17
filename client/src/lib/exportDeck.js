@@ -64,7 +64,7 @@ function renderOneSlide(container, htmlContent) {
           windowHeight: SLIDE_NATIVE_HEIGHT,
           scale: 1,
           useCORS: true,
-          backgroundColor: '#090d16'
+          backgroundColor: '#ffffff'
         });
         finish(resolve, canvas.toDataURL('image/jpeg', JPEG_QUALITY));
       } catch (err) {
