@@ -775,6 +775,28 @@ function buildEditorScript(initialSelected, initialCropMode) {
 </script>`;
 }
 
+// Script injetado SEMPRE, em todo slide — .slide-root tem height:100% (fica
+// do tamanho do viewport do iframe), então conteúdo mais alto que isso
+// (diagrama expansível, lista longa) transborda VISUALMENTE abaixo da caixa
+// do .slide-root sem esticá-la (overflow não é herdado, ver comentário do
+// body acima). Essa área de transbordo fica assentada direto no <body>, e se
+// o professor escolheu uma cor/gradiente de fundo (ver setSlideBackground em
+// slideHtmlUtils.js, aplicado como style inline no .slide-root), o body
+// continuava com o fundo branco/preto padrão — dava pra ver a "emenda" ao
+// rolar. Espelha o background inline do .slide-root pro body assim que o
+// documento carrega, cobrindo a área de rolagem inteira com a MESMA cor
+// escolhida (sem custom background, body mantém o padrão do <style> acima).
+export function buildBackgroundMirrorScript() {
+  return `
+<script>
+(function () {
+  var root = document.querySelector('.slide-root');
+  var bg = root && (root.style.background || root.style.backgroundColor);
+  if (bg) document.body.style.background = bg;
+})();
+</script>`;
+}
+
 // Script injetado SEMPRE (editável ou não) — ao contrário de buildEditorScript,
 // precisa funcionar durante a apresentação de verdade (tela cheia, editable
 // false), não só editando. Ao tocar num elemento de topo do slide, escurece
@@ -1171,6 +1193,7 @@ ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}
 </head>
 <body>
 ${content}
+${buildBackgroundMirrorScript()}
 ${buildSpotlightScript(spotlightEnabled)}
 ${buildZoomGestureScript(zoomGestureEnabled)}
 ${buildAnimationTriggerScript(animationTriggersEnabled)}

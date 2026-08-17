@@ -1,4 +1,4 @@
-import { buildSpotlightScript, buildZoomGestureScript, buildAnimationTriggerScript } from '../components/PresentationViewer';
+import { buildSpotlightScript, buildZoomGestureScript, buildAnimationTriggerScript, buildBackgroundMirrorScript } from '../components/PresentationViewer';
 import { extractImageUrls } from './offlineImageCache';
 import { slugify } from './exportDeck';
 import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE } from './canvasConstants';
@@ -510,7 +510,7 @@ export async function buildStandaloneHtml(presentation, { onProgress } = {}) {
     };
   });
 
-  const behaviorScripts = buildSpotlightScript(true) + buildZoomGestureScript(true) + buildAnimationTriggerScript(true) + buildNavRelayScript();
+  const behaviorScripts = buildBackgroundMirrorScript() + buildSpotlightScript(true) + buildZoomGestureScript(true) + buildAnimationTriggerScript(true) + buildNavRelayScript();
 
   const html = buildShellHtml(presentation.title, {
     fontsCss,
