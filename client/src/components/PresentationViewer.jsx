@@ -739,25 +739,6 @@ function buildEditorScript(initialSelected, initialCropMode) {
     window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'paste-fallback' }, '*');
   });
 
-  // Setas do teclado navegam entre slides — mesmo padrão do listener de
-  // 'paste' acima: o iframe é um documento separado, então um keydown que
-  // acontece com o foco lá dentro (comum, já que qualquer clique no slide
-  // pra selecionar um elemento move o foco pro iframe) nunca chega no
-  // listener de teclado da janela pai (PresentationControls), e as setas
-  // pareciam simplesmente não funcionar. Repassa pro pai, que decide o que
-  // fazer (mesma navegação de handlePrev/handleNext usada pelo teclado da
-  // janela pai). Ignora quando o alvo é um campo de entrada/edição do
-  // PRÓPRIO slide (input, textarea, select, contenteditable) — senão mover o
-  // cursor num campo de texto ou arrastar um slider trocaria de slide junto.
-  document.addEventListener('keydown', function (e) {
-    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
-    var direction = null;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') direction = 'next';
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') direction = 'prev';
-    if (!direction) return;
-    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'nav-key', direction: direction }, '*');
-  });
-
   // Ver comentário de "initialSelected" acima de buildEditorScript: restaura
   // a seleção que existia antes deste (re)carregamento, se o elemento ainda
   // existir no mesmo índice/escopo. Não reenvia 'select' pro pai — o rect
@@ -786,6 +767,40 @@ function buildEditorScript(initialSelected, initialCropMode) {
 // rolar. Espelha o background inline do .slide-root pro body assim que o
 // documento carrega, cobrindo a área de rolagem inteira com a MESMA cor
 // escolhida (sem custom background, body mantém o padrão do <style> acima).
+// Script injetado SEMPRE, editando ou apresentando de verdade — ao contrário
+// do resto de buildEditorScript (só existe com `editable`, desligado durante
+// apresentação de verdade em tela cheia), a navegação por seta do teclado
+// precisa funcionar nos dois casos. O iframe é um documento separado, então
+// um keydown que acontece com o foco lá dentro (comum: qualquer clique num
+// elemento interativo do slide — botão, slider, simulador embutido — move o
+// foco pro iframe) nunca chega no listener de teclado da janela pai
+// (PresentationControls). Antes esse relay só existia dentro de
+// buildEditorScript, ou seja, SÓ fora de tela cheia — clicar num simulador
+// durante a apresentação de verdade e depois tentar avançar pelo teclado
+// simplesmente não fazia nada (reportado pelo usuário). Repassa pro pai via
+// postMessage, que decide o que fazer (mesma navegação de handlePrev/
+// handleNext usada pelo teclado da janela pai). Ignora quando o alvo é um
+// campo de entrada/edição do PRÓPRIO slide (input, textarea, select,
+// contenteditable) — senão mover o cursor num campo de texto ou arrastar um
+// slider trocaria de slide junto. Mesmo padrão de buildNavRelayScript em
+// exportStandalone.js, que já não tinha esse problema por não ter modo
+// "editável" nenhum pra gatear o listener.
+export function buildNavKeyRelayScript() {
+  return `
+<script>
+(function () {
+  document.addEventListener('keydown', function (e) {
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    var direction = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') direction = 'next';
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') direction = 'prev';
+    if (!direction) return;
+    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'nav-key', direction: direction }, '*');
+  });
+})();
+</script>`;
+}
+
 export function buildBackgroundMirrorScript() {
   return `
 <script>
@@ -1194,6 +1209,7 @@ ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}
 <body>
 ${content}
 ${buildBackgroundMirrorScript()}
+${buildNavKeyRelayScript()}
 ${buildSpotlightScript(spotlightEnabled)}
 ${buildZoomGestureScript(zoomGestureEnabled)}
 ${buildAnimationTriggerScript(animationTriggersEnabled)}
