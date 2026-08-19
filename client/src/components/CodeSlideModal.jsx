@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { Code, X, Copy, Check, Sparkles, Plus, FileCode, FileJson, FileText, RefreshCw, AlertCircle, FolderUp, Loader2 } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
 import { bundleLocalFiles } from '../lib/fileBundler';
-import { scaleSlideToCanvas } from '../lib/slideHtmlUtils';
+import { scaleSlideToCanvas, setSlideScrollable } from '../lib/slideHtmlUtils';
 import { LEGACY_SLIDE_WIDTH, LEGACY_SLIDE_HEIGHT, SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT } from '../lib/canvasConstants';
 
 // Prompt recomendado para copiar e colar em IAs externas (ChatGPT, Claude, Gemini, DeepSeek, etc.)
@@ -227,14 +227,25 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
       // viewport real do iframe. Embrulhar esse conteúdo no wrapper de
       // escala quebra essa medição (o `position:fixed` passa a calcular
       // contra o tamanho ANTIGO da caixa, mas é pintado já escalado),
-      // cortando/deslocando esses elementos — bug real, reportado numa aula
-      // inteira importada assim (ver memory project_native_scale_zoom_fix).
-      //
-      // scaleSlideToCanvas() é idempotente (não aninha wrapper se já tiver
-      // um), então repetir isto ao editar o texto colado no modal não
-      // acumula escala.
+      // cortando/deslocando esses elementos. Testado com Playwright
+      // (2026-08-19): mesmo com o zoom aplicado direto no <html> do slide
+      // (tentativa mais recente), o conteúdo desse tipo de site já não
+      // cabe em 720px SEM zoom nenhum -- ampliá-lo garante estouro pra fora
+      // dos 1080px reais do slide (ver memory project_native_scale_zoom_fix).
+      // Não existe fator de zoom fixo que resolva isso de forma genérica.
       if (finalHtml && !error && !fromBundleImport && (format === 'html' || format === 'json')) {
         finalHtml = scaleSlideToCanvas(finalHtml, LEGACY_SLIDE_WIDTH, LEGACY_SLIDE_HEIGHT, SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT);
+      }
+
+      // Em vez de tentar adivinhar um fator de escala pro bundle inteiro,
+      // liga a rolagem interna do slide (mesmo mecanismo do botão
+      // ScrollText em PresentationEditor.jsx) -- se o conteúdo importado
+      // for mais alto que os 1080px do slide, ele rola em vez de cortar
+      // silenciosamente. Não é tão bonito quanto preencher o slide inteiro,
+      // mas garante que nada fica escondido/cortado sem o usuário saber,
+      // sem exigir clique manual depois de cada importação.
+      if (finalHtml && !error && fromBundleImport) {
+        finalHtml = setSlideScrollable(finalHtml, true);
       }
     } catch (err) {
       error = 'Erro ao processar o código: ' + err.message;
