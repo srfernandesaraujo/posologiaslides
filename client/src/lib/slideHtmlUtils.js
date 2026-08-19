@@ -846,11 +846,12 @@ export function setSlideScrollable(html, scrollable) {
 // SLIDE_NATIVE_WIDTH/HEIGHT em lib/canvasConstants.js, 1280x720 -> 1920x1080)
 // ==========================================================================
 // Embrulha ".slide-root" (conteúdo interno intocado) numa caixa do tamanho
-// ANTIGO e aplica um CSS transform:scale proporcional ao aumento — em vez de
+// ANTIGO e aplica um CSS zoom proporcional ao aumento — em vez de
 // reescrever cada font-size/padding/gap um por um (frágil: precisaria
 // entender toda unidade usada), a caixa antiga escalada PREENCHE o canvas
 // novo do jeito que o slide "deveria" ter sido desenhado desde o início,
-// preservando todas as proporções internas exatamente como estavam.
+// preservando todas as proporções internas exatamente como estavam (ver
+// justificativa de `zoom` em vez de `transform: scale` dentro da função).
 // `.slide-root` continua com `height:100%`, que agora resolve contra a altura
 // da caixa antiga (o novo pai imediato), não mais contra o canvas inteiro —
 // por isso não precisa reescrever esse valor também. Idempotente: chamar de
@@ -868,11 +869,22 @@ export function scaleSlideToCanvas(html, fromWidth, fromHeight, toWidth, toHeigh
   if (!rootEl) return html;
 
   const scaleX = toWidth / fromWidth;
-  const scaleY = toHeight / fromHeight;
 
   const wrapper = document.createElement('div');
   wrapper.setAttribute('data-native-scaled', 'true');
-  wrapper.style.cssText = `width:${fromWidth}px; height:${fromHeight}px; transform: scale(${scaleX}, ${scaleY}); transform-origin: top left;`;
+  // `zoom`, não `transform: scale` -- transform cria um novo bloco de
+  // contenção pra descendentes `position:fixed` (overlay de imagem
+  // ampliada, lightbox, modal em tela cheia -- comuns em slide gerado por
+  // IA), que passam a calcular top/left contra o tamanho ANTIGO da caixa
+  // (1280x720) mas são pintados escalados pelo transform, ficando
+  // deslocados/cortados nas bordas (bug relatado: imagem ampliada cortada
+  // só quando o slide passou por este ajuste). `zoom` escala a pintura
+  // inteira -- incluindo vw/vh e o viewport que position:fixed usa -- sem
+  // criar bloco de contenção novo, então esses overlays continuam
+  // encaixados no slide. Só um fator (não scaleX/scaleY separados): mas
+  // LEGACY_SLIDE_WIDTH/HEIGHT e SLIDE_NATIVE_WIDTH/HEIGHT (únicos valores
+  // passados a esta função) são sempre 16:9, então scaleX === scaleY aqui.
+  wrapper.style.cssText = `width:${fromWidth}px; height:${fromHeight}px; zoom:${scaleX};`;
 
   rootEl.replaceWith(wrapper);
   wrapper.appendChild(rootEl);
