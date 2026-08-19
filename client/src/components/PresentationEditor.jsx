@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import PresentationViewer, { SLIDE_EDITOR_MESSAGE_SOURCE } from './PresentationViewer';
 import DrawingCanvas from './DrawingCanvas';
 import PresentationControls from './PresentationControls';
@@ -316,6 +316,31 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const handleZoomIn = () => setZoom((z) => clampZoom(z + ZOOM_STEP));
   const handleZoomOut = () => setZoom((z) => clampZoom(z - ZOOM_STEP));
   const handleZoomReset = () => setZoom(1);
+
+  // Recentraliza a rolagem quando o zoom muda (botões +/-, gesto de
+  // pinça/roda em apresentação) — sem isto, `.zoom-sizer` cresce mas o
+  // scrollLeft/scrollTop fica no mesmo valor em pixels de antes, então o
+  // ponto que estava no centro da tela passa a ficar cada vez mais perto do
+  // canto superior esquerdo conforme amplia (o conteúdo parece "fugir" pro
+  // canto em vez de crescer a partir do centro). Guarda o `effectiveScale`
+  // anterior numa ref pra calcular a razão de crescimento e escalar a
+  // posição de rolagem na mesma proporção, mantendo o mesmo ponto do slide
+  // centralizado na tela antes e depois da mudança. useLayoutEffect (não
+  // useEffect) pra aplicar antes do navegador pintar o novo tamanho, sem
+  // o "pulo" de um frame com a rolagem ainda desatualizada.
+  const prevEffectiveScaleRef = useRef(effectiveScale);
+  useLayoutEffect(() => {
+    const port = zoomScrollportRef.current;
+    const prevScale = prevEffectiveScaleRef.current;
+    if (port && prevScale && Math.abs(prevScale - effectiveScale) > 0.0001) {
+      const ratio = effectiveScale / prevScale;
+      const centerX = port.scrollLeft + port.clientWidth / 2;
+      const centerY = port.scrollTop + port.clientHeight / 2;
+      port.scrollLeft = Math.max(0, centerX * ratio - port.clientWidth / 2);
+      port.scrollTop = Math.max(0, centerY * ratio - port.clientHeight / 2);
+    }
+    prevEffectiveScaleRef.current = effectiveScale;
+  }, [effectiveScale]);
 
   useEffect(() => {
     let newSocket;
