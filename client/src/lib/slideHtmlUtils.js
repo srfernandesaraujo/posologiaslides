@@ -845,61 +845,61 @@ export function setSlideScrollable(html, scrollable) {
 // Reescala de slide feito pro tamanho ANTIGO do canvas (ver mudança de
 // SLIDE_NATIVE_WIDTH/HEIGHT em lib/canvasConstants.js, 1280x720 -> 1920x1080)
 // ==========================================================================
-// Embrulha ".slide-root" (conteúdo interno intocado) numa caixa do tamanho
-// ANTIGO e aplica um CSS zoom proporcional ao aumento — em vez de
-// reescrever cada font-size/padding/gap um por um (frágil: precisaria
-// entender toda unidade usada), a caixa antiga escalada PREENCHE o canvas
-// novo do jeito que o slide "deveria" ter sido desenhado desde o início,
-// preservando todas as proporções internas exatamente como estavam (ver
-// justificativa de `zoom` em vez de `transform: scale` dentro da função).
-// `.slide-root` continua com `height:100%`, que agora resolve contra a altura
-// da caixa antiga (o novo pai imediato), não mais contra o canvas inteiro —
-// por isso não precisa reescrever esse valor também. Idempotente: chamar de
-// novo com o slide já escalado não aninha um segundo wrapper (ver
-// isSlideScaledToCanvas).
+// v1 (transform:scale) e v2 (zoom num wrapper <div> aninhado dentro de
+// ".slide-root") os dois quebravam qualquer overlay/lightbox em tela cheia
+// que o próprio slide desenhasse com `position:fixed` + unidades vh/vw (ex.:
+// slide "por pasta" com um site externo bundlado, ver memory
+// project_native_scale_zoom_fix) — vh/vw SEMPRE medem o viewport
+// VERDADEIRO do documento, ignorando qualquer wrapper aninhado no meio do
+// caminho, então um `position:fixed; height:92vh` dentro do wrapper calcula
+// contra os 1080px reais mas é pintado dentro de uma caixa "local" de só
+// 720px, saindo cortado/deslocado.
+//
+// v3 (esta): em vez de embrulhar ".slide-root" num wrapper aninhado, insere
+// um <style> global (`html { zoom: ... }`) no próprio HTML do slide — regra
+// CSS se aplica ao documento inteiro não importa ONDE o <style> fica no
+// DOM, então isto continua 100% autocontido no HTML salvo do slide (funciona
+// em qualquer lugar que renderize esse HTML — editor, miniatura, exportação
+// — sem precisar mudar nada fora daqui). Zoom aplicado na raiz de verdade
+// do documento (`html`, não um wrapper) é o mesmo mecanismo do zoom nativo
+// do navegador (Ctrl +): TAMBÉM recalcula vh/vw e o viewport que
+// `position:fixed` usa, então overlays em tela cheia continuam corretos.
 export function scaleSlideToCanvas(html, fromWidth, fromHeight, toWidth, toHeight) {
   if (!html) return html;
   const template = parseFragment(html);
-  // O atributo de marcação vai no WRAPPER (criado abaixo), não em ".slide-root"
-  // — checar a presença dele em QUALQUER elemento do fragmento (não só no
-  // próprio rootEl) evita aninhar um segundo wrapper se esta função for
-  // chamada de novo num slide já escalado.
   if (template.content.querySelector('[data-native-scaled="true"]')) return html;
   const rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
   if (!rootEl) return html;
 
-  const scaleX = toWidth / fromWidth;
+  // Só um fator (não scaleX/scaleY separados): LEGACY_SLIDE_WIDTH/HEIGHT e
+  // SLIDE_NATIVE_WIDTH/HEIGHT (únicos valores passados a esta função) são
+  // sempre 16:9, então a razão de largura já é igual à de altura.
+  const ratio = toWidth / fromWidth;
 
-  const wrapper = document.createElement('div');
-  wrapper.setAttribute('data-native-scaled', 'true');
-  // `zoom`, não `transform: scale` -- transform cria um novo bloco de
-  // contenção pra descendentes `position:fixed` (overlay de imagem
-  // ampliada, lightbox, modal em tela cheia -- comuns em slide gerado por
-  // IA), que passam a calcular top/left contra o tamanho ANTIGO da caixa
-  // (1280x720) mas são pintados escalados pelo transform, ficando
-  // deslocados/cortados nas bordas (bug relatado: imagem ampliada cortada
-  // só quando o slide passou por este ajuste). `zoom` escala a pintura
-  // inteira -- incluindo vw/vh e o viewport que position:fixed usa -- sem
-  // criar bloco de contenção novo, então esses overlays continuam
-  // encaixados no slide. Só um fator (não scaleX/scaleY separados): mas
-  // LEGACY_SLIDE_WIDTH/HEIGHT e SLIDE_NATIVE_WIDTH/HEIGHT (únicos valores
-  // passados a esta função) são sempre 16:9, então scaleX === scaleY aqui.
-  wrapper.style.cssText = `width:${fromWidth}px; height:${fromHeight}px; zoom:${scaleX};`;
-
-  rootEl.replaceWith(wrapper);
-  wrapper.appendChild(rootEl);
+  const styleTag = document.createElement('style');
+  styleTag.setAttribute('data-native-scaled', 'true');
+  styleTag.textContent = `html { zoom: ${ratio}; }`;
+  template.content.insertBefore(styleTag, rootEl);
 
   return serializeFragment(template);
 }
 
-// Desfaz scaleSlideToCanvas: devolve ".slide-root" pro lugar de antes (fora
-// do wrapper de escala), sem alterar nada do conteúdo interno.
+// Desfaz scaleSlideToCanvas. Lida com os dois formatos: o <style> global
+// (v3, atual) e o wrapper <div> aninhado (v2, ainda pode existir em slides
+// já salvos antes desta mudança — sem este fallback, "Desfazer ajuste"
+// pararia de funcionar nesses slides).
 export function unscaleSlideFromCanvas(html) {
   if (!html) return html;
   const template = parseFragment(html);
-  const wrapper = template.content.querySelector('[data-native-scaled="true"]');
-  if (!wrapper || !wrapper.firstElementChild) return html;
-  wrapper.replaceWith(wrapper.firstElementChild);
+  const marked = template.content.querySelector('[data-native-scaled="true"]');
+  if (!marked) return html;
+  if (marked.tagName === 'STYLE') {
+    marked.remove();
+  } else if (marked.firstElementChild) {
+    marked.replaceWith(marked.firstElementChild);
+  } else {
+    marked.remove();
+  }
   return serializeFragment(template);
 }
 
