@@ -2,6 +2,8 @@ import React, { useState, useMemo, useRef } from 'react';
 import { Code, X, Copy, Check, Sparkles, Plus, FileCode, FileJson, FileText, RefreshCw, AlertCircle, FolderUp, Loader2 } from 'lucide-react';
 import SlideThumbnail from './SlideThumbnail';
 import { bundleLocalFiles } from '../lib/fileBundler';
+import { scaleSlideToCanvas } from '../lib/slideHtmlUtils';
+import { LEGACY_SLIDE_WIDTH, LEGACY_SLIDE_HEIGHT, SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT } from '../lib/canvasConstants';
 
 // Prompt recomendado para copiar e colar em IAs externas (ChatGPT, Claude, Gemini, DeepSeek, etc.)
 const AI_PROMPT_TEMPLATE = `Atue como um designer de slides profissional. Gere o código HTML para 1 slide de apresentação sobre o seguinte tema:
@@ -192,6 +194,23 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
             extractedTitle = match[1].replace(/<[^>]+>/g, '').trim();
           }
         }
+      }
+      // HTML/JSON vindo de fora (colado do ChatGPT/Claude/Gemini, ou
+      // arquivos importados via "Importar Pasta Inteira"/"Importar
+      // Arquivos") normalmente assume um canvas de slide 1280x720 — o
+      // "tamanho de slide" 16:9 mais comum que essas ferramentas usam por
+      // padrão — e fica com texto/imagens pequenos demais dentro do canvas
+      // atual, maior (ver LEGACY_SLIDE_WIDTH/HEIGHT em canvasConstants.js).
+      // Aplicar o mesmo ajuste do botão "Ajustar conteúdo" (Maximize2, em
+      // PresentationEditor.jsx) automaticamente aqui poupa o usuário de
+      // precisar abrir o slide depois e clicar nele à mão. Markdown fica de
+      // fora: é montado internamente já pro canvas atual (height:100%, sem
+      // px fixo), então escalar não muda nada visualmente — só inflaria o
+      // HTML com um wrapper à toa. scaleSlideToCanvas() é idempotente (não
+      // aninha wrapper se já tiver um), então repetir isto ao editar o
+      // texto colado no modal não acumula escala.
+      if (finalHtml && !error && (format === 'html' || format === 'json')) {
+        finalHtml = scaleSlideToCanvas(finalHtml, LEGACY_SLIDE_WIDTH, LEGACY_SLIDE_HEIGHT, SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT);
       }
     } catch (err) {
       error = 'Erro ao processar o código: ' + err.message;

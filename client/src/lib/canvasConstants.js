@@ -7,6 +7,16 @@
 export const SLIDE_NATIVE_WIDTH = 1920;
 export const SLIDE_NATIVE_HEIGHT = 1080;
 
+// Tamanho de canvas assumido por slide feito pra fora da caixa nativa acima:
+// slides da biblioteca de antes da migração pra 1920x1080 (ver
+// PresentationEditor.jsx, botão "Ajustar conteúdo"), e também o "tamanho de
+// slide" mais comum que ferramentas externas (ChatGPT, Claude, Gemini,
+// Antigravity) assumem por padrão ao gerar HTML de uma página/slide 16:9
+// quando coladas ou importadas via CodeSlideModal — por isso também usado
+// pra auto-escalar HTML colado/importado por código ou pasta.
+export const LEGACY_SLIDE_WIDTH = 1280;
+export const LEGACY_SLIDE_HEIGHT = 720;
+
 // Faixa inferior (em px reais, não escalados) sempre reservada e nunca
 // ocupada pelo conteúdo do slide, para a barra de ferramentas flutuante
 // (PresentationControls) nunca ficar por baixo/atrás do conteúdo em telas

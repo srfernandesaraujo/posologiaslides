@@ -41,7 +41,7 @@ import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, res
 import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closingSlideTemplate';
 import { buildDefaultQuizQuestionWidget } from '../lib/widgetCatalog';
 import useCanvasFit from '../lib/useCanvasFit';
-import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDIT_RANGE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
+import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, LEGACY_SLIDE_WIDTH, LEGACY_SLIDE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDIT_RANGE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
 import useUndoHistory from '../lib/useUndoHistory';
 import useScreenWakeLock from '../lib/useScreenWakeLock';
 import { useAuth } from '../context/AuthContext';
@@ -51,13 +51,6 @@ import {
   GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2, StickyNote,
   Smartphone, MousePointer2, Minus
 } from 'lucide-react';
-
-// Tamanho do canvas ANTES da migração pra 1920x1080 (ver lib/canvasConstants.js)
-// — slides antigos (a maioria da biblioteca do usuário até 2026-08-05) foram
-// desenhados assumindo esta resolução; usado só por handleToggleNativeScale
-// pra calcular o fator de escala, não é mais o tamanho ativo do canvas.
-const LEGACY_SLIDE_WIDTH = 1280;
-const LEGACY_SLIDE_HEIGHT = 720;
 
 // Trackpad do controle remoto (ver RemoteControl.jsx): os deltas que chegam
 // do celular já vêm em % da própria área de toque dele (não pixels crus, pra
