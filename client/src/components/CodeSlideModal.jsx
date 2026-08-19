@@ -61,6 +61,17 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [bundling, setBundling] = useState(false);
   const [bundleMessage, setBundleMessage] = useState(null); // { type: 'success' | 'error', text }
+  // true só logo depois de "Importar Pasta Inteira"/"Importar Arquivos" —
+  // esse fluxo normalmente traz um site externo já responsivo por conta
+  // própria (CSS com max-width/rem/vh, não pixels fixos pra um canvas
+  // 1280x720), então NÃO deve passar pelo auto-ajuste abaixo: um site assim
+  // costuma ter seus próprios elementos "tela cheia" via `position:fixed`
+  // (modal, lightbox) que dependem de medir o viewport real do iframe —
+  // embrulhar num wrapper de escala quebra essa medição e corta/desloca
+  // esses elementos (bug relatado numa aula importada assim). Reseta pra
+  // false a qualquer edição manual do código (o auto-ajuste volta a valer
+  // pra HTML/JSON colado à mão, que é o caso que ele foi pensado pra cobrir).
+  const [fromBundleImport, setFromBundleImport] = useState(false);
   const bundleInputRef = useRef(null);
   const bundleFolderInputRef = useRef(null);
 
@@ -195,21 +206,34 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
           }
         }
       }
-      // HTML/JSON vindo de fora (colado do ChatGPT/Claude/Gemini, ou
-      // arquivos importados via "Importar Pasta Inteira"/"Importar
-      // Arquivos") normalmente assume um canvas de slide 1280x720 — o
-      // "tamanho de slide" 16:9 mais comum que essas ferramentas usam por
-      // padrão — e fica com texto/imagens pequenos demais dentro do canvas
-      // atual, maior (ver LEGACY_SLIDE_WIDTH/HEIGHT em canvasConstants.js).
-      // Aplicar o mesmo ajuste do botão "Ajustar conteúdo" (Maximize2, em
+      // HTML/JSON colado à mão (ChatGPT/Claude/Gemini etc.) costuma assumir
+      // um canvas de slide 1280x720 — o "tamanho de slide" 16:9 mais comum
+      // que essas ferramentas usam por padrão — e fica com texto/imagens
+      // pequenos demais dentro do canvas atual, maior (ver
+      // LEGACY_SLIDE_WIDTH/HEIGHT em canvasConstants.js). Aplicar o mesmo
+      // ajuste do botão "Ajustar conteúdo" (Maximize2, em
       // PresentationEditor.jsx) automaticamente aqui poupa o usuário de
       // precisar abrir o slide depois e clicar nele à mão. Markdown fica de
       // fora: é montado internamente já pro canvas atual (height:100%, sem
       // px fixo), então escalar não muda nada visualmente — só inflaria o
-      // HTML com um wrapper à toa. scaleSlideToCanvas() é idempotente (não
-      // aninha wrapper se já tiver um), então repetir isto ao editar o
-      // texto colado no modal não acumula escala.
-      if (finalHtml && !error && (format === 'html' || format === 'json')) {
+      // HTML com um wrapper à toa.
+      //
+      // fromBundleImport (Importar Pasta Inteira/Arquivos) TAMBÉM fica de
+      // fora, mas por um motivo diferente: esse fluxo normalmente traz um
+      // SITE externo inteiro, já responsivo por conta própria (CSS com
+      // max-width/rem/vh — não pixels fixos pensados pra um canvas
+      // 1280x720) — e um site assim costuma ter seus próprios elementos
+      // "tela cheia" via `position:fixed` (modal, lightbox) que medem o
+      // viewport real do iframe. Embrulhar esse conteúdo no wrapper de
+      // escala quebra essa medição (o `position:fixed` passa a calcular
+      // contra o tamanho ANTIGO da caixa, mas é pintado já escalado),
+      // cortando/deslocando esses elementos — bug real, reportado numa aula
+      // inteira importada assim (ver memory project_native_scale_zoom_fix).
+      //
+      // scaleSlideToCanvas() é idempotente (não aninha wrapper se já tiver
+      // um), então repetir isto ao editar o texto colado no modal não
+      // acumula escala.
+      if (finalHtml && !error && !fromBundleImport && (format === 'html' || format === 'json')) {
         finalHtml = scaleSlideToCanvas(finalHtml, LEGACY_SLIDE_WIDTH, LEGACY_SLIDE_HEIGHT, SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT);
       }
     } catch (err) {
@@ -221,7 +245,7 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
     }
 
     return { html: finalHtml, title: extractedTitle, error, warning, format };
-  }, [code, customTitle, activeTab]);
+  }, [code, customTitle, activeTab, fromBundleImport]);
 
   if (!isOpen) return null;
 
@@ -231,6 +255,7 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
     setActiveTab('auto');
     setCopiedPrompt(false);
     setBundleMessage(null);
+    setFromBundleImport(false);
   };
 
   const handleClose = () => {
@@ -269,6 +294,7 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
       } else {
         setCode(result.html);
         setActiveTab('html');
+        setFromBundleImport(true);
         setBundleMessage({
           type: 'success',
           text: `"${result.htmlFileName}" combinado com ${result.usedFiles} arquivo(s) local(is) num bloco só — confira a prévia e clique em "Inserir Slide".`
@@ -444,7 +470,7 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
             <textarea
               className="chat-input"
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={(e) => { setCode(e.target.value); setFromBundleImport(false); }}
               placeholder="Cole aqui o seu código HTML (ex.: <div class=&quot;slide-root&quot;>...</div>), JSON ou Markdown..."
               spellCheck={false}
               style={{
