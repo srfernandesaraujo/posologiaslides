@@ -335,7 +335,14 @@ button.mobile-toggle-btn {
 
 .presentation-stage {
   width: 100%;
-  max-width: 1100px;
+  /* Era 1100px — em telas largas sobrava bastante espaço vazio nas laterais
+     (e embaixo, já que a altura é travada em 16:9 a partir da largura). Sem
+     limite nenhum o palco podia crescer demais numa janela larga mas BAIXA
+     (aspect-ratio ia empurrar a altura pra além do espaço vertical
+     disponível em .stage-container, forçando rolagem e escondendo a barra
+     flutuante) — 1600px é generoso o bastante pra aproveitar telas grandes
+     sem esbarrar nesse caso comum. */
+  max-width: 1600px;
   aspect-ratio: 16/9;
   position: relative;
   border-radius: var(--radius-lg);
