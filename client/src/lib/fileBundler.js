@@ -12,6 +12,24 @@ const TEXT_EXTENSIONS = new Set(['css', 'js', 'mjs']);
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp', 'avif']);
 const HTML_EXTENSIONS = new Set(['html', 'htm']);
 
+// .css/.js legítimo raramente passa disso — CSS/JS de verdade escrito à mão
+// fica na casa das dezenas de KB. Um .js/.css muito maior que isso quase
+// sempre é um arquivo de dados embutido em base64 (ex.: ferramentas de IA
+// que geram um "banco de imagens offline" tipo `const IMAGENS = {
+// foo: 'data:image/jpeg;base64,...' }` pra a página funcionar sem precisar
+// dos arquivos de imagem por perto). Inlinar um arquivo desses INTEIRO como
+// texto no HTML do slide estoura o limite de 1 MiB por apresentação do
+// Firestore sozinho, mesmo com as imagens de verdade sendo enviadas certas
+// à parte — e o erro que aparece depois ("apresentação muito grande") não
+// aponta pra ESTE arquivo como causa, deixando o problema difícil de achar
+// (caso real, 2026-08-20: image_data.js de 4,5 MB). Detectar aqui, ANTES de
+// tentar inlinar, e simplesmente pular esse arquivo (a tag <script src="...">/
+// <link href="..."> que o carregava fica intacta e só aponta pra um caminho
+// que não existe mais — inofensivo, não quebra o resto da página) é bem
+// melhor que deixar o usuário descobrir só depois que o Firestore recusar a
+// apresentação inteira.
+const MAX_INLINE_TEXT_FILE_BYTES = 300 * 1024;
+
 function fileExt(name) {
   const m = /\.([a-zA-Z0-9]+)$/.exec(name);
   return m ? m[1].toLowerCase() : '';
@@ -97,6 +115,7 @@ export async function bundleLocalFiles(fileList) {
   const files = Array.from(fileList);
   const texts = {}; // nome-do-arquivo -> conteúdo texto (css/js)
   const images = {}; // nome-do-arquivo -> URL pública no Cloud Storage
+  const skippedOversized = []; // { name, sizeMb } — ver MAX_INLINE_TEXT_FILE_BYTES
   let htmlFile = null;
   let htmlText = '';
 
@@ -112,6 +131,10 @@ export async function bundleLocalFiles(fileList) {
         htmlText = text;
       }
     } else if (TEXT_EXTENSIONS.has(ext)) {
+      if (file.size > MAX_INLINE_TEXT_FILE_BYTES) {
+        skippedOversized.push({ name, sizeMb: (file.size / (1024 * 1024)).toFixed(1) });
+        continue;
+      }
       texts[name] = await readAsText(file);
     } else if (IMAGE_EXTENSIONS.has(ext)) {
       images[name] = await uploadImageFile(file);
@@ -204,5 +227,9 @@ export async function bundleLocalFiles(fileList) {
   const fragment = [headAssets, rootEl.outerHTML].filter(Boolean).join('\n');
   const usedFiles = Object.keys(texts).length + Object.keys(images).length;
 
-  return { html: fragment, htmlFileName: htmlFile, usedFiles };
+  const warning = skippedOversized.length
+    ? `Arquivo(s) grande(s) demais ignorado(s) (provavelmente dados embutidos em base64, não CSS/JS de verdade): ${skippedOversized.map((f) => `${f.name} (${f.sizeMb} MB)`).join(', ')}. A tag que carregava esse arquivo ficou intacta no código mas vai apontar pra um caminho inexistente — se a página depender dele, ajuste o código (ver seção "Importações grandes demais" no chat) antes de importar de novo.`
+    : null;
+
+  return { html: fragment, htmlFileName: htmlFile, usedFiles, warning };
 }

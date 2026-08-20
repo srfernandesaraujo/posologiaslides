@@ -307,8 +307,14 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
         setActiveTab('html');
         setFromBundleImport(true);
         setBundleMessage({
-          type: 'success',
-          text: `"${result.htmlFileName}" combinado com ${result.usedFiles} arquivo(s) local(is) num bloco só — confira a prévia e clique em "Inserir Slide".`
+          // Arquivo(s) grande(s) demais ignorado(s) (ver MAX_INLINE_TEXT_FILE_BYTES
+          // em fileBundler.js) é motivo real de atenção, não só um "sucesso com
+          // ressalva" — sem isto o aviso passaria despercebido no meio da
+          // confirmação verde de que deu tudo certo.
+          type: result.warning ? 'warning' : 'success',
+          text: result.warning
+            ? `${result.warning} (Os outros ${result.usedFiles} arquivo(s) foram combinados normalmente — confira a prévia.)`
+            : `"${result.htmlFileName}" combinado com ${result.usedFiles} arquivo(s) local(is) num bloco só — confira a prévia e clique em "Inserir Slide".`
         });
       }
     } catch (err) {
@@ -438,9 +444,9 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
           <div
             style={{
               fontSize: '0.78rem',
-              color: bundleMessage.type === 'error' ? '#f87171' : '#6ee7b7',
-              background: bundleMessage.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-              border: `1px solid ${bundleMessage.type === 'error' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}`,
+              color: bundleMessage.type === 'error' ? '#f87171' : bundleMessage.type === 'warning' ? '#fbbf24' : '#6ee7b7',
+              background: bundleMessage.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : bundleMessage.type === 'warning' ? 'rgba(251, 191, 36, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+              border: `1px solid ${bundleMessage.type === 'error' ? 'rgba(239, 68, 68, 0.25)' : bundleMessage.type === 'warning' ? 'rgba(251, 191, 36, 0.25)' : 'rgba(16, 185, 129, 0.25)'}`,
               padding: '0.5rem 0.75rem',
               borderRadius: '0.4rem',
               marginBottom: '0.75rem',
