@@ -233,6 +233,16 @@ export async function bundleLocalFiles(fileList) {
     // marcar como .slide-root e o resto do pipeline (ver CodeSlideModal.jsx)
     // cairia no auto-embrulho antigo de novo.
     rootEl = doc.createElement('div');
+    // Ferramentas tipo Antigravity colocam as classes que fazem a página
+    // ocupar a tela inteira (h-screen/w-screen/flex flex-col justify-between
+    // etc.) no próprio <body>, não num wrapper interno — é o <body> que age
+    // como container flex/grid do layout. Sem herdar essas classes pro novo
+    // wrapper, ele vira uma <div> comum sem altura/flex nenhum, e o conteúdo
+    // desmancha pro tamanho natural no canto superior esquerdo em vez de
+    // preencher o slide (caso real, 2026-08-22: <body class="h-screen w-screen
+    // ... flex flex-col justify-between"> perdido na importação).
+    if (doc.body.className) rootEl.className = doc.body.className;
+    if (doc.body.getAttribute('style')) rootEl.setAttribute('style', doc.body.getAttribute('style'));
     rootEl.append(...bodyChildNodes);
     doc.body.appendChild(rootEl);
   }
@@ -247,6 +257,12 @@ export async function bundleLocalFiles(fileList) {
   if (!rootEl.classList.contains('slide-root')) {
     rootEl.classList.add('slide-root');
     if (!rootEl.style.height) rootEl.style.height = '100%';
+    // "w-screen"/"100vw" herdado do <body> original mede contra a janela do
+    // navegador de verdade — dentro do slide isso pode passar um pouco do
+    // que o container realmente tem (barra de rolagem etc.) e cortar/gerar
+    // scroll horizontal indevido. 100% (relativo ao .slide-root) é o que os
+    // outros containers do editor esperam.
+    if (!rootEl.style.width) rootEl.style.width = '100%';
   }
   // Sempre garante um container posicionado pra ancorar os "position:
   // absolute" que vieram de "fixed" (ver neutralizeFixedPosition acima) —
