@@ -105,6 +105,28 @@ function inlineCssUrls(css, images) {
   });
 }
 
+// Troca caminho de imagem local por URL de upload dentro de literais de string
+// em código JS (ex.: `imgElement.src = "assets/img/foo.jpg"` ou um objeto de
+// dados como `imagePaths: ["assets/img/foo.jpg", "./foo.jpg"]`). Sem isto, uma
+// página com JS que seta/troca `.src` dinamicamente (comum em visualizações
+// interativas geradas por IA, ex.: trocar de imagem ao clicar numa aba) fica
+// com a tag <img> corrigida no HTML mas o script sobrescreve o `src` de volta
+// pro caminho relativo original assim que roda — a imagem funciona ao abrir o
+// index.html direto (onde o caminho relativo existe de verdade) mas some
+// depois de importado (caso real, 2026-08-22: mechanism3d.js reatribuindo
+// imgElement.src via loadImageWithFallback ao trocar de mecanismo de ação).
+function inlineJsImageUrls(js, images) {
+  // Caminho relativo com subpastas (ex.: "assets/img/foo.jpg") precisa da
+  // "/" DENTRO do meio do valor, não só antes dele — daí o grupo repetido
+  // "(segmento/)*" entre o "./" ou "../" opcional do início e o nome do
+  // arquivo no final.
+  return js.replace(/(['"`])((?:\.{1,2}\/)?(?:[\w.-]+\/)*[\w.-]+\.(?:png|jpe?g|gif|webp|svg|ico|bmp|avif))\1/gi, (full, quote, url) => {
+    if (isExternalUrl(url)) return full;
+    const uploadedUrl = images[baseName(url)];
+    return uploadedUrl ? `${quote}${uploadedUrl}${quote}` : full;
+  });
+}
+
 // Recebe uma FileList (ver <input type="file" multiple> em CodeSlideModal.jsx)
 // com o .html principal + seus .css/.js/imagens locais, e devolve um único
 // fragmento HTML autocontido (CSS/JS inline, imagens enviadas pro Cloud
@@ -185,6 +207,14 @@ export async function bundleLocalFiles(fileList) {
   });
   doc.querySelectorAll('[style]').forEach((el) => {
     if (el.style.position === 'fixed') el.style.position = 'absolute';
+  });
+
+  // Cobre tanto <script> que já era inline no HTML original quanto os que
+  // acabaram de ser inlinados a partir de .js externos (Fase 1 acima) — ver
+  // inlineJsImageUrls(). Scripts com src="..." restante são CDN externo
+  // (já filtrado na Fase 1) e ficam intocados.
+  doc.querySelectorAll('script:not([src])').forEach((scriptEl) => {
+    scriptEl.textContent = inlineJsImageUrls(scriptEl.textContent, images);
   });
 
   const headAssets = Array.from(doc.head?.querySelectorAll('link, style, script') || [])
