@@ -1012,6 +1012,23 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         // só ativo em apresentação de verdade) — o script só manda o FATOR de
         // variação; quem decide o valor final e aplica o limite é aqui.
         setZoom((z) => clampZoom(z * data.factor));
+      } else if (data.type === 'pan-gesture') {
+        // Arrasto de 1 ponteiro (dedo/mouse) dentro do iframe com zoom
+        // aplicado (ver buildZoomGestureScript/panEnabled) — substitui a
+        // rolagem nativa do `.zoom-scrollport` por rolagem manual, pra não
+        // depender do navegador interpretar corretamente um arrasto que
+        // começa em cima de um iframe (no iPad isso era interpretado como
+        // gesto de navegação e derrubava a apresentação). dx/dy positivos
+        // (arrastou pra direita/baixo) reduzem scrollLeft/scrollTop — o
+        // conteúdo "segue o dedo", mesma convenção de mapa/visualizador de
+        // imagem. `Math.max(0, ...)` só cobre o limite inferior; o superior
+        // já é clampado pelo próprio navegador ao atribuir scrollLeft/Top
+        // além do intervalo válido.
+        const port = zoomScrollportRef.current;
+        if (port) {
+          port.scrollLeft = Math.max(0, port.scrollLeft - data.dx);
+          port.scrollTop = Math.max(0, port.scrollTop - data.dy);
+        }
       } else if (data.type === 'nav-key') {
         // Setas do teclado com o foco dentro do iframe (ver buildEditorScript
         // em PresentationViewer) — mesma navegação usada pelo teclado da
@@ -2312,6 +2329,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     editable={!isFullscreen && !atClosingSlide}
                     spotlightEnabled={isFullscreen && spotlightOn}
                     zoomGestureEnabled={isFullscreen}
+                    panEnabled={isFullscreen && zoom > 1.01}
                     animationTriggersEnabled={isFullscreen && !atClosingSlide}
                     liveQuizEnabled={isFullscreen && !atClosingSlide}
                     selectedElement={selectedEl}

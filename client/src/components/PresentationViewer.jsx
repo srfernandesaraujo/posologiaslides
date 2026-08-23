@@ -866,17 +866,60 @@ export function buildSpotlightScript(spotlightEnabled) {
 // arrasto/redimensionamento de elemento. Detecta pinça de dois dedos (toque)
 // e Ctrl+roda do mouse (sinal padrão de pinça de trackpad), e só avisa o app
 // pai o FATOR de variação — quem decide o zoom final e aplica o clamp é
-// PresentationEditor.jsx (ver `zoom-gesture` no listener de mensagens). A
-// NAVEGAÇÃO (arrastar a visão já com zoom) não passa por aqui — é rolagem
-// nativa do navegador em cima de .zoom-scrollport, por isso roda "solta"
-// (sem Ctrl) é deliberadamente ignorada aqui, pra não competir com ela.
+// PresentationEditor.jsx (ver `zoom-gesture` no listener de mensagens).
+//
+// NAVEGAÇÃO (arrastar a visão já com zoom) também é tratada aqui, com
+// arrasto de UM ponteiro só (dedo, caneta ou botão esquerdo do mouse):
+// antes disso dependia inteiramente da rolagem NATIVA do `.zoom-scrollport`
+// no app pai, o que no iPad (Safari) é frágil — um arrasto que começa em
+// cima do iframe frequentemente é interpretado pelo sistema como gesto de
+// navegação (voltar/página), derrubando a apresentação em vez de só mover a
+// visão. Por isso, com zoom aplicado (`pannable`, avisado pelo pai via
+// postMessage 'zoom-state' — ver useEffect de `panEnabled` em
+// PresentationViewer), o próprio arrasto de 1 ponteiro é interceptado aqui
+// (preventDefault, sem depender de rolagem nativa nenhuma) e reportado como
+// DELTA em pixels de tela pro pai (`pan-gesture`), que aplica direto em
+// `scrollLeft`/`scrollTop` do `.zoom-scrollport`. Sem zoom aplicado
+// (`pannable` false), o arrasto não é interceptado — clique em elemento
+// interativo do slide (hotspot, botão, link) continua passando solto.
 export function buildZoomGestureScript(zoomGestureEnabled) {
   if (!zoomGestureEnabled) return '';
   return `
+<style>
+  /* Cursor de "mãozinha" só quando há zoom aplicado (.__pan-active, ligado
+     pelo postMessage 'zoom-state') — sem !important, pra um botão/link do
+     próprio slide continuar mostrando cursor:pointer normalmente (só o
+     FUNDO do slide vira mãozinha). Durante o arrasto de verdade
+     (.__pan-dragging) força grabbing em tudo, sem ambiguidade.
+     touch-action:none É NECESSÁRIO (não só preventDefault() no JS abaixo):
+     no iPad/Safari o navegador decide otimisticamente rolar a página (ou
+     interpretar como gesto de voltar) ANTES do JS ter chance de cancelar,
+     a não ser que touch-action já avise de antemão que este elemento não
+     rola nativamente — foi exatamente a falta disso que fazia o arrasto
+     "derrubar" a apresentação no relato original. Escopado a só quando
+     ZOOMED (.__pan-active), não no fullscreen inteiro, pra não quebrar a
+     rolagem de conteúdo alto (data-scrollable, ver override logo abaixo)
+     fora deste cenário. */
+  html.__pan-active { touch-action: none; cursor: grab; }
+  html.__pan-active.__pan-dragging, html.__pan-active.__pan-dragging * { cursor: grabbing !important; }
+  /* Restaura a rolagem vertical nativa do conteúdo "alto" (ver
+     data-scrollable mais abaixo neste arquivo) mesmo com zoom aplicado —
+     sem isto, um slide comprido que também foi zoomado perderia a rolagem
+     de leitura por toque. */
+  html.__pan-active [data-scrollable="true"] { touch-action: pan-y; }
+</style>
 <script>
 (function () {
   var pointers = {};
   var pinchStartDist = null;
+
+  // Estado do arrasto-pra-navegar (1 ponteiro só) — ver comentário acima.
+  var panActive = false;
+  var panPointerId = null;
+  var panStart = null;
+  var isDragging = false;
+  var justPanned = false;
+  var DRAG_THRESHOLD = 6;
 
   function dist(p1, p2) {
     var dx = p1.x - p2.x, dy = p1.y - p2.y;
@@ -887,11 +930,47 @@ export function buildZoomGestureScript(zoomGestureEnabled) {
     window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'zoom-gesture', factor: factor }, '*');
   }
 
+  function sendPan(dx, dy) {
+    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'pan-gesture', dx: dx, dy: dy }, '*');
+  }
+
+  function stopPan() {
+    if (panPointerId !== null) {
+      try { document.documentElement.releasePointerCapture(panPointerId); } catch (err) {}
+    }
+    panPointerId = null;
+    panStart = null;
+    if (isDragging) justPanned = true;
+    isDragging = false;
+    document.documentElement.classList.remove('__pan-dragging');
+  }
+
+  // Avisado pelo pai (ver useEffect de \`panEnabled\` em PresentationViewer) —
+  // \`zoom\`/\`effectiveScale\` vivem só no app pai, o iframe não tem como saber
+  // sozinho se há zoom aplicado no palco.
+  window.addEventListener('message', function (e) {
+    var data = e.data;
+    if (!data || data.source !== '${PARENT_TO_SLIDE_MESSAGE_SOURCE}' || data.type !== 'zoom-state') return;
+    panActive = !!data.pannable;
+    document.documentElement.classList.toggle('__pan-active', panActive);
+    if (!panActive) stopPan();
+  });
+
   document.addEventListener('pointerdown', function (e) {
     pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
     var ids = Object.keys(pointers);
     if (ids.length === 2) {
       pinchStartDist = dist(pointers[ids[0]], pointers[ids[1]]);
+      stopPan();
+      return;
+    }
+    if (ids.length === 1 && panActive && (e.pointerType !== 'mouse' || e.button === 0)) {
+      // preventDefault aqui só evita seleção nativa de texto/arrasto nativo
+      // de imagem ao começar a arrastar — o 'click' de um toque/clique real
+      // (sem movimento) continua disparando normalmente depois.
+      e.preventDefault();
+      panPointerId = e.pointerId;
+      panStart = { x: e.clientX, y: e.clientY };
     }
   });
 
@@ -899,19 +978,49 @@ export function buildZoomGestureScript(zoomGestureEnabled) {
     if (!(e.pointerId in pointers)) return;
     pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
     var ids = Object.keys(pointers);
-    if (ids.length !== 2 || pinchStartDist === null || pinchStartDist === 0) return;
-    e.preventDefault();
-    var newDist = dist(pointers[ids[0]], pointers[ids[1]]);
-    sendZoom(newDist / pinchStartDist);
-    pinchStartDist = newDist;
+
+    if (ids.length === 2 && pinchStartDist !== null && pinchStartDist !== 0) {
+      e.preventDefault();
+      var newDist = dist(pointers[ids[0]], pointers[ids[1]]);
+      sendZoom(newDist / pinchStartDist);
+      pinchStartDist = newDist;
+      return;
+    }
+
+    if (e.pointerId === panPointerId && panStart) {
+      var dx = e.clientX - panStart.x;
+      var dy = e.clientY - panStart.y;
+      if (!isDragging) {
+        if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+        isDragging = true;
+        document.documentElement.classList.add('__pan-dragging');
+        try { document.documentElement.setPointerCapture(panPointerId); } catch (err) {}
+      }
+      e.preventDefault();
+      sendPan(dx, dy);
+      panStart = { x: e.clientX, y: e.clientY };
+    }
   }, { passive: false });
 
   function clearPointer(e) {
     delete pointers[e.pointerId];
     pinchStartDist = null;
+    if (e.pointerId === panPointerId) stopPan();
   }
   document.addEventListener('pointerup', clearPointer);
   document.addEventListener('pointercancel', clearPointer);
+
+  // Fase de captura: suprime o 'click' de compatibilidade que o navegador
+  // dispara logo depois do pointerup de um arrasto-pra-navegar de verdade —
+  // sem isto, soltar o dedo/mouse em cima de um botão/link do slide depois
+  // de arrastar a visão também "clicaria" nele sem querer (mesmo padrão já
+  // usado em buildEditorScript pro arrasto de elemento).
+  document.addEventListener('click', function (e) {
+    if (!justPanned) return;
+    justPanned = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
 
   document.addEventListener('wheel', function (e) {
     if (!e.ctrlKey) return;
@@ -1071,7 +1180,7 @@ export function buildLiveQuizVoteScript(enabled) {
 // carregado) + `document.fonts.ready` + um pequeno delay extra pra Chart.js/
 // Mermaid/animações CSS assentarem. Só o exportDeck.js usa isto hoje — sem
 // consumidor, o callback nunca dispara e não custa nada pro resto do app.
-const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, liveQuizEnabled = false, selectedElement = null, cropMode = false, staticPreview = false, onReady = null }, forwardedRef) {
+const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, liveQuizEnabled = false, selectedElement = null, cropMode = false, panEnabled = false, staticPreview = false, onReady = null }, forwardedRef) {
   const iframeRef = useRef(null);
   useImperativeHandle(forwardedRef, () => iframeRef.current, []);
   // Ref (não estado/dependência do efeito abaixo): só precisamos do valor mais
@@ -1106,6 +1215,21 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
       '*'
     );
   }, [cropMode]);
+
+  // Mesmo mecanismo de 'set-crop-mode' acima, agora pro arrasto-pra-navegar
+  // (ver buildZoomGestureScript): avisa o script já rodando dentro do iframe
+  // se HÁ zoom manual aplicado no palco (PresentationEditor decide o valor;
+  // aqui só repassa). Sem isto, o script não teria como saber quando ativar o
+  // cursor de "mãozinha"/interceptar o arrasto — `zoom`/`effectiveScale`
+  // vivem só no app pai, fora do iframe.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !iframe.contentWindow) return;
+    iframe.contentWindow.postMessage(
+      { source: PARENT_TO_SLIDE_MESSAGE_SOURCE, type: 'zoom-state', pannable: !!panEnabled },
+      '*'
+    );
+  }, [panEnabled]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
