@@ -882,7 +882,7 @@ export function buildSpotlightScript(spotlightEnabled) {
 // `scrollLeft`/`scrollTop` do `.zoom-scrollport`. Sem zoom aplicado
 // (`pannable` false), o arrasto não é interceptado — clique em elemento
 // interativo do slide (hotspot, botão, link) continua passando solto.
-export function buildZoomGestureScript(zoomGestureEnabled) {
+export function buildZoomGestureScript(zoomGestureEnabled, initialPannable) {
   if (!zoomGestureEnabled) return '';
   return `
 <style>
@@ -914,7 +914,16 @@ export function buildZoomGestureScript(zoomGestureEnabled) {
   var pinchStartDist = null;
 
   // Estado do arrasto-pra-navegar (1 ponteiro só) — ver comentário acima.
-  var panActive = false;
+  // Valor INICIAL vem do app pai (ver \`initialPannable\`/\`panEnabledRef\` em
+  // PresentationViewer) — precisa ser lido já aqui, não só esperar o
+  // postMessage 'zoom-state' mais abaixo, porque TROCAR DE SLIDE recarrega
+  // este script do zero (novo srcdoc) e, se o zoom já estava aplicado antes
+  // da troca, \`panEnabled\` no pai não MUDA (já era \`true\`), então o
+  // postMessage nunca dispararia de novo — sem este valor inicial, o
+  // arrasto ficava sem proteção nenhuma em qualquer slide além do primeiro
+  // em que o usuário aplicou zoom.
+  var panActive = ${JSON.stringify(!!initialPannable)};
+  if (panActive) document.documentElement.classList.add('__pan-active');
   var panPointerId = null;
   var panStart = null;
   var isDragging = false;
@@ -1197,6 +1206,16 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
   // separado logo abaixo, via postMessage, sem recarregar nada.
   const cropModeRef = useRef(cropMode);
   cropModeRef.current = cropMode;
+  // Mesma lógica pro arrasto-pra-navegar (ver buildZoomGestureScript) — sem
+  // isto, trocar de slide (novo srcdoc, script reiniciado do zero) ENQUANTO
+  // ainda zoomado perdia o estado "pannable": o postMessage 'zoom-state' só
+  // dispara quando `panEnabled` MUDA (useEffect logo abaixo), e trocar de
+  // slide não muda esse valor (já estava `true` antes e continua `true`
+  // depois) — o novo script carregava com `panActive=false` e nunca recebia
+  // aviso nenhum, então o arrasto voltava a cair na rolagem nativa (o bug
+  // relatado: funcionava só até trocar de slide com zoom já aplicado).
+  const panEnabledRef = useRef(panEnabled);
+  panEnabledRef.current = panEnabled;
   // Mesmo motivo das refs acima: o efeito principal não tem `onReady` nas
   // dependências (uma função nova a cada render do chamador recarregaria o
   // iframe à toa), então lê sempre a versão mais recente através da ref.
@@ -1335,7 +1354,7 @@ ${content}
 ${buildBackgroundMirrorScript()}
 ${buildNavKeyRelayScript()}
 ${buildSpotlightScript(spotlightEnabled)}
-${buildZoomGestureScript(zoomGestureEnabled)}
+${buildZoomGestureScript(zoomGestureEnabled, panEnabledRef.current)}
 ${buildAnimationTriggerScript(animationTriggersEnabled)}
 ${buildLiveQuizVoteScript(liveQuizEnabled)}
 ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) : ''}

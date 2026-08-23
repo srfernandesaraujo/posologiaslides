@@ -342,6 +342,59 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     prevEffectiveScaleRef.current = effectiveScale;
   }, [effectiveScale]);
 
+  // Arrastar-pra-navegar (ver buildZoomGestureScript em PresentationViewer)
+  // TAMBÉM precisa existir aqui, fora do iframe: o script injetado só
+  // intercepta arrastos que começam EM CIMA do conteúdo do slide (dentro do
+  // iframe — eventos de toque lá dentro nunca borbulham pro documento pai,
+  // fronteira de documento). Mas o `.zoom-scrollport` costuma sobrar mais
+  // área do que o iframe cobre (o slide é 16:9 fixo; a tela do iPad quase
+  // nunca é exatamente 16:9), então tem uma faixa de fundo ao redor do
+  // slide ampliado que só existe no documento PAI — um arrasto que começa
+  // ali nunca passava pelo fix do iframe, caía na rolagem nativa de sempre
+  // e reproduzia o mesmo bug (derrubava a apresentação no iPad). Mesma
+  // lógica de limiar/captura do script do iframe, só que em React puro
+  // (sem os cuidados de citação de template string).
+  const scrollPanStateRef = useRef({ pointerId: null, startX: 0, startY: 0, startScrollLeft: 0, startScrollTop: 0, dragging: false });
+  const PAN_DRAG_THRESHOLD = 6;
+
+  const handleScrollportPointerDown = (e) => {
+    if (!isFullscreen || zoom <= 1.01) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const port = zoomScrollportRef.current;
+    if (!port) return;
+    scrollPanStateRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startScrollLeft: port.scrollLeft,
+      startScrollTop: port.scrollTop,
+      dragging: false
+    };
+  };
+
+  const handleScrollportPointerMove = (e) => {
+    const state = scrollPanStateRef.current;
+    if (state.pointerId !== e.pointerId) return;
+    const port = zoomScrollportRef.current;
+    if (!port) return;
+    const dx = e.clientX - state.startX;
+    const dy = e.clientY - state.startY;
+    if (!state.dragging) {
+      if (Math.abs(dx) < PAN_DRAG_THRESHOLD && Math.abs(dy) < PAN_DRAG_THRESHOLD) return;
+      state.dragging = true;
+      try { port.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    }
+    e.preventDefault();
+    port.scrollLeft = Math.max(0, state.startScrollLeft - dx);
+    port.scrollTop = Math.max(0, state.startScrollTop - dy);
+  };
+
+  const handleScrollportPointerEnd = (e) => {
+    const state = scrollPanStateRef.current;
+    if (state.pointerId !== e.pointerId) return;
+    scrollPanStateRef.current = { pointerId: null, startX: 0, startY: 0, startScrollLeft: 0, startScrollTop: 0, dragging: false };
+  };
+
   useEffect(() => {
     let newSocket;
     let cancelled = false;
@@ -2291,11 +2344,28 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             ref={zoomScrollportRef}
             className="zoom-scrollport"
             onScroll={(e) => setScrollOffset({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft })}
+            onPointerDown={handleScrollportPointerDown}
+            onPointerMove={handleScrollportPointerMove}
+            onPointerUp={handleScrollportPointerEnd}
+            onPointerCancel={handleScrollportPointerEnd}
             style={{
               position: 'absolute',
               inset: 0,
               overflow: Math.abs(zoom - 1) < 0.01 ? 'hidden' : 'auto',
-              scrollbarGutter: 'stable both-edges'
+              scrollbarGutter: 'stable both-edges',
+              // touch-action:none só quando de fato zoomado em apresentação —
+              // sem isto o navegador (iPad) decide rolar nativamente ANTES do
+              // JS acima ter chance de interceptar (preventDefault sozinho não
+              // basta, mesmo raciocínio do buildZoomGestureScript no iframe).
+              // Fora desse caso continua 'auto' — não interfere na rolagem
+              // normal do editor (fora de tela cheia) nem em zoom 100%.
+              touchAction: (isFullscreen && zoom > 1.01) ? 'none' : 'auto',
+              // Sempre 'grab' (não reflete 'grabbing' ao vivo durante o
+              // arrasto — isso é estado numa ref, não dispara re-render de
+              // propósito, pra não re-renderizar a cada pointermove só por
+              // causa do cursor; o iframe por baixo já mostra 'grabbing' de
+              // verdade via classe CSS, essa faixa de fundo é só a borda).
+              cursor: (isFullscreen && zoom > 1.01) ? 'grab' : 'default'
             }}
           >
             <div
