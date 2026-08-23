@@ -485,6 +485,22 @@ button.mobile-toggle-btn {
   background: #000;
 }
 
+/* `dvh`/`dvw` (viewport DINÂMICO — acompanha a barra do Safari
+   aparecendo/sumindo) só sobrescreve em navegadores que suportam (guard
+   @supports, sem afetar quem já usa `vh`/`vw` normal). Importa
+   especificamente pro modo "tela cheia" no iPad/iPhone (ver
+   isIOSFullscreenSwipeDownQuirk em platformQuirks.js): sem uma sessão REAL
+   de Fullscreen API ali, a barra do Safari pode aparecer/sumir durante a
+   apresentação — `vh` comum mede um viewport FIXO (às vezes o menor
+   possível, sobrando espaço morto; às vezes o maior, cortando conteúdo),
+   `dvh` sempre mede o espaço realmente visível no momento. */
+@supports (height: 100dvh) {
+  .fullscreen-stage {
+    width: min(100dvw, calc(100dvh * 16 / 9)) !important;
+    height: min(100dvh, calc(100dvw * 9 / 16)) !important;
+  }
+}
+
 /* Floating Controls Toolbar */
 .floating-toolbar {
   position: absolute;

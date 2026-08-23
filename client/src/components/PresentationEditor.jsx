@@ -44,6 +44,7 @@ import useCanvasFit from '../lib/useCanvasFit';
 import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, LEGACY_SLIDE_WIDTH, LEGACY_SLIDE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDIT_RANGE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
 import useUndoHistory from '../lib/useUndoHistory';
 import useScreenWakeLock from '../lib/useScreenWakeLock';
+import { isIOSFullscreenSwipeDownQuirk } from '../lib/platformQuirks';
 import { useAuth } from '../context/AuthContext';
 import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
@@ -958,7 +959,27 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     handlePrevRef.current = handlePrev;
   });
 
+  // iPad/iPhone: a Fullscreen API REAL tem um gesto de sistema do WebKit
+  // (arrastar de cima pra baixo em qualquer ponto da tela) que sai da tela
+  // cheia imediatamente, sem forma de bloquear via JS (touch-action/
+  // preventDefault não alcançam esse nível — confirmado testando no app
+  // real). Único jeito de evitar o gesto é nunca abrir a sessão nativa
+  // nesses aparelhos (ver isIOSFullscreenSwipeDownQuirk) — abaixo, o toggle
+  // e o efeito de sincronização se ramificam nesse caso pra usar só um
+  // estado próprio do app (mesmo CSS .fullscreen-stage de sempre), sem
+  // nunca chamar requestFullscreen()/exitFullscreen(). Em outras
+  // plataformas (desktop, Android) nada muda — o bug é específico do
+  // WebKit/iOS, então mantemos a Fullscreen API real (Esc, chrome do
+  // navegador escondido de verdade, tela cheia em múltiplos monitores).
   const toggleFullscreen = () => {
+    if (isIOSFullscreenSwipeDownQuirk()) {
+      setIsFullscreen((prev) => {
+        const next = !prev;
+        if (!next) setOverlayExpanded(false);
+        return next;
+      });
+      return;
+    }
     if (!stageRef.current) return;
     if (!document.fullscreenElement) {
       stageRef.current.requestFullscreen().catch(() => {});
@@ -970,8 +991,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Mantém isFullscreen sincronizado com o estado real do navegador: cobre a
   // saída nativa (tecla Esc, UI do navegador), que não passa por toggleFullscreen
   // e por isso deixava a UI (lista de slides, chat) escondida mesmo após sair.
+  // Ignorado no ramo iOS acima — lá `isFullscreen` é só estado do app,
+  // nunca chega a existir document.fullscreenElement nenhum pra sincronizar;
+  // sem este guard, um 'fullscreenchange' de QUALQUER origem (mesmo sem
+  // relação com este componente) reveria `isFullscreen` pra `false` via
+  // `!!document.fullscreenElement` e derrubaria silenciosamente o estado
+  // manual que o toggle acabou de ligar.
   useEffect(() => {
     const handleFullscreenChange = () => {
+      if (isIOSFullscreenSwipeDownQuirk()) return;
       setIsFullscreen(!!document.fullscreenElement);
       // Saindo de tela cheia: o overlay ampliado (position:fixed, cobre a
       // tela toda) não faz sentido em cima do editor — evita deixar a UI de
