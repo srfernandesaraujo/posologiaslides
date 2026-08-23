@@ -1128,8 +1128,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
   // Índices de seleção só fazem sentido pro slide/estado atual — trocar de
   // slide ou entrar/sair de tela cheia sempre recarrega o iframe do zero.
-  // Também reseta o zoom/rolagem — sem isso o próximo slide (ou a volta da
-  // tela cheia) "herdaria" o zoom/posição do slide anterior.
+  // A ROLAGEM (posição da visão) também sempre volta pro canto aqui — sem
+  // isso o próximo slide "herdaria" a posição rolada do slide anterior, que
+  // não faz sentido pra um conteúdo diferente. O NÍVEL DE ZOOM em si não é
+  // resetado aqui de propósito (ver efeito separado abaixo) — pedido
+  // explícito do usuário: trocar de slide em apresentação deveria manter o
+  // zoom aplicado, só a posição volta pro topo/esquerda do slide novo.
   useEffect(() => {
     setSelectedEl(null);
     setChatScope(null);
@@ -1138,10 +1142,17 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setCropMode(false);
     setElementHtmlDraft(null);
     setTransitionPanelOpen(false);
-    setZoom(1);
     setScrollOffset({ top: 0, left: 0 });
     zoomScrollportRef.current?.scrollTo(0, 0);
   }, [activeIndex, isFullscreen, atClosingSlide]);
+
+  // Zoom só reseta pra 100% ao entrar/sair de tela cheia de verdade — NÃO ao
+  // trocar de slide (esse caso fica só no efeito acima, cuidando da
+  // rolagem). Reset manual (botão "-"/clicar na porcentagem/atalho "0")
+  // continua funcionando via handleZoomReset, sem depender deste efeito.
+  useEffect(() => {
+    setZoom(1);
+  }, [isFullscreen]);
 
   // Ao selecionar um elemento novo, pré-preenche os controles de duração/atraso
   // do painel "Animar" com a animação já aplicada a ele (se houver) — sem isso,
