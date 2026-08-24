@@ -1,45 +1,58 @@
 import { apiFetch } from './api';
 
-// Backend responde em NDJSON (uma linha JSON por evento de progresso) via
-// chunked transfer, não um JSON só no final — empacotar/restaurar uma conta
-// com bastante mídia pode levar um tempo, e um spinner cego é pior UX que
-// mostrar o estágio atual (ver backupRoutes.js).
-async function readNdjsonStream(response, onEvent) {
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let newlineIndex;
-    while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, newlineIndex).trim();
-      buffer = buffer.slice(newlineIndex + 1);
-      if (line) onEvent(JSON.parse(line));
-    }
-  }
-  const rest = buffer.trim();
-  if (rest) onEvent(JSON.parse(rest));
+// Backend roda a operação em segundo plano e devolve um jobId na hora — o
+// progresso é lido por polling em /api/backup/status/:jobId (ver
+// backupRoutes.js) em vez de uma resposta NDJSON em streaming (conexão HTTP
+// aberta por dezenas de segundos). Trocado depois de confirmar em produção,
+// atrás do Cloudflare Tunnel do servidor doméstico, que a versão em
+// streaming falhava com net::ERR_QUIC_PROTOCOL_ERROR e, mesmo desligando
+// HTTP/3 no Cloudflare pra testar, com net::ERR_HTTP2_PROTOCOL_ERROR — o
+// mesmo endpoint falhando nos dois protocolos descartou bug específico de
+// QUIC. Cada poll é uma requisição curta e completa (JSON normal), o padrão
+// mais compatível com qualquer proxy/túnel/CDN, em vez de depender de uma
+// conexão só ficar aberta o tempo todo.
+const POLL_INTERVAL_MS = 1000;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runNdjsonOperation(path, options, onEvent) {
+async function pollJob(jobId, onEvent) {
+  // Evita chamar onEvent de novo com o EXATO mesmo evento (comum: o poll
+  // pega o mesmo estágio de progresso duas vezes seguidas antes dele
+  // avançar) — comparação simples por JSON, o objeto de progresso é pequeno.
+  let lastProgressJson = null;
+  for (;;) {
+    const res = await apiFetch(`/api/backup/status/${jobId}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Falha ao consultar o progresso da operação.');
+    }
+    const job = await res.json();
+
+    if (job.progress) {
+      const json = JSON.stringify(job.progress);
+      if (json !== lastProgressJson) {
+        lastProgressJson = json;
+        onEvent(job.progress);
+      }
+    }
+
+    if (job.status === 'done') return job.result;
+    if (job.status === 'error') throw new Error(job.error?.message || 'Falha na operação de backup.');
+
+    await wait(POLL_INTERVAL_MS);
+  }
+}
+
+async function runJobOperation(path, options, onEvent) {
   const res = await apiFetch(path, options);
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || 'Falha ao iniciar a operação de backup.');
   }
-
-  let lastEvent = null;
-  await readNdjsonStream(res, (evt) => {
-    lastEvent = evt;
-    onEvent(evt);
-  });
-
-  if (lastEvent?.type === 'error') {
-    throw new Error(lastEvent.message || 'Falha na operação de backup.');
-  }
-  return lastEvent;
+  const { jobId } = await res.json();
+  return pollJob(jobId, onEvent);
 }
 
 // Dispara o download de fato no navegador a partir de um Blob já em memória
@@ -63,7 +76,7 @@ function triggerBrowserDownload(blob, fileName) {
 // guardar (Google Drive, pasta local, pendrive, o que quiser: não é mais o
 // app que decide, é só um arquivo .zip comum).
 export async function createBackup(onEvent) {
-  const result = await runNdjsonOperation('/api/backup/create', { method: 'POST' }, onEvent);
+  const result = await runJobOperation('/api/backup/create', { method: 'POST' }, onEvent);
   if (!result?.downloadId) return result;
 
   const downloadRes = await apiFetch(`/api/backup/download/${result.downloadId}`);
@@ -77,10 +90,10 @@ export async function createBackup(onEvent) {
 }
 
 // `file` é um File escolhido pelo usuário (<input type="file">) — sobe pro
-// servidor como multipart, que processa e devolve progresso via NDJSON
+// servidor como multipart, que processa e devolve progresso via polling
 // (mesmo formato do create).
 export function restoreBackup(file, onEvent) {
   const formData = new FormData();
   formData.append('backupFile', file);
-  return runNdjsonOperation('/api/backup/restore', { method: 'POST', body: formData }, onEvent);
+  return runJobOperation('/api/backup/restore', { method: 'POST', body: formData }, onEvent);
 }

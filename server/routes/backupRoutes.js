@@ -6,6 +6,7 @@ import {
   createBackup, restoreBackup, UnsupportedBackupVersionError, InvalidBackupFileError
 } from '../services/backupService.js';
 import { consumeDownload } from '../services/downloadRegistry.js';
+import { createJob, updateJobProgress, finishJob, failJob, getJob } from '../services/backupJobRegistry.js';
 import { getBucket } from '../services/firebaseAdmin.js';
 
 const router = express.Router();
@@ -24,44 +25,55 @@ const uploadBackup = multer({
 
 function errorToEvent(err) {
   if (err instanceof UnsupportedBackupVersionError || err instanceof InvalidBackupFileError) {
-    return { type: 'error', code: err.code, message: err.message };
+    return { code: err.code, message: err.message };
   }
-  return { type: 'error', code: 'internal_error', message: 'Erro inesperado ao processar o backup.' };
+  return { code: 'internal_error', message: 'Erro inesperado ao processar o backup.' };
 }
 
-// NDJSON (uma linha JSON por evento de progresso) via chunked transfer, em
-// vez de "dispara job + endpoint de status/polling" — menos infraestrutura
-// nova pra uma ação manual de uso ocasional, e dá feedback de progresso sem
-// precisar bufferizar a resposta inteira (contas com bastante mídia podem
-// levar um tempo pra empacotar/restaurar). Precisa ser iniciado ANTES de
-// qualquer erro possível no meio da operação, porque depois de `writeHead`
-// não dá mais pra trocar o status HTTP.
-function startNdjsonStream(res) {
-  res.writeHead(200, {
-    'Content-Type': 'application/x-ndjson',
-    'Cache-Control': 'no-cache',
-    'X-Accel-Buffering': 'no'
-  });
-  return (evt) => res.write(JSON.stringify(evt) + '\n');
-}
+// Job assíncrono + polling em vez da resposta NDJSON em streaming que este
+// endpoint usava antes (conexão HTTP aberta por dezenas de segundos,
+// recebendo eventos de progresso aos poucos). Trocado depois de confirmar em
+// produção, atrás do Cloudflare Tunnel do usuário, que a versão em streaming
+// falhava com net::ERR_QUIC_PROTOCOL_ERROR E, mesmo desligando HTTP/3 no
+// Cloudflare pra testar, com net::ERR_HTTP2_PROTOCOL_ERROR — o mesmo
+// endpoint falhando nos dois protocolos descarta bug específico de um deles
+// e aponta pra algo na forma como o túnel relaia uma resposta chunked/de
+// streaming por múltiplos saltos. Ver server/services/backupJobRegistry.js.
+// Cada requisição de status abaixo é curta e completa (JSON normal), sem
+// depender de conexão nenhuma ficar aberta.
+router.post('/create', (req, res) => {
+  const jobId = createJob(req.user.id);
+  res.json({ success: true, jobId });
 
-router.post('/create', async (req, res) => {
-  const emit = startNdjsonStream(res);
-  try {
-    const bucket = getBucket();
-    await createBackup({ userId: req.user.id, user: req.user, bucket, onEvent: emit });
-  } catch (err) {
-    console.error('Falha ao criar backup:', err);
-    emit(errorToEvent(err));
-  } finally {
-    res.end();
+  (async () => {
+    try {
+      const bucket = getBucket();
+      const result = await createBackup({
+        userId: req.user.id,
+        user: req.user,
+        bucket,
+        onEvent: (evt) => updateJobProgress(jobId, evt)
+      });
+      finishJob(jobId, result);
+    } catch (err) {
+      console.error('Falha ao criar backup:', err);
+      failJob(jobId, errorToEvent(err));
+    }
+  })();
+});
+
+router.get('/status/:jobId', (req, res) => {
+  const job = getJob(req.params.jobId, req.user.id);
+  if (!job) {
+    return res.status(404).json({ error: 'Job não encontrado (talvez expirado — inicie de novo).' });
   }
+  res.json({ status: job.status, progress: job.progress, result: job.result, error: job.error });
 });
 
 // Download de uso único do zip gerado por /create (ver downloadRegistry.js)
-// — rota separada (não devolvida já no POST /create) porque a resposta de
-// /create é NDJSON (texto, evento a evento) e o arquivo final é binário; não
-// dá pra misturar os dois numa resposta HTTP só.
+// — rota separada porque o resultado de /create é só um `downloadId` (via
+// polling de /status) e o arquivo final é binário; não dá pra misturar os
+// dois numa resposta HTTP só.
 router.get('/download/:downloadId', async (req, res) => {
   const entry = consumeDownload(req.params.downloadId, req.user.id);
   if (!entry) {
@@ -75,21 +87,29 @@ router.get('/download/:downloadId', async (req, res) => {
   });
 });
 
-router.post('/restore', uploadBackup.single('backupFile'), async (req, res) => {
+router.post('/restore', uploadBackup.single('backupFile'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Nenhum arquivo de backup enviado.' });
   }
 
-  const emit = startNdjsonStream(res);
-  try {
-    const bucket = getBucket();
-    await restoreBackup({ userId: req.user.id, zipFilePath: req.file.path, bucket, onEvent: emit });
-  } catch (err) {
-    console.error('Falha ao restaurar backup:', err);
-    emit(errorToEvent(err));
-  } finally {
-    res.end();
-  }
+  const jobId = createJob(req.user.id);
+  res.json({ success: true, jobId });
+
+  (async () => {
+    try {
+      const bucket = getBucket();
+      const result = await restoreBackup({
+        userId: req.user.id,
+        zipFilePath: req.file.path,
+        bucket,
+        onEvent: (evt) => updateJobProgress(jobId, evt)
+      });
+      finishJob(jobId, result);
+    } catch (err) {
+      console.error('Falha ao restaurar backup:', err);
+      failJob(jobId, errorToEvent(err));
+    }
+  })();
 });
 
 export default router;
