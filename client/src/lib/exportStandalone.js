@@ -317,7 +317,7 @@ const DATA = ${dataJsonLiteral};
 const SLIDES = DATA.slides;
 
 function buildSlideDoc(slide) {
-  var vendor = '<scr' + 'ipt>' + DATA.chartJs + '</scr' + 'ipt>' + (slide.needsMermaid ? ('<scr' + 'ipt>' + DATA.mermaidJs + '</scr' + 'ipt>') : '');
+  var vendor = (slide.needsChart ? ('<scr' + 'ipt>' + DATA.chartJs + '</scr' + 'ipt>') : '') + (slide.needsMermaid ? ('<scr' + 'ipt>' + DATA.mermaidJs + '</scr' + 'ipt>') : '');
   return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" /><style>' + DATA.fontsCss + DATA.baseStyles + '</style>' + vendor + '</head><body>' + slide.content + DATA.behaviorScripts + '</body></html>';
 }
 
@@ -506,6 +506,7 @@ export async function buildStandaloneHtml(presentation, { onProgress } = {}) {
       title: slide.title || '',
       content,
       needsMermaid: /mermaid/i.test(content),
+      needsChart: /new Chart\(/i.test(content),
       transition: resolveTransition(slide.transition)
     };
   });

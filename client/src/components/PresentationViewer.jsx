@@ -1256,6 +1256,12 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
 
     const content = htmlContent || '<div style="color:#9ca3af; padding:2rem;">Slide Vazio</div>';
     const needsMermaid = /mermaid/i.test(content);
+    // Mesma ideia do needsMermaid acima — antes o Chart.js (208KB) era
+    // carregado e re-executado em TODO slide, tenha gráfico ou não, a cada
+    // troca (novo srcdoc do zero por slide). "new Chart(" é como o próprio
+    // app (widgetCatalog.js/aiService.js) sempre instancia um gráfico, então
+    // é um marcador confiável de "este slide realmente usa Chart.js".
+    const needsChart = /new Chart\(/i.test(content);
 
     const doc = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1346,7 +1352,7 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
   @keyframes pos-slide-out-right { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(40px); } }
   @keyframes pos-scale-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.85); } }
 </style>
-<script src="/vendor/chart.umd.min.js"></script>
+${needsChart ? '<script src="/vendor/chart.umd.min.js"></script>' : ''}
 ${needsMermaid ? '<script src="/vendor/mermaid.min.js"></script>' : ''}
 </head>
 <body>
