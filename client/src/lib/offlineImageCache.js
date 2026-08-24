@@ -34,6 +34,51 @@ export function registerOfflineImageCache() {
   });
 }
 
+// Espera o navegador ficar ocioso (ou um teto de tempo, pro caso de nunca
+// ficar realmente ocioso) antes de começar a priming — sem isto, abrir uma
+// apresentação grande disparava dezenas de fetches de imagem competindo,
+// bem na hora que mais importa, com as imagens de verdade necessárias pra
+// pintar os slides visíveis (miniaturas próximas + slide ativo). Safari não
+// tem requestIdleCallback, daí o fallback em setTimeout.
+function whenIdle() {
+  return new Promise((resolve) => {
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(() => resolve(), { timeout: 3000 });
+    } else {
+      setTimeout(resolve, 1500);
+    }
+  });
+}
+
+async function primeOne(cache, url) {
+  try {
+    if (await cache.match(url)) return;
+    const response = await fetch(url, { mode: 'no-cors' });
+    await cache.put(url, response);
+  } catch {
+    // Sem sorte com esta imagem específica (ex.: URL já caiu, CORS
+    // bloqueou mesmo em no-cors) — não trava as outras nem o resto do app.
+  }
+}
+
+// No máximo 4 downloads de imagem em paralelo pra este priming — um
+// Promise.all sem limite disparava as imagens de um deck de 40+ slides TODAS
+// de uma vez (reportado como app "lento pra abrir" apresentações maiores),
+// competindo por banda/conexões com o que a tela realmente precisa mostrar
+// agora. 4 é generoso o bastante pra terminar rápido sem saturar a rede.
+const MAX_CONCURRENT = 4;
+
+async function primeInBatches(cache, urls) {
+  let next = 0;
+  async function worker() {
+    while (next < urls.length) {
+      const url = urls[next++];
+      await primeOne(cache, url);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT, urls.length) }, worker));
+}
+
 // Chamado ao abrir uma apresentação (editor ou visualização pública) — sem
 // isto, a primeira vez que cada imagem aparece continua exigindo rede,
 // mesmo com o service worker instalado.
@@ -41,18 +86,10 @@ export async function primeOfflineImageCache(slides) {
   if (!('caches' in window) || !navigator.onLine) return;
   const urls = extractImageUrls(slides);
   if (urls.length === 0) return;
+  await whenIdle();
   try {
     const cache = await caches.open(IMAGE_CACHE_NAME);
-    await Promise.all(urls.map(async (url) => {
-      try {
-        if (await cache.match(url)) return;
-        const response = await fetch(url, { mode: 'no-cors' });
-        await cache.put(url, response);
-      } catch {
-        // Sem sorte com esta imagem específica (ex.: URL já caiu, CORS
-        // bloqueou mesmo em no-cors) — não trava as outras nem o resto do app.
-      }
-    }));
+    await primeInBatches(cache, urls);
   } catch {
     // Cache Storage indisponível (ex.: aba anônima com storage bloqueado) —
     // degrada pro comportamento de sempre precisar de rede, sem quebrar nada.
