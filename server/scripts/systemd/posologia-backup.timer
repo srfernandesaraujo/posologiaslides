@@ -1,0 +1,11 @@
+[Unit]
+Description=Dispara o backup diario do Posologia Slides
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+# Se a maquina estiver desligada/suspensa as 4h, roda assim que ela ligar de novo
+# em vez de simplesmente pular aquele dia.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup diario do Posologia Slides (todos os usuarios)
+
+[Service]
+Type=oneshot
+# AJUSTE este caminho para a pasta "server" do repositorio nesta maquina
+# (mesmo repo usado pelo pm2/deploy.sh).
+WorkingDirectory=%h/posologia-slides/server
+ExecStart=/usr/bin/node scripts/scheduledBackup.js
