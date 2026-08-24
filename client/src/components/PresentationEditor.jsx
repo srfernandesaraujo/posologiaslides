@@ -2423,8 +2423,17 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   left: 0,
                   width: `${SLIDE_NATIVE_WIDTH}px`,
                   height: `${SLIDE_NATIVE_HEIGHT}px`,
-                  transform: `scale(${effectiveScale})`,
-                  transformOrigin: 'top left'
+                  // scale3d (não scale) + backface-visibility:hidden força o Safari a
+                  // promover esta camada pra compositing de GPU de verdade — sem isso,
+                  // o WebKit não re-rasteriza o <iframe> filho na resolução ampliada e
+                  // ele fica borrado/pixelizado em zoom alto (bug conhecido do WebKit
+                  // com transform:scale ancestral de iframe; Chromium não tem esse
+                  // problema, então passava despercebido em Chrome/Edge).
+                  transform: `scale3d(${effectiveScale}, ${effectiveScale}, 1)`,
+                  transformOrigin: 'top left',
+                  WebkitBackfaceVisibility: 'hidden',
+                  backfaceVisibility: 'hidden',
+                  willChange: 'transform'
                 }}
               >
                 <div
