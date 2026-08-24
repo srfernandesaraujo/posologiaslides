@@ -25,6 +25,14 @@ const BACKUP_ROOT = process.env.BACKUP_DIR || path.join(__dirname, '..', 'backup
 // de histórico, ajustável via .env sem editar código).
 const RETENTION_PER_USER = Number(process.env.BACKUP_RETENTION || 7);
 
+// Por padrão o .zip só fica no disco local (BACKUP_ROOT) — protege contra
+// "apaguei sem querer"/bug do app, mas não contra a própria máquina ou disco
+// morrer. Ligar isto sobe uma cópia extra pro MESMO bucket do Cloud Storage
+// que o app já usa (credencial de serviço já configurada, sem OAuth novo
+// nenhum) num prefixo isolado dos arquivos de mídia dos usuários.
+const OFFSITE_UPLOAD = process.env.BACKUP_OFFSITE_UPLOAD === 'true';
+const OFFSITE_PREFIX = '_system-backups';
+
 function pruneOldBackups(userDir) {
   const files = fs.readdirSync(userDir)
     .filter((f) => f.endsWith('.zip'))
@@ -33,6 +41,20 @@ function pruneOldBackups(userDir) {
   for (const { f } of files.slice(RETENTION_PER_USER)) {
     fs.unlinkSync(path.join(userDir, f));
     console.log(`[backup] removido (retenção): ${path.join(userDir, f)}`);
+  }
+}
+
+async function uploadOffsite(bucket, userId, destPath) {
+  const remotePath = `${OFFSITE_PREFIX}/${userId}/${path.basename(destPath)}`;
+  await bucket.upload(destPath, { destination: remotePath });
+
+  const [files] = await bucket.getFiles({ prefix: `${OFFSITE_PREFIX}/${userId}/` });
+  const sorted = files
+    .map((f) => ({ f, time: new Date(f.metadata.timeCreated || 0).getTime() }))
+    .sort((a, b) => b.time - a.time);
+  for (const { f } of sorted.slice(RETENTION_PER_USER)) {
+    await f.delete().catch(() => {});
+    console.log(`[backup] removido da nuvem (retenção): ${f.name}`);
   }
 }
 
@@ -58,6 +80,16 @@ async function backupAllUsers() {
       const result = await createBackup({ userId, user, bucket, destPath });
       console.log(`[backup] OK — ${label} → ${result.filePath} (${(result.size / 1024).toFixed(0)} KB)`);
       pruneOldBackups(userDir);
+
+      if (OFFSITE_UPLOAD) {
+        try {
+          await uploadOffsite(bucket, userId, destPath);
+          console.log(`[backup] enviado pra nuvem (offsite) — ${label}`);
+        } catch (offsiteErr) {
+          console.error(`[backup] falhou upload offsite — ${label}:`, offsiteErr.message);
+        }
+      }
+
       ok += 1;
     } catch (err) {
       console.error(`[backup] FALHOU — ${label}:`, err.message);
