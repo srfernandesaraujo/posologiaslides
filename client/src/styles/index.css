@@ -946,6 +946,47 @@ button.mobile-toggle-btn {
   font-weight: 700;
 }
 
+.library-folder-expand-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0.1rem;
+  border-radius: 0.3rem;
+  display: flex;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.library-folder-expand-btn:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.library-folder-expand-btn.expanded {
+  transform: rotate(90deg);
+}
+
+.library-subfolder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.1rem 0 0.25rem;
+}
+
+.library-subfolder-item {
+  padding-left: 2.1rem;
+  font-size: 0.78rem;
+}
+
+.library-subfolder-add {
+  color: var(--text-dim);
+}
+
+.library-subfolder-add:hover {
+  color: var(--text-muted);
+}
+
 .library-folders-title-row {
   display: flex;
   align-items: center;
@@ -1040,6 +1081,10 @@ button.mobile-toggle-btn {
   border: 1px solid var(--border-glass-bright);
   border-radius: 0.6rem;
   margin-bottom: 0.3rem;
+}
+
+.library-subfolder-list .library-folder-form {
+  margin-left: 1.4rem;
 }
 
 .library-folder-form input {

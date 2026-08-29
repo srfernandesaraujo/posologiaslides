@@ -10,10 +10,20 @@ export function buildManifest({ user, folders, presentations, mediaFiles }) {
     generatedAt: new Date().toISOString(),
     app: 'posologia-slides',
     user: { id: user.id, email: user.email || null, name: user.name || null },
-    folders: folders.map((f) => ({ id: f.id, name: f.name, color: f.color })),
+    folders: folders.map((f) => ({
+      id: f.id,
+      name: f.name,
+      color: f.color,
+      // Opcional: manifest de formato antigo (pré-subpastas) não tem isso —
+      // restoreBackup trata a ausência criando só a "Geral" da disciplina.
+      subfolders: Array.isArray(f.subfolders) ? f.subfolders.map((sub) => ({ id: sub.id, name: sub.name })) : undefined
+    })),
     presentations: presentations.map((p) => ({
       id: p.id,
       folderId: p.folderId,
+      // Idem: aditivo, manifest antigo não tem — restoreBackup cai no bucket
+      // "Geral" da disciplina quando subfolderId está ausente.
+      subfolderId: p.subfolderId || undefined,
       title: p.title,
       description: p.description || null,
       slides: p.slides,

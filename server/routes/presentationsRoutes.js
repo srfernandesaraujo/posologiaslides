@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   getFolderTree, getPresentation, savePresentation, setFavorite, touchPresentation,
-  createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder, renamePresentation,
+  createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder, movePresentationToSubfolder, renamePresentation,
   findInvalidNestedArrayPath, findOversizedSlide, FIRESTORE_MAX_DOCUMENT_BYTES,
   trashPresentation, restorePresentation, permanentlyDeletePresentation, emptyTrash, getTrash
 } from '../services/store.js';
@@ -114,6 +114,19 @@ router.patch('/:id/folder', asyncHandler(async (req, res) => {
   const result = await movePresentationToFolder(req.user.id, req.params.id, folderId);
   if (!result) {
     return res.status(404).json({ error: 'Apresentação ou pasta não encontrada.' });
+  }
+  res.json({ success: true });
+}));
+
+// Move a apresentação para uma subpasta específica dentro de uma disciplina
+router.patch('/:id/subfolder', asyncHandler(async (req, res) => {
+  const { subfolderId } = req.body;
+  if (!subfolderId) {
+    return res.status(400).json({ error: 'subfolderId é obrigatório.' });
+  }
+  const result = await movePresentationToSubfolder(req.user.id, req.params.id, subfolderId);
+  if (!result) {
+    return res.status(404).json({ error: 'Apresentação ou subpasta não encontrada.' });
   }
   res.json({ success: true });
 }));

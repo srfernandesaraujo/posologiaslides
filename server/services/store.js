@@ -58,7 +58,7 @@ export async function ensureUserProfile(userId, { email, name, avatarUrl }) {
   const batch = db.batch();
   batch.set(ref, profile);
   batch.set(exampleFolder, { name: EXAMPLE_FOLDER_NAME, color: '#a855f7', createdAt: now });
-  batch.set(exampleSubfolder, { folderId: exampleFolder.id, name: EXAMPLE_SUBFOLDER_NAME });
+  batch.set(exampleSubfolder, { folderId: exampleFolder.id, name: EXAMPLE_SUBFOLDER_NAME, createdAt: now });
   batch.set(presentation, {
     subfolderId: exampleSubfolder.id,
     title: seedPresentation.title,
@@ -70,16 +70,16 @@ export async function ensureUserProfile(userId, { email, name, avatarUrl }) {
     lastOpenedAt: null
   });
   batch.set(defaultFolder, { name: DEFAULT_FOLDER_NAME, color: '#38bdf8', createdAt: now });
-  batch.set(defaultSubfolder, { folderId: defaultFolder.id, name: DEFAULT_SUBFOLDER_NAME });
+  batch.set(defaultSubfolder, { folderId: defaultFolder.id, name: DEFAULT_SUBFOLDER_NAME, createdAt: now });
   await batch.commit();
 
   return profile;
 }
 
-// Cria uma pasta "simples": 1 doc em folders + 1 subpasta interna (nunca
-// exposta na UI) — mesmo modelo de dados de duas camadas que já existe pra
-// pasta padrão/exemplo (ver ensureUserProfile), só que sem o usuário nunca
-// precisar pensar em subpastas.
+// Cria uma disciplina: 1 doc em folders + sua subpasta "Geral" (a mais antiga
+// por createdAt — é onde cai tudo que não está em nenhuma subpasta nomeada,
+// ver getFolderTree/isGeneral). O usuário pode criar subpastas adicionais
+// depois via createSubfolder; a "Geral" nunca aparece como nó editável na UI.
 export async function createFolder(userId, name, color) {
   const now = Date.now();
   const folder = foldersRef(userId).doc();
@@ -87,7 +87,7 @@ export async function createFolder(userId, name, color) {
 
   const batch = db.batch();
   batch.set(folder, { name, color: color || '#38bdf8', createdAt: now });
-  batch.set(subfolder, { folderId: folder.id, name: 'Geral' });
+  batch.set(subfolder, { folderId: folder.id, name: 'Geral', createdAt: now });
   await batch.commit();
 
   // subfolderId: aditivo (chamadores existentes só destroem os campos que já
@@ -103,6 +103,77 @@ export async function renameFolder(userId, folderId, name) {
   if (!snap.exists) return null;
   await ref.update({ name });
   return { id: folderId, ...snap.data(), name };
+}
+
+// Cria uma subpasta dentro de uma disciplina já existente (ex.: uma unidade
+// ou assunto específico). Retorna null se a disciplina não existir.
+export async function createSubfolder(userId, folderId, name) {
+  const folderSnap = await foldersRef(userId).doc(folderId).get();
+  if (!folderSnap.exists) return null;
+  const now = Date.now();
+  const subfolder = subfoldersRef(userId).doc();
+  await subfolder.set({ folderId, name, createdAt: now });
+  return { id: subfolder.id, folderId, name };
+}
+
+export async function renameSubfolder(userId, subfolderId, name) {
+  const ref = subfoldersRef(userId).doc(subfolderId);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ name });
+  return { id: subfolderId, ...snap.data(), name };
+}
+
+// Exclui uma subpasta, reatribuindo antes qualquer apresentação nela pra
+// subpasta-irmã mais antiga da mesma disciplina (a "Geral"). Bloqueia excluir
+// a subpasta padrão global do usuário e a última subpasta restante de uma
+// disciplina — toda disciplina precisa manter pelo menos uma.
+export async function deleteSubfolder(userId, subfolderId) {
+  const profileSnap = await userRef(userId).get();
+  const defaultSubfolderId = profileSnap.data()?.defaultSubfolderId || null;
+  if (subfolderId === defaultSubfolderId) {
+    return { error: 'default' };
+  }
+
+  const ref = subfoldersRef(userId).doc(subfolderId);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const { folderId } = snap.data();
+
+  // Sem orderBy na query: um doc sem createdAt (subpastas "Geral" criadas
+  // antes desta feature) seria silenciosamente excluído do resultado de um
+  // orderBy('createdAt') do Firestore — ordena em memória em vez disso (ver
+  // mesmo cuidado em getFolderTree/movePresentationToFolder).
+  const siblingsSnap = await subfoldersRef(userId).where('folderId', '==', folderId).get();
+  if (siblingsSnap.size <= 1) {
+    return { error: 'last' };
+  }
+
+  const siblings = siblingsSnap.docs.sort((a, b) => (a.data().createdAt || 0) - (b.data().createdAt || 0));
+  const targetId = siblings.find((doc) => doc.id !== subfolderId).id;
+
+  const batch = db.batch();
+  const presentationsSnap = await presentationsRef(userId).where('subfolderId', '==', subfolderId).get();
+  presentationsSnap.forEach((doc) => batch.update(doc.ref, { subfolderId: targetId }));
+  batch.delete(ref);
+  await batch.commit();
+
+  return { success: true };
+}
+
+// Move uma apresentação direto pra uma subpasta específica (ex.: escolhida
+// no popover "Mover para pasta" da UI). Ver movePresentationToFolder pra
+// mover pra "Geral" da disciplina sem escolher subpasta.
+export async function movePresentationToSubfolder(userId, presentationId, subfolderId) {
+  const subfolderSnap = await subfoldersRef(userId).doc(subfolderId).get();
+  if (!subfolderSnap.exists) return null;
+
+  const ref = presentationsRef(userId).doc(presentationId);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+
+  await ref.update({ subfolderId });
+  return { subfolderId };
 }
 
 // Exclui a pasta inteira (e sua(s) subpasta(s) internas), reatribuindo antes
@@ -134,12 +205,15 @@ export async function deleteFolder(userId, folderId) {
   return { success: true };
 }
 
-// Move uma apresentação pra outra pasta, resolvendo a subpasta interna única
-// daquela pasta (modelo "pasta simples" — ver createFolder).
+// Move uma apresentação pra outra disciplina, resolvendo a subpasta "Geral"
+// dela (a mais antiga por createdAt — ver createFolder/getFolderTree). Pra
+// mover pra uma subpasta específica, ver movePresentationToSubfolder.
 export async function movePresentationToFolder(userId, presentationId, folderId) {
-  const subfoldersSnap = await subfoldersRef(userId).where('folderId', '==', folderId).limit(1).get();
+  // Sem orderBy na query (ver comentário em deleteSubfolder) — ordena em
+  // memória pra não excluir subpastas "Geral" antigas sem createdAt.
+  const subfoldersSnap = await subfoldersRef(userId).where('folderId', '==', folderId).get();
   if (subfoldersSnap.empty) return null;
-  const subfolderId = subfoldersSnap.docs[0].id;
+  const subfolderId = subfoldersSnap.docs.sort((a, b) => (a.data().createdAt || 0) - (b.data().createdAt || 0))[0].id;
 
   const ref = presentationsRef(userId).doc(presentationId);
   const snap = await ref.get();
@@ -185,6 +259,10 @@ export async function getFolderTree(userId) {
     list.push({
       id: doc.id,
       name: sub.name,
+      // Docs criados antes desta feature não têm createdAt — tratamos como 0
+      // (mais antigo possível), o que é exatamente o comportamento desejado:
+      // a "Geral" pré-existente de cada disciplina continua sendo a raiz.
+      createdAt: sub.createdAt || 0,
       presentations: (presentationsBySubfolder.get(doc.id) || []).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     });
     subfoldersByFolder.set(sub.folderId, list);
@@ -192,7 +270,12 @@ export async function getFolderTree(userId) {
 
   return foldersSnap.docs.map((doc) => {
     const folder = doc.data();
-    const subfolders = subfoldersByFolder.get(doc.id) || [];
+    // A subpasta mais antiga de cada disciplina é a "Geral" (isGeneral) — a
+    // raiz onde caem apresentações sem subpasta própria, nunca exposta como
+    // nó editável/apagável na árvore da UI (ver HomeLibrary.jsx).
+    const subfolders = (subfoldersByFolder.get(doc.id) || [])
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((sub, index) => ({ id: sub.id, name: sub.name, presentations: sub.presentations, isGeneral: index === 0 }));
     return {
       id: doc.id,
       name: folder.name,
@@ -507,6 +590,7 @@ export async function getTrash(userId) {
         trashedAt: p.trashedAt || null,
         folderName: folder?.name || null,
         folderColor: folder?.color || null,
+        subfolderName: subfolder?.name || null,
         firstSlideHtml: Array.isArray(p.slides) ? p.slides[0]?.html || null : null
       };
     })

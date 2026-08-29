@@ -7,7 +7,7 @@ import {
   Presentation, Search, Sparkles, Settings, Star, MoreHorizontal,
   Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut, Menu, X,
   Plus, Check, FolderInput, LayoutGrid, List, FileText, Pencil,
-  ArrowUpDown, ChevronUp, ChevronDown, RotateCcw
+  ArrowUpDown, ChevronUp, ChevronDown, ChevronRight, RotateCcw
 } from 'lucide-react';
 
 // Mesmas cores já usadas em outros pontos do app (quiz, trilha de decisão) —
@@ -52,18 +52,18 @@ function formatRelativeTime(timestamp) {
 
 // Linha inline compartilhada por "Nova pasta" e "Renomear pasta" — nome +
 // (só na criação) bolinhas de cor + confirmar/cancelar.
-function FolderFormRow({ form, setForm, onSubmit, onCancel }) {
+function FolderFormRow({ form, setForm, onSubmit, onCancel, placeholder = 'Nome da disciplina', showColors = true }) {
   return (
     <form className="library-folder-form" onSubmit={onSubmit}>
       <input
         type="text"
         autoFocus
-        placeholder="Nome da disciplina"
+        placeholder={placeholder}
         value={form.name}
         onChange={(e) => setForm({ ...form, name: e.target.value })}
         onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
       />
-      {form.mode === 'create' && (
+      {showColors && form.mode === 'create' && (
         <div className="library-folder-form-colors">
           {FOLDER_COLORS.map((color) => (
             <button
@@ -94,11 +94,25 @@ function flattenTree(folders) {
   folders.forEach((folder) => {
     folder.subfolders.forEach((sub) => {
       sub.presentations.forEach((p) => {
-        items.push({ ...p, folderId: folder.id, folderName: folder.name, folderColor: folder.color, subfolderName: sub.name });
+        items.push({
+          ...p,
+          folderId: folder.id,
+          folderName: folder.name,
+          folderColor: folder.color,
+          subfolderId: sub.id,
+          subfolderName: sub.name,
+          subfolderIsGeneral: !!sub.isGeneral
+        });
       });
     });
   });
   return items;
+}
+
+// Rótulo "Disciplina" ou "Disciplina / Subpasta" — a subpasta "Geral" (raiz
+// implícita da disciplina, nunca criada/nomeada pelo usuário) fica omitida.
+function folderLabel(p) {
+  return p.subfolderIsGeneral || !p.subfolderName ? p.folderName : `${p.folderName} / ${p.subfolderName}`;
 }
 
 export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateBlank, onOpenSettings, refreshKey, user, onLogout, active = true }) {
@@ -108,6 +122,10 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('todos');
   const [activeFolderId, setActiveFolderId] = useState(null);
+  // Subpasta ativa dentro da disciplina ativa (null = todas as subpastas dela)
+  const [activeSubfolderId, setActiveSubfolderId] = useState(null);
+  // Ids de disciplinas com a árvore de subpastas expandida na barra lateral
+  const [expandedFolders, setExpandedFolders] = useState(() => new Set());
   // Em telas compactas (≤1024px) o rail lateral vira uma gaveta off-canvas
   const [isRailOpen, setIsRailOpen] = useState(false);
   // Nav lateral: biblioteca normal ou lixeira (apresentações apagadas, ver
@@ -164,6 +182,10 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
   const [folderForm, setFolderForm] = useState(null);
   // Id da pasta cujo menu "..." (renomear/excluir) está aberto, ou null
   const [folderMenuFor, setFolderMenuFor] = useState(null);
+  // Linha inline de criar/renomear subpasta: { mode: 'create'|'rename', folderId, id, name } ou null
+  const [subfolderForm, setSubfolderForm] = useState(null);
+  // Id da subpasta cujo menu "..." está aberto, ou null
+  const [subfolderMenuFor, setSubfolderMenuFor] = useState(null);
   // Id da apresentação cujo popover "Mover para..." está aberto, ou null
   const [moveMenuFor, setMoveMenuFor] = useState(null);
   // Posição (calculada do botão) + pasta atual da apresentação, pro popover
@@ -243,7 +265,9 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
   const visiblePresentations = useMemo(() => {
     let list = allPresentations;
 
-    if (activeFolderId) {
+    if (activeSubfolderId) {
+      list = list.filter((p) => p.subfolderId === activeSubfolderId);
+    } else if (activeFolderId) {
       list = list.filter((p) => p.folderId === activeFolderId);
     }
 
@@ -278,7 +302,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
           return (b.updatedAt || 0) - (a.updatedAt || 0);
       }
     });
-  }, [allPresentations, activeTab, activeFolderId, search, sortBy]);
+  }, [allPresentations, activeTab, activeFolderId, activeSubfolderId, search, sortBy]);
 
   const toggleFavorite = async (e, p) => {
     e.stopPropagation();
@@ -397,7 +421,10 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
         alert(data.error || 'Não foi possível excluir a pasta.');
         return;
       }
-      if (activeFolderId === folder.id) setActiveFolderId(null);
+      if (activeFolderId === folder.id) {
+        setActiveFolderId(null);
+        setActiveSubfolderId(null);
+      }
       loadTree();
     } catch {
       alert('Não foi possível excluir a pasta.');
@@ -416,6 +443,83 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
       loadTree();
     } catch {
       alert('Não foi possível mover a apresentação.');
+    }
+  };
+
+  const handleMoveToSubfolder = async (e, presentationId, subfolderId) => {
+    e.stopPropagation();
+    setMoveMenuFor(null);
+    try {
+      await apiFetch(`/api/presentations/${presentationId}/subfolder`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subfolderId })
+      });
+      loadTree();
+    } catch {
+      alert('Não foi possível mover a apresentação.');
+    }
+  };
+
+  const toggleFolderExpanded = (e, folderId) => {
+    e.stopPropagation();
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
+
+  const openCreateSubfolder = (folder) => {
+    setSubfolderForm({ mode: 'create', folderId: folder.id, id: null, name: '' });
+    setSubfolderMenuFor(null);
+    setExpandedFolders((prev) => new Set(prev).add(folder.id));
+  };
+
+  const openRenameSubfolder = (folder, sub) => {
+    setSubfolderForm({ mode: 'rename', folderId: folder.id, id: sub.id, name: sub.name });
+    setSubfolderMenuFor(null);
+  };
+
+  const handleSubmitSubfolderForm = async (e) => {
+    e.preventDefault();
+    if (!subfolderForm || !subfolderForm.name.trim()) return;
+    try {
+      if (subfolderForm.mode === 'create') {
+        await apiFetch(`/api/folders/${subfolderForm.folderId}/subfolders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: subfolderForm.name.trim() })
+        });
+      } else {
+        await apiFetch(`/api/folders/${subfolderForm.folderId}/subfolders/${subfolderForm.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: subfolderForm.name.trim() })
+        });
+      }
+      setSubfolderForm(null);
+      loadTree();
+    } catch {
+      alert('Não foi possível salvar a subpasta.');
+    }
+  };
+
+  const handleDeleteSubfolder = async (folder, sub) => {
+    setSubfolderMenuFor(null);
+    if (!window.confirm(`Excluir a subpasta "${sub.name}"? As apresentações dentro dela vão para "${folder.name}".`)) return;
+    try {
+      const res = await apiFetch(`/api/folders/${folder.id}/subfolders/${sub.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || 'Não foi possível excluir a subpasta.');
+        return;
+      }
+      if (activeSubfolderId === sub.id) setActiveSubfolderId(null);
+      loadTree();
+    } catch {
+      alert('Não foi possível excluir a subpasta.');
     }
   };
 
@@ -487,42 +591,97 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
 
           <div
             className={`library-folder-item ${activeFolderId === null ? 'active' : ''}`}
-            onClick={() => { setActiveFolderId(null); setIsRailOpen(false); }}
+            onClick={() => { setActiveFolderId(null); setActiveSubfolderId(null); setIsRailOpen(false); }}
           >
             <FolderOpen size={15} /> Todas as pastas
           </div>
-          {folders.map((folder) => (
-            folderForm?.mode === 'rename' && folderForm.id === folder.id ? (
-              <FolderFormRow key={folder.id} form={folderForm} setForm={setFolderForm} onSubmit={handleSubmitFolderForm} onCancel={() => setFolderForm(null)} />
-            ) : (
-              <div
-                key={folder.id}
-                className={`library-folder-item ${activeFolderId === folder.id ? 'active' : ''}`}
-                onClick={() => { setActiveFolderId(folder.id); setIsRailOpen(false); }}
-              >
-                <Folder size={15} color={folder.color} />
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folder.name}</span>
-                <button
-                  className="library-folder-menu-btn"
-                  onClick={(e) => { e.stopPropagation(); setFolderMenuFor(folderMenuFor === folder.id ? null : folder.id); }}
-                  title="Mais opções"
-                >
-                  <MoreHorizontal size={14} />
-                </button>
-                {folderMenuFor === folder.id && (
-                  <>
-                    <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setFolderMenuFor(null); }} />
-                    <div className="library-folder-menu" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => openRenameFolder(folder)}>Renomear</button>
-                      {!folder.isDefault && (
-                        <button onClick={() => handleDeleteFolder(folder)} className="danger">Excluir</button>
-                      )}
-                    </div>
-                  </>
+          {folders.map((folder) => {
+            const namedSubfolders = folder.subfolders.filter((sub) => !sub.isGeneral);
+            const isExpanded = expandedFolders.has(folder.id);
+            return (
+              <React.Fragment key={folder.id}>
+                {folderForm?.mode === 'rename' && folderForm.id === folder.id ? (
+                  <FolderFormRow form={folderForm} setForm={setFolderForm} onSubmit={handleSubmitFolderForm} onCancel={() => setFolderForm(null)} />
+                ) : (
+                  <div
+                    className={`library-folder-item ${activeFolderId === folder.id && !activeSubfolderId ? 'active' : ''}`}
+                    onClick={() => { setActiveFolderId(folder.id); setActiveSubfolderId(null); setIsRailOpen(false); }}
+                  >
+                    <button
+                      className={`library-folder-expand-btn ${isExpanded ? 'expanded' : ''}`}
+                      onClick={(e) => toggleFolderExpanded(e, folder.id)}
+                      title={isExpanded ? 'Recolher' : 'Expandir'}
+                    >
+                      <ChevronRight size={13} />
+                    </button>
+                    <Folder size={15} color={folder.color} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folder.name}</span>
+                    <button
+                      className="library-folder-menu-btn"
+                      onClick={(e) => { e.stopPropagation(); setFolderMenuFor(folderMenuFor === folder.id ? null : folder.id); }}
+                      title="Mais opções"
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                    {folderMenuFor === folder.id && (
+                      <>
+                        <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setFolderMenuFor(null); }} />
+                        <div className="library-folder-menu" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => openRenameFolder(folder)}>Renomear</button>
+                          <button onClick={() => openCreateSubfolder(folder)}>Nova subpasta</button>
+                          {!folder.isDefault && (
+                            <button onClick={() => handleDeleteFolder(folder)} className="danger">Excluir</button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
-              </div>
-            )
-          ))}
+
+                {isExpanded && (
+                  <div className="library-subfolder-list">
+                    {namedSubfolders.map((sub) => (
+                      subfolderForm?.mode === 'rename' && subfolderForm.id === sub.id ? (
+                        <FolderFormRow key={sub.id} form={subfolderForm} setForm={setSubfolderForm} onSubmit={handleSubmitSubfolderForm} onCancel={() => setSubfolderForm(null)} placeholder="Nome da subpasta" showColors={false} />
+                      ) : (
+                        <div
+                          key={sub.id}
+                          className={`library-folder-item library-subfolder-item ${activeSubfolderId === sub.id ? 'active' : ''}`}
+                          onClick={() => { setActiveFolderId(folder.id); setActiveSubfolderId(sub.id); setIsRailOpen(false); }}
+                        >
+                          <Folder size={13} color={folder.color} />
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub.name}</span>
+                          <button
+                            className="library-folder-menu-btn"
+                            onClick={(e) => { e.stopPropagation(); setSubfolderMenuFor(subfolderMenuFor === sub.id ? null : sub.id); }}
+                            title="Mais opções"
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
+                          {subfolderMenuFor === sub.id && (
+                            <>
+                              <div className="dropdown-backdrop" onClick={(e) => { e.stopPropagation(); setSubfolderMenuFor(null); }} />
+                              <div className="library-folder-menu" onClick={(e) => e.stopPropagation()}>
+                                <button onClick={() => openRenameSubfolder(folder, sub)}>Renomear</button>
+                                <button onClick={() => handleDeleteSubfolder(folder, sub)} className="danger">Excluir</button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )
+                    ))}
+                    {subfolderForm?.mode === 'create' && subfolderForm.folderId === folder.id ? (
+                      <FolderFormRow form={subfolderForm} setForm={setSubfolderForm} onSubmit={handleSubmitSubfolderForm} onCancel={() => setSubfolderForm(null)} placeholder="Nome da subpasta" showColors={false} />
+                    ) : (
+                      <div className="library-folder-item library-subfolder-item library-subfolder-add" onClick={() => openCreateSubfolder(folder)}>
+                        <Plus size={13} /> Nova subpasta
+                      </div>
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
 
         <button className="library-nav-item" style={{ marginTop: 'auto' }} onClick={onOpenSettings}>
@@ -603,7 +762,9 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
                     <div className="library-card-body">
                       <div className="library-card-title">{p.title}</div>
                       <div className="library-card-meta">
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.folderName || 'Sem pasta'}</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.folderName ? (p.subfolderName && p.subfolderName !== 'Geral' ? `${p.folderName} / ${p.subfolderName}` : p.folderName) : 'Sem pasta'}
+                        </span>
                       </div>
                       <div className="library-card-footer">
                         <span>{formatRelativeTime(p.trashedAt) ? `Excluída ${formatRelativeTime(p.trashedAt)}` : ''}</span>
@@ -769,7 +930,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
                     <div className="finder-col col-folder">
                       <span className="finder-folder-badge" style={{ borderColor: `${p.folderColor || '#38bdf8'}44`, background: `${p.folderColor || '#38bdf8'}15`, color: p.folderColor || '#38bdf8' }}>
                         <Folder size={12} color={p.folderColor || '#38bdf8'} style={{ marginRight: '0.35rem', verticalAlign: '-1px' }} />
-                        {p.folderName}
+                        {folderLabel(p)}
                       </span>
                     </div>
                     <div className="finder-col col-date">
@@ -850,7 +1011,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
                       <div className="library-card-title">{p.title}</div>
                     )}
                     <div className="library-card-meta" style={{ display: 'flex', justifyContent: 'space-between', gap: '0.4rem' }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.folderName}</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folderLabel(p)}</span>
                       <span
                         style={{ color: sizeColor(p.sizeBytes, sizeLimitBytes), fontWeight: 700, flexShrink: 0 }}
                         title={`${((p.sizeBytes / sizeLimitBytes) * 100).toFixed(0)}% do limite de ${formatBytes(sizeLimitBytes)} do Firestore`}
@@ -903,12 +1064,23 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
               right: `${moveMenuAnchor.right}px`
             }}
           >
-            {folders.filter((f) => f.id !== moveMenuAnchor.folderId).map((f) => (
-              <button key={f.id} onClick={(e) => handleMoveToFolder(e, moveMenuFor, f.id)}>
-                <Folder size={12} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
-                {f.name}
-              </button>
-            ))}
+            {folders.map((f) => {
+              const namedSubfolders = f.subfolders.filter((sub) => !sub.isGeneral);
+              return (
+                <React.Fragment key={f.id}>
+                  <button onClick={(e) => handleMoveToFolder(e, moveMenuFor, f.id)}>
+                    <Folder size={12} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
+                    {f.name}
+                  </button>
+                  {namedSubfolders.map((sub) => (
+                    <button key={sub.id} style={{ paddingLeft: '2rem' }} onClick={(e) => handleMoveToSubfolder(e, moveMenuFor, sub.id)}>
+                      <Folder size={11} color={f.color} style={{ marginRight: '0.4rem', verticalAlign: '-2px' }} />
+                      {sub.name}
+                    </button>
+                  ))}
+                </React.Fragment>
+              );
+            })}
           </div>
         </>,
         document.body

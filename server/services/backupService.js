@@ -109,18 +109,23 @@ export async function createBackup({ userId, user, bucket, onEvent = () => {}, s
   try {
     emit({ type: 'progress', stage: 'reading_data' });
     const tree = await store.getFolderTree(userId);
-    const folders = tree.map((f) => ({ id: f.id, name: f.name, color: f.color }));
+    const folders = tree.map((f) => ({
+      id: f.id,
+      name: f.name,
+      color: f.color,
+      subfolders: f.subfolders.map((sub) => ({ id: sub.id, name: sub.name }))
+    }));
     const presentationRefs = [];
     for (const folder of tree) {
       for (const sub of folder.subfolders) {
         for (const p of sub.presentations) {
-          presentationRefs.push({ id: p.id, folderId: folder.id });
+          presentationRefs.push({ id: p.id, folderId: folder.id, subfolderId: sub.id });
         }
       }
     }
     const presentations = await mapWithConcurrency(presentationRefs, 10, async (ref) => {
       const full = await store.getPresentation(ref.id, userId);
-      return full ? { ...full, folderId: ref.folderId } : null;
+      return full ? { ...full, folderId: ref.folderId, subfolderId: ref.subfolderId } : null;
     });
     const validPresentations = presentations.filter(Boolean);
 
@@ -222,15 +227,34 @@ export async function restoreBackup({ userId, zipFilePath, bucket, onEvent = () 
 
     emit({ type: 'progress', stage: 'restoring_data' });
     const stamp = formatRestoreStamp(new Date());
+    // folderIdMap: id de disciplina do manifest -> id da subpasta "Geral" da
+    // disciplina recriada (fallback pra presentations de um manifest antigo,
+    // sem subfolderId). subfolderIdMap: id de subpasta do manifest -> id da
+    // subpasta recriada, cobrindo tanto a "Geral" quanto as demais.
     const folderIdMap = {};
+    const subfolderIdMap = {};
     for (const folder of manifest.folders || []) {
       const created = await store.createFolder(userId, `[Restaurado ${stamp}] ${folder.name}`, folder.color);
       folderIdMap[folder.id] = created.subfolderId;
+
+      const subfolders = folder.subfolders || [];
+      // O primeiro item é a "Geral" original (getFolderTree/buildManifest já
+      // ordenam por createdAt) — reaproveita a "Geral" que createFolder acabou
+      // de criar em vez de fazer uma subpasta extra vazia.
+      subfolders.forEach((sub, index) => {
+        if (index === 0) {
+          subfolderIdMap[sub.id] = created.subfolderId;
+        }
+      });
+      for (let i = 1; i < subfolders.length; i++) {
+        const createdSub = await store.createSubfolder(userId, created.id, subfolders[i].name);
+        subfolderIdMap[subfolders[i].id] = createdSub.id;
+      }
     }
 
     let presentationsCreated = 0;
     for (const p of manifest.presentations || []) {
-      const subfolderId = folderIdMap[p.folderId];
+      const subfolderId = subfolderIdMap[p.subfolderId] || folderIdMap[p.folderId];
       if (!subfolderId) continue; // apresentação referencia uma pasta que não veio no manifest (não deveria acontecer) — pula, não derruba o restore inteiro
       const rewrittenSlides = rewriteSlidesMedia(p.slides, urlMap);
       await store.createPresentationInSubfolder(userId, subfolderId, { ...p, slides: rewrittenSlides });
