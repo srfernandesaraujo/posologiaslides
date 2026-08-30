@@ -108,8 +108,14 @@ export default function PublicPresentationView({ shareId }) {
               left: 0,
               width: `${SLIDE_NATIVE_WIDTH}px`,
               height: `${SLIDE_NATIVE_HEIGHT}px`,
-              transform: `scale(${canvasScale})`,
-              transformOrigin: 'top left'
+              // scale3d + backface-visibility:hidden (sem will-change:transform — ver
+              // comentário equivalente em PresentationEditor.jsx) força o Safari a
+              // promover esta camada pra compositing de GPU e redesenhar o <iframe>
+              // filho na resolução final em vez de esticar um bitmap borrado.
+              transform: `scale3d(${canvasScale}, ${canvasScale}, 1)`,
+              transformOrigin: 'top left',
+              WebkitBackfaceVisibility: 'hidden',
+              backfaceVisibility: 'hidden'
             }}
           >
             <div

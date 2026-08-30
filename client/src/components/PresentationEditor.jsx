@@ -2429,11 +2429,22 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   // ele fica borrado/pixelizado em zoom alto (bug conhecido do WebKit
                   // com transform:scale ancestral de iframe; Chromium não tem esse
                   // problema, então passava despercebido em Chrome/Edge).
+                  //
+                  // SEM will-change:transform de propósito: essa propriedade fazia
+                  // parte da correção original, mas no Chromium ela tem o efeito
+                  // colateral oposto — avisa o compositor que a escala vai mudar com
+                  // frequência, e ele reage escolhendo uma resolução de raster mais
+                  // baixa/conservadora pro layer (pra poder reescalar via GPU depois
+                  // sem recustar), em vez de rasterizar já na resolução final. Como o
+                  // slide fica parado a maior parte do tempo (principalmente em
+                  // apresentação em tela cheia, sem zoom manual), isso deixava o texto
+                  // visivelmente mais borrado no Chrome/Edge — regressão introduzida
+                  // junto da correção do Safari. scale3d + backface-visibility sozinhos
+                  // já bastam pra forçar a promoção de camada no WebKit.
                   transform: `scale3d(${effectiveScale}, ${effectiveScale}, 1)`,
                   transformOrigin: 'top left',
                   WebkitBackfaceVisibility: 'hidden',
-                  backfaceVisibility: 'hidden',
-                  willChange: 'transform'
+                  backfaceVisibility: 'hidden'
                 }}
               >
                 <div
