@@ -1360,24 +1360,25 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
     filter: invert(1) hue-rotate(180deg);
   }
   /* filter (Modo Claro/Escuro) + overflow-y:auto (barra de rolagem, ver
-     data-scrollable acima) no MESMO elemento é uma combinação rara que
-     alguns motores (Chrome/Edge observado) não recompõem direito durante o
-     scroll — a camada rasterizada do filtro fica "presa" no recorte inicial
-     e o trecho revelado ao rolar pinta em preto em vez do fundo/conteúdo de
-     verdade. transform:translateZ(0) + backface-visibility:hidden força a
-     promoção pra uma camada de compositing "de verdade" que acompanha o
-     scroll (mesmo remédio já usado pro bug de zoom borrado no Safari, ver
-     canvas-native-layer em PresentationEditor.jsx — NUNCA will-change, que
-     ali mesmo causou o efeito oposto: raster mais conservador/borrado).
-     Sem risco NOVO de quebrar overlay position:fixed de um slide "por
-     pasta" (ver comentário de scaleSlideToCanvas em slideHtmlUtils.js): o
-     filter da regra acima, sozinho, JÁ torna .slide-root containing block
-     de position:fixed sempre que o Modo Claro/Escuro está ativo, transform
-     ou não — não é uma exposição nova, só reforça a mesma. */
+     data-scrollable acima) no MESMO elemento: o motor não estende o filtro
+     pro trecho do conteúdo revelado ao rolar além do recorte inicial — esse
+     trecho aparece com as cores ORIGINAIS, não invertidas (foi tentado
+     antes só forçar promoção de camada com transform:translateZ(0) +
+     backface-visibility:hidden, mas o filtro continuou preso ao recorte
+     inicial mesmo assim). Em vez de tentar convencer o motor a recompor
+     certo, tira ESTA combinação específica do caminho: com o slide também
+     invertido, quem rola deixa de ser o `.slide-root` (que volta a ficar
+     "alto" de verdade, sem o clipe/scrollport próprio — content overflow
+     visível) e passa a ser o <body> ao redor dele, que é overflow-y:auto por
+     padrão (ver regra acima) e NÃO tem filtro nenhum — o filtro do
+     `.slide-root` passa a cobrir o slide INTEIRO de uma vez, alto e sem
+     scroll próprio, então não há mais "recorte inicial" pra ficar
+     desatualizado. Barra de rolagem visível volta a ser a fina padrão do
+     <body> (não a temática ciano de `[data-scrollable]` acima) só nesta
+     combinação — troca aceitável pelo fundo não quebrar mais. */
   .slide-root[data-scrollable="true"][data-color-invert="true"] {
-    transform: translateZ(0);
-    -webkit-backface-visibility: hidden;
-    backface-visibility: hidden;
+    overflow-y: visible !important;
+    max-height: none !important;
   }
 
   ${staticPreview ? `
