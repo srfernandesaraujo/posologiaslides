@@ -492,10 +492,32 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         target.dispatchEvent(new MouseEvent('click', eventInit));
       });
 
-      // Trackpad — modo rolar: aplica o delta direto no scroll do documento
-      // do slide (o mesmo body com overflow-y:auto usado por slides mais
-      // altos que os 1080px nativos, ver PresentationViewer.jsx).
-      newSocket.on('remote_scroll', ({ dyPercent }) => {
+      // Trackpad — modo rolar: aplica o delta direto no scroll de verdade.
+      // Dois alvos possíveis, escolhidos pelo estado ATUAL do DOM (não por
+      // uma flag de estado React capturada no fechamento deste efeito, que
+      // rodou uma vez só ao conectar e ficaria obsoleta — mesmo problema que
+      // handleNextRef/handlePrevRef existem pra evitar, só que aqui dá pra
+      // checar direto no elemento em vez de precisar de mais uma ref):
+      // 1) `.zoom-scrollport` (ver zoomScrollportRef/pan-gesture acima), se
+      //    a apresentação está com ZOOM aplicado — aí o scrollport tem
+      //    conteúdo maior que sua própria área visível nos dois eixos, e é
+      //    isso (não o documento do slide) que precisa rolar, inclusive na
+      //    HORIZONTAL (só existia arrastando com o dedo direto em cima do
+      //    slide antes, ver panEnabled/buildZoomGestureScript).
+      // 2) o <body> do iframe (overflow-y:auto, ver PresentationViewer.jsx),
+      //    pro caso de sempre: slide mais alto que os 1080px nativos (ver
+      //    data-scrollable) sem zoom nenhum aplicado — só no eixo vertical,
+      //    o slide é sempre 1920px de largura fixa (overflow-x:hidden por
+      //    design, nunca há o que rolar na horizontal aqui).
+      newSocket.on('remote_scroll', ({ dxPercent, dyPercent }) => {
+        const port = zoomScrollportRef.current;
+        const isZoomedIn = port && (port.scrollWidth > port.clientWidth + 1 || port.scrollHeight > port.clientHeight + 1);
+        if (isZoomedIn) {
+          port.scrollLeft = Math.max(0, port.scrollLeft + (dxPercent || 0) * SCROLL_SENSITIVITY);
+          port.scrollTop = Math.max(0, port.scrollTop + (dyPercent || 0) * SCROLL_SENSITIVITY);
+          return;
+        }
+
         const doc = stageIframeRef.current?.contentDocument;
         // Quem rola de verdade é o <body> (overflow-y:auto, ver
         // PresentationViewer.jsx) — o <html> tem overflow:hidden de

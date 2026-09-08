@@ -179,10 +179,10 @@ export function setupSocketIO(httpServer) {
       io.to(session.presenterSocketId).emit('remote_cursor_click');
     });
 
-    socket.on('remote_scroll', ({ pin, dyPercent }) => {
+    socket.on('remote_scroll', ({ pin, dxPercent, dyPercent }) => {
       const session = activeSessions.get(pin);
       if (!session) return;
-      io.to(session.presenterSocketId).emit('remote_scroll', { dyPercent });
+      io.to(session.presenterSocketId).emit('remote_scroll', { dxPercent, dyPercent });
     });
 
     // 2e. Botões +/- de zoom do controle remoto — mesmo repasse simples de

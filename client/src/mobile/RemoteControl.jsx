@@ -102,7 +102,11 @@ export default function RemoteControl() {
     state.totalMove += Math.abs(dx) + Math.abs(dy);
 
     if (trackpadMode === 'scroll') {
-      socket.emit('remote_scroll', { pin, dyPercent: (dy / rect.height) * 100 });
+      // dxPercent só tem efeito de verdade quando a apresentação está com
+      // zoom aplicado (aí rola a visão zoomada nos dois eixos, ver
+      // remote_scroll em PresentationEditor.jsx) — sem zoom, o apresentador
+      // ignora e rola só o conteúdo do slide na vertical, como sempre.
+      socket.emit('remote_scroll', { pin, dxPercent: (dx / rect.width) * 100, dyPercent: (dy / rect.height) * 100 });
     } else {
       socket.emit('remote_cursor_move', {
         pin,
