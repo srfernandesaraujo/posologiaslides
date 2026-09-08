@@ -768,6 +768,32 @@ export function getSlideBackground(html) {
   return rootEl.getAttribute('data-bg-intent') || rootEl.style.background || rootEl.style.backgroundColor || '#0b1220';
 }
 
+// Cor de fundo REALMENTE exibida agora (diferente de getSlideBackground
+// acima, que devolve a INTENÇÃO — o valor bruto escolhido no modal, sempre
+// nesse valor, nunca invertido): usada pra pintar a "faixa reservada" fora
+// do canvas em tela cheia (ver STAGE_BOTTOM_RESERVE/fullscreen-stage em
+// PresentationEditor.jsx) com a MESMA cor do slide, em vez do preto fixo
+// que a caixa de tela cheia usa por padrão — sem isto, um slide com Modo
+// Claro/Escuro ativo (ver isSlideColorInverted) e SEM Cor de Fundo
+// explícita na Paleta mostra uma faixa preta destoante bem embaixo do
+// slide claro, porque a intenção bruta (getSlideBackground) continua sendo
+// a cor ORIGINAL escura — quem decide a cor final de fato pintada na tela é
+// o filtro do slide, não o valor bruto gravado. Quando HÁ intenção explícita
+// (data-bg-intent), ela já É a cor final (ver setSlideColorInverted, que
+// pré-compensa o valor pintado pra sempre bater com a intenção,
+// independente do modo) — só falta compensar quando NÃO há intenção
+// nenhuma e o slide está invertido (aí quem decide sozinho é o filtro).
+export function getDisplayedSlideBackground(html) {
+  const template = parseFragment(html);
+  const rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+  if (!rootEl) return '#0b1220';
+  const intent = rootEl.getAttribute('data-bg-intent');
+  if (intent) return intent;
+  const raw = rootEl.style.background || rootEl.style.backgroundColor || '#0b1220';
+  const inverted = rootEl.getAttribute('data-color-invert') === 'true';
+  return inverted ? invertColorForFilter(raw) : raw;
+}
+
 export function setSlideBackground(html, bgValue) {
   const template = parseFragment(html);
   let rootEl = template.content.querySelector('.slide-root');

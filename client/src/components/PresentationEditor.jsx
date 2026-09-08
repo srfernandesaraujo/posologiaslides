@@ -31,7 +31,7 @@ import {
   setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setAllAnimationsAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt,
   hasTableAt, getTableRowsAt, setTableRowsAt,
-  getSlideBackground, setSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml,
+  getSlideBackground, setSlideBackground, getDisplayedSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml,
   getSlideScrollable, setSlideScrollable,
   isSlideColorInverted, setSlideColorInverted,
   scaleSlideToCanvas, unscaleSlideFromCanvas, isSlideScaledToCanvas
@@ -2437,7 +2437,23 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         )}
 
         {/* Palco do Slide com Overlay de Metodologias Ativas */}
-        <div ref={stageRef} className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}>
+        {/* Em tela cheia, .fullscreen-stage letterboxa em 16:9 (ver CSS) e o
+            canvas nativo fica menor que essa caixa por causa do
+            STAGE_BOTTOM_RESERVE (folga reservada pra barra flutuante nunca
+            cobrir conteúdo) — a faixa reservada em si mostra o FUNDO desta
+            caixa, que por padrão (CSS) é preto sólido. Sobrescrever aqui com
+            a cor de fundo REALMENTE exibida do slide atual (ver
+            getDisplayedSlideBackground, que já resolve Modo Claro/Escuro
+            mesmo sem Cor de Fundo explícita na Paleta) faz essa faixa
+            "sumir" (mesma cor do slide) em vez de aparecer como uma tarja
+            preta destoante bem embaixo de um slide claro. Só em tela cheia —
+            fora dela o CSS puro (sem esse contraste isolado, cercado pelo
+            resto da UI escura do editor) já não incomodava. */}
+        <div
+          ref={stageRef}
+          className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}
+          style={isFullscreen ? { background: getDisplayedSlideBackground(currentSlide.html) } : undefined}
+        >
           {/* Viewport de rolagem nativa pro zoom manual — só este elemento
               rola (mouse/trackpad/toque/barra de rolagem, tudo de graça do
               navegador); a barra de ação/overlay/barra flutuante abaixo ficam
