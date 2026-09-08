@@ -186,6 +186,7 @@ function baseSlideStyles() {
      duplicação do resto deste bloco, ver comentário de baseSlideStyles). */
   .slide-root[data-color-invert="true"] { filter: invert(1) hue-rotate(180deg); }
   .slide-root[data-color-invert="true"] img, .slide-root[data-color-invert="true"] video { filter: invert(1) hue-rotate(180deg); }
+  .slide-root[data-scrollable="true"][data-color-invert="true"] { transform: translateZ(0); -webkit-backface-visibility: hidden; backface-visibility: hidden; }
   @keyframes pos-fade-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes pos-fade-in-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes pos-fade-in-down { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }

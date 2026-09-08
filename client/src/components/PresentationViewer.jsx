@@ -1359,6 +1359,26 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
   .slide-root[data-color-invert="true"] video {
     filter: invert(1) hue-rotate(180deg);
   }
+  /* filter (Modo Claro/Escuro) + overflow-y:auto (barra de rolagem, ver
+     data-scrollable acima) no MESMO elemento é uma combinação rara que
+     alguns motores (Chrome/Edge observado) não recompõem direito durante o
+     scroll — a camada rasterizada do filtro fica "presa" no recorte inicial
+     e o trecho revelado ao rolar pinta em preto em vez do fundo/conteúdo de
+     verdade. transform:translateZ(0) + backface-visibility:hidden força a
+     promoção pra uma camada de compositing "de verdade" que acompanha o
+     scroll (mesmo remédio já usado pro bug de zoom borrado no Safari, ver
+     canvas-native-layer em PresentationEditor.jsx — NUNCA will-change, que
+     ali mesmo causou o efeito oposto: raster mais conservador/borrado).
+     Sem risco NOVO de quebrar overlay position:fixed de um slide "por
+     pasta" (ver comentário de scaleSlideToCanvas em slideHtmlUtils.js): o
+     filter da regra acima, sozinho, JÁ torna .slide-root containing block
+     de position:fixed sempre que o Modo Claro/Escuro está ativo, transform
+     ou não — não é uma exposição nova, só reforça a mesma. */
+  .slide-root[data-scrollable="true"][data-color-invert="true"] {
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+  }
 
   ${staticPreview ? `
   /* staticPreview vence até a rolagem opt-in acima (data-scrollable="true"
