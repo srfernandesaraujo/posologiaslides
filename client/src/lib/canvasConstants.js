@@ -19,9 +19,18 @@ export const LEGACY_SLIDE_HEIGHT = 720;
 
 // Faixa inferior (em px reais, não escalados) sempre reservada e nunca
 // ocupada pelo conteúdo do slide, para a barra de ferramentas flutuante
-// (PresentationControls) nunca ficar por baixo/atrás do conteúdo em telas
-// pequenas (tablet/celular).
-export const STAGE_BOTTOM_RESERVE = 76;
+// (.floating-toolbar, ver PresentationControls/index.css) nunca ficar por
+// cima/cobrindo conteúdo do slide em tela cheia. A barra fica a bottom:24px
+// da caixa do palco e sua própria altura (padding 0.6rem + ícones de 36px +
+// borda) soma uns 57px, ou seja, a borda de CIMA da barra fica a uns 81px
+// do fundo do palco — 76px de reserva (valor antigo) deixava margem
+// insuficiente (~5px), e o próprio conteúdo do slide (renderizado por cima
+// dessa folga) ficava coberto/cortado pela barra. 110px dá folga confortável
+// mesmo sem medir ao vivo (variação de fonte/zoom do navegador) — sem custo
+// visual: a faixa reservada usa a MESMA cor do slide (ver
+// getDisplayedSlideBackground em PresentationEditor.jsx), então "sobrar"
+// folga a mais não aparece como espaço vazio destoante.
+export const STAGE_BOTTOM_RESERVE = 110;
 
 // Zoom manual (multiplicador aplicado em cima da escala automática de ajuste
 // — ver useCanvasFit.js): faixas diferentes por modo, já que faz sentido
