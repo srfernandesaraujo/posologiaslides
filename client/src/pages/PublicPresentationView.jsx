@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, AlertTriangle } from 'lucide-react';
-import PresentationViewer from '../components/PresentationViewer';
+import PresentationViewer, { measureIframeEdgeBackground } from '../components/PresentationViewer';
 import PublicViewerControls from '../components/PublicViewerControls';
 import useCanvasFit from '../lib/useCanvasFit';
 import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE } from '../lib/canvasConstants';
 import { resolveTransition } from '../lib/transitionCatalog';
+import { isSlideColorInverted, invertColorForFilter } from '../lib/slideHtmlUtils';
 import { apiFetch } from '../lib/api';
 import useScreenWakeLock from '../lib/useScreenWakeLock';
 import { primeOfflineImageCache } from '../lib/offlineImageCache';
@@ -23,11 +24,27 @@ export default function PublicPresentationView({ shareId }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [spotlightOn, setSpotlightOn] = useState(false);
 
-  // Sem reserva em tela cheia — mesmo raciocínio de PresentationEditor.jsx:
-  // o slide ocupa a caixa 16:9 inteira, e a barra flutuante (já semi-
-  // transparente/desfocada, com autohide, ver PublicViewerControls.jsx)
-  // sobrepõe o rodapé quando visível, em vez de deixar uma faixa vazia.
-  const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: isFullscreen ? 0 : STAGE_BOTTOM_RESERVE });
+  const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: STAGE_BOTTOM_RESERVE });
+  const stageIframeRef = useRef(null);
+
+  // `currentSlide` (mais abaixo) só existe depois dos "return" antecipados
+  // de loading/erro — precisa ficar num ref (atualizado logo depois de
+  // `currentSlide` ser calculado) pra handleStageReady, chamada de forma
+  // assíncrona (via onReady), sempre ler o slide mais recente sem precisar
+  // mover os hooks pra depois desses returns (quebraria as Rules of Hooks).
+  const currentSlideRef = useRef(null);
+
+  // Cor de fundo REAL do slide atual, medida ao vivo no DOM do iframe (ver
+  // measureIframeEdgeBackground em PresentationViewer.jsx) — usada só em
+  // tela cheia, pra colorir a faixa reservada (STAGE_BOTTOM_RESERVE) igual
+  // o fundo de verdade do slide em vez do preto fixo da caixa. Mesmo
+  // mecanismo de PresentationEditor.jsx (ver comentário lá).
+  const [stageBg, setStageBg] = useState(null);
+  const handleStageReady = () => {
+    const raw = measureIframeEdgeBackground(stageIframeRef.current);
+    if (!raw) { setStageBg(null); return; }
+    setStageBg(isSlideColorInverted(currentSlideRef.current?.html) ? invertColorForFilter(raw) : raw);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +104,7 @@ export default function PublicPresentationView({ shareId }) {
 
   const slides = (presentation.slides || []).filter((s) => !s.hidden);
   const currentSlide = slides[activeIndex] || { html: '<div style="color:#9ca3af;padding:2rem;">Sem slides.</div>' };
+  currentSlideRef.current = currentSlide;
   const currentTransition = resolveTransition(currentSlide.transition);
 
   const handlePrev = () => setActiveIndex((i) => Math.max(0, i - 1));
@@ -103,7 +121,11 @@ export default function PublicPresentationView({ shareId }) {
       )}
 
       <div className="stage-container" style={{ flex: 1 }}>
-        <div ref={stageRef} className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}>
+        <div
+          ref={stageRef}
+          className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}
+          style={isFullscreen && stageBg ? { background: stageBg } : undefined}
+        >
           <div
             className="canvas-native-layer"
             style={{
@@ -127,7 +149,13 @@ export default function PublicPresentationView({ shareId }) {
               className={`slide-transition-wrapper pos-transition-${currentTransition.type}`}
               style={{ '--pos-transition-duration': `${currentTransition.duration}s` }}
             >
-              <PresentationViewer htmlContent={currentSlide.html} editable={false} spotlightEnabled={isFullscreen && spotlightOn} />
+              <PresentationViewer
+                ref={stageIframeRef}
+                htmlContent={currentSlide.html}
+                editable={false}
+                spotlightEnabled={isFullscreen && spotlightOn}
+                onReady={isFullscreen ? handleStageReady : undefined}
+              />
             </div>
           </div>
 

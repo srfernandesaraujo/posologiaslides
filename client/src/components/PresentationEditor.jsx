@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import PresentationViewer, { SLIDE_EDITOR_MESSAGE_SOURCE } from './PresentationViewer';
+import PresentationViewer, { SLIDE_EDITOR_MESSAGE_SOURCE, measureIframeEdgeBackground } from './PresentationViewer';
 import DrawingCanvas from './DrawingCanvas';
 import PresentationControls from './PresentationControls';
 import SlideList from './SlideList';
@@ -33,7 +33,7 @@ import {
   hasTableAt, getTableRowsAt, setTableRowsAt,
   getSlideBackground, setSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml,
   getSlideScrollable, setSlideScrollable,
-  isSlideColorInverted, setSlideColorInverted,
+  isSlideColorInverted, setSlideColorInverted, invertColorForFilter,
   scaleSlideToCanvas, unscaleSlideFromCanvas, isSlideScaledToCanvas
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
@@ -298,17 +298,32 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // caixa real do palco — mesma matemática de layout em edição e apresentação
   // (só o multiplicador `scale` muda entre os dois modos). `bottomReserve`
   // garante uma faixa inferior sempre livre pra PresentationControls nunca
-  // ficar atrás do conteúdo do slide em telas pequenas.
-  // Em tela cheia, sem reserva nenhuma: o slide ocupa a caixa 16:9 inteira
-  // (sem faixa vazia embaixo) e a barra de ferramentas flutuante passa a
-  // sobrepor o rodapé do slide quando visível — ela já é semi-transparente/
-  // desfocada (backdrop-filter, ver .floating-toolbar em index.css) e quase
-  // some sozinha após alguns segundos sem mexer o mouse (autohide, ver
-  // PresentationControls.jsx), mesmo padrão de apresentação do PowerPoint/
-  // Keynote/Google Slides. Fora de tela cheia mantém a reserva de sempre
-  // (ver STAGE_BOTTOM_RESERVE) — só o caso relatado (tela cheia) trocou.
-  const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: isFullscreen ? 0 : STAGE_BOTTOM_RESERVE });
+  // ficar atrás do conteúdo do slide.
+  // Já foi tentado deixar a barra flutuante SOBREPOR o slide em tela cheia
+  // (sem reserva nenhuma), mas slides densos (dashboards com conteúdo até a
+  // borda de baixo, ex. relatado pelo usuário) tinham a última linha
+  // coberta pela barra de forma incômoda — voltou a reservar espaço sempre.
+  // A faixa reservada mostra a cor de fundo REAL do slide (ver stageBg/
+  // measureIframeEdgeBackground abaixo), não mais o preto fixo do CSS.
+  const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: STAGE_BOTTOM_RESERVE });
   const chatMessagesRef = useRef(null);
+
+  // Cor de fundo REAL do slide atual, medida ao vivo no DOM do iframe (ver
+  // measureIframeEdgeBackground em PresentationViewer.jsx) assim que ele
+  // termina de renderizar (onReady, repassado pro <PresentationViewer>
+  // abaixo) — usada só em tela cheia, pra colorir a faixa reservada
+  // (STAGE_BOTTOM_RESERVE) igual o fundo de verdade do slide em vez do
+  // preto fixo da caixa. Medir ao vivo (em vez de ler o HTML bruto do
+  // slide) é o que funciona pra QUALQUER slide, inclusive os que definem a
+  // cor via CSS customizado embutido (não via style inline de .slide-root,
+  // onde uma tentativa anterior falhava). null = ainda não mediu (ou não
+  // achou nada opaco) — nesse caso cai pro CSS padrão da caixa.
+  const [stageBg, setStageBg] = useState(null);
+  const handleStageReady = () => {
+    const raw = measureIframeEdgeBackground(stageIframeRef.current);
+    if (!raw) { setStageBg(null); return; }
+    setStageBg(isSlideColorInverted(currentSlide.html) ? invertColorForFilter(raw) : raw);
+  };
 
   // Zoom manual (multiplicador em cima de canvasScale — ver ZOOM_EDIT_RANGE/
   // ZOOM_PRESENT_RANGE em canvasConstants.js): estado de UI pura, nunca entra
@@ -2445,7 +2460,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         )}
 
         {/* Palco do Slide com Overlay de Metodologias Ativas */}
-        <div ref={stageRef} className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}>
+        <div
+          ref={stageRef}
+          className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}
+          style={isFullscreen && stageBg ? { background: stageBg } : undefined}
+        >
           {/* Viewport de rolagem nativa pro zoom manual — só este elemento
               rola (mouse/trackpad/toque/barra de rolagem, tudo de graça do
               navegador); a barra de ação/overlay/barra flutuante abaixo ficam
@@ -2537,6 +2556,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     liveQuizEnabled={isFullscreen && !atClosingSlide}
                     selectedElement={selectedEl}
                     cropMode={cropMode}
+                    onReady={isFullscreen ? handleStageReady : undefined}
                   />
                 </div>
 

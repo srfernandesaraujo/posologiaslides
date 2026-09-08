@@ -812,6 +812,47 @@ export function buildBackgroundMirrorScript() {
 </script>`;
 }
 
+// Mede a cor de fundo REAL renderizada perto da borda de baixo do slide,
+// direto no DOM do iframe (mesma origem, acesso síncrono, mesmo padrão já
+// usado pelo cursor virtual do controle remoto — ver remote_cursor_click em
+// PresentationEditor.jsx) — usada pra colorir a faixa reservada em tela
+// cheia (ver STAGE_BOTTOM_RESERVE em PresentationEditor.jsx/
+// PublicPresentationView.jsx) igual o fundo de verdade do slide, em vez de
+// adivinhar a partir do HTML bruto — tentativa anterior (ler
+// .slide-root.style.background) falhava em slides com CSS customizado
+// embutido, onde a cor vem de uma classe/estilo próprio do slide (ex.
+// `.app-container { background: ... }` num `<style>` que o próprio slide
+// declara), nunca do style inline de `.slide-root`. elementFromPoint usa as
+// coordenadas de VIEWPORT do iframe, que são sempre as nativas do canvas
+// (1920x1080 por padrão) — o zoom da apresentação é só um transform CSS no
+// container de fora, não muda o layout interno do iframe. Sobe pela árvore
+// de ancestrais a partir do ponto amostrado até achar o primeiro
+// background-color suficientemente opaco (a maioria dos wrappers
+// intermediários é transparente de propósito) — devolve null se não achar
+// nada (chamador cai pro CSS padrão da caixa).
+export function measureIframeEdgeBackground(iframe) {
+  try {
+    const doc = iframe && iframe.contentDocument;
+    const win = iframe && iframe.contentWindow;
+    if (!doc || !win || !doc.body || !doc.documentElement) return null;
+    const w = doc.documentElement.clientWidth || 1920;
+    const h = doc.documentElement.clientHeight || 1080;
+    let node = doc.elementFromPoint(Math.min(20, w - 1), Math.max(0, h - 20));
+    while (node && node !== doc.documentElement) {
+      const bg = win.getComputedStyle(node).backgroundColor;
+      const match = bg && bg.match(/rgba?\(([^)]+)\)/);
+      if (match) {
+        const parts = match[1].split(',').map((s) => parseFloat(s));
+        if (parts.length < 4 || parts[3] > 0.5) return bg;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  } catch (err) {
+    return null;
+  }
+}
+
 // Script injetado SEMPRE (editável ou não) — ao contrário de buildEditorScript,
 // precisa funcionar durante a apresentação de verdade (tela cheia, editable
 // false), não só editando. Ao tocar num elemento de topo do slide, escurece
