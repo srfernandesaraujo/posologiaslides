@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { API_URL } from '../lib/api';
-import { Smartphone, ChevronLeft, ChevronRight, StickyNote, Move, X, ScrollText, MousePointer2 } from 'lucide-react';
+import { Smartphone, ChevronLeft, ChevronRight, StickyNote, Move, X, ScrollText, MousePointer2, ZoomIn, ZoomOut } from 'lucide-react';
 
 // Abaixo de quanto o dedo se moveu (soma de todo o arrasto, em px de tela do
 // celular) um toque no modo "cursor" ainda conta como CLIQUE em vez de
@@ -72,6 +72,10 @@ export default function RemoteControl() {
 
   const handleNavigate = (direction) => {
     if (socket) socket.emit('remote_navigate', { pin, direction });
+  };
+
+  const handleZoom = (direction) => {
+    if (socket) socket.emit('remote_zoom', { pin, direction });
   };
 
   // Trackpad: os deltas mandados pro servidor são em % da própria área de
@@ -166,6 +170,29 @@ export default function RemoteControl() {
       >
         {trackpadOpen ? <X size={16} /> : <Move size={16} />} {trackpadOpen ? 'Fechar Trackpad' : 'Abrir Trackpad (mover cursor / rolar)'}
       </button>
+
+      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
+        <button
+          onClick={() => handleZoom('out')}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+            padding: '0.6rem', borderRadius: '0.6rem', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
+            border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: '#e5e7eb'
+          }}
+        >
+          <ZoomOut size={16} /> Zoom -
+        </button>
+        <button
+          onClick={() => handleZoom('in')}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+            padding: '0.6rem', borderRadius: '0.6rem', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
+            border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: '#e5e7eb'
+          }}
+        >
+          <ZoomIn size={16} /> Zoom +
+        </button>
+      </div>
 
       {trackpadOpen ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.75rem', margin: '0.9rem 0' }}>

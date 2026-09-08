@@ -185,6 +185,16 @@ export function setupSocketIO(httpServer) {
       io.to(session.presenterSocketId).emit('remote_scroll', { dyPercent });
     });
 
+    // 2e. Botões +/- de zoom do controle remoto — mesmo repasse simples de
+    // remote_navigate acima, sem estado guardado na sessão (quem decide o
+    // range/clamp final é o apresentador, ver handleZoomIn/handleZoomOut em
+    // PresentationEditor.jsx).
+    socket.on('remote_zoom', ({ pin, direction }) => {
+      const session = activeSessions.get(pin);
+      if (!session) return;
+      io.to(session.presenterSocketId).emit('remote_zoom', { direction });
+    });
+
     // 3. Aluno envia resposta (Quiz / Wordcloud / iRAT / Hotspot)
     socket.on('submit_response', ({ pin, slideIndex, responseType, answer }) => {
       const session = activeSessions.get(pin);

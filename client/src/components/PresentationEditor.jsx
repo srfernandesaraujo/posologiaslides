@@ -263,6 +263,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // no useEffect logo abaixo da definição de handleNext/handlePrev.
   const handleNextRef = useRef(() => {});
   const handlePrevRef = useRef(() => {});
+  const handleZoomInRef = useRef(() => {});
+  const handleZoomOutRef = useRef(() => {});
 
   // Trackpad do controle remoto (ver RemoteControl.jsx): posição do cursor
   // virtual, em % do canvas nativo (0-100), null enquanto o celular não
@@ -433,6 +435,19 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       newSocket.on('remote_navigate', ({ direction }) => {
         if (direction === 'next') handleNextRef.current();
         else if (direction === 'prev') handlePrevRef.current();
+      });
+
+      // Botões +/- de zoom do controle remoto (celular) — mesma ref pelo
+      // mesmo motivo de handleNextRef/handlePrevRef acima: este listener é
+      // registrado uma vez só (efeito roda ao montar), então chamar
+      // handleZoomIn/handleZoomOut direto capturaria o `isFullscreen` de
+      // quando o socket conectou (quase sempre false, antes de entrar em
+      // apresentação) e sempre clamparia pro range de EDIÇÃO
+      // (ZOOM_EDIT_RANGE), mesmo com o zoom pedido durante apresentação de
+      // verdade — via ref sempre pega a versão mais recente da função.
+      newSocket.on('remote_zoom', ({ direction }) => {
+        if (direction === 'in') handleZoomInRef.current();
+        else if (direction === 'out') handleZoomOutRef.current();
       });
 
       // Trackpad do controle remoto — modo cursor: acumula o delta recebido
@@ -975,6 +990,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   useEffect(() => {
     handleNextRef.current = handleNext;
     handlePrevRef.current = handlePrev;
+    handleZoomInRef.current = handleZoomIn;
+    handleZoomOutRef.current = handleZoomOut;
   });
 
   // iPad/iPhone: a Fullscreen API REAL tem um gesto de sistema do WebKit
