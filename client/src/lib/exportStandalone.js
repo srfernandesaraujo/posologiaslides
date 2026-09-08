@@ -186,12 +186,10 @@ function baseSlideStyles() {
      duplicação do resto deste bloco, ver comentário de baseSlideStyles). */
   .slide-root[data-color-invert="true"] { filter: invert(1) hue-rotate(180deg); }
   .slide-root[data-color-invert="true"] img, .slide-root[data-color-invert="true"] video { filter: invert(1) hue-rotate(180deg); }
-  /* Ver comentário do mesmo seletor em PresentationViewer.jsx: filter (Modo
-     Claro/Escuro) + overflow-y:auto no MESMO elemento não estende o filtro
-     pro trecho revelado ao rolar (fica preso ao recorte inicial). Tira o
-     .slide-root do papel de scrollport nesta combinação (volta "alto",
-     overflow visível) e deixa o <body> ao redor — sem filtro — rolar. */
-  .slide-root[data-scrollable="true"][data-color-invert="true"] { overflow-y: visible !important; max-height: none !important; }
+  /* Ver comentário do mesmo seletor em PresentationViewer.jsx: duas
+     tentativas de corrigir [data-scrollable]+[data-color-invert] foram
+     revertidas (a 2a chegou a deixar o slide em tela preta) — sem fix
+     aplicado por enquanto. */
   @keyframes pos-fade-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes pos-fade-in-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes pos-fade-in-down { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }

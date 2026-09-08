@@ -1359,27 +1359,14 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
   .slide-root[data-color-invert="true"] video {
     filter: invert(1) hue-rotate(180deg);
   }
-  /* filter (Modo Claro/Escuro) + overflow-y:auto (barra de rolagem, ver
-     data-scrollable acima) no MESMO elemento: o motor não estende o filtro
-     pro trecho do conteúdo revelado ao rolar além do recorte inicial — esse
-     trecho aparece com as cores ORIGINAIS, não invertidas (foi tentado
-     antes só forçar promoção de camada com transform:translateZ(0) +
-     backface-visibility:hidden, mas o filtro continuou preso ao recorte
-     inicial mesmo assim). Em vez de tentar convencer o motor a recompor
-     certo, tira ESTA combinação específica do caminho: com o slide também
-     invertido, quem rola deixa de ser o `.slide-root` (que volta a ficar
-     "alto" de verdade, sem o clipe/scrollport próprio — content overflow
-     visível) e passa a ser o <body> ao redor dele, que é overflow-y:auto por
-     padrão (ver regra acima) e NÃO tem filtro nenhum — o filtro do
-     `.slide-root` passa a cobrir o slide INTEIRO de uma vez, alto e sem
-     scroll próprio, então não há mais "recorte inicial" pra ficar
-     desatualizado. Barra de rolagem visível volta a ser a fina padrão do
-     <body> (não a temática ciano de `[data-scrollable]` acima) só nesta
-     combinação — troca aceitável pelo fundo não quebrar mais. */
-  .slide-root[data-scrollable="true"][data-color-invert="true"] {
-    overflow-y: visible !important;
-    max-height: none !important;
-  }
+  /* Combinação [data-scrollable]+[data-color-invert]: duas tentativas de
+     corrigir o conteúdo revelado ao rolar aparecendo com cores ORIGINAIS
+     (não invertidas) aqui foram revertidas — a 1a (forçar promoção de
+     camada com translateZ(0)/backface-visibility:hidden) não resolvia, e a
+     2a (tirar o overflow do .slide-root pro <body> rolar no lugar) chegou a
+     deixar o slide inteiro em tela preta ao abrir, pior que o bug original.
+     Sem fix aplicado por enquanto — ver conversa/memória do projeto antes de
+     tentar de novo, e testar de verdade num navegador antes de publicar. */
 
   ${staticPreview ? `
   /* staticPreview vence até a rolagem opt-in acima (data-scrollable="true"
