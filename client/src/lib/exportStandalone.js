@@ -180,6 +180,12 @@ function baseSlideStyles() {
   .slide-root[data-scrollable="true"]::-webkit-scrollbar, body[data-scrollable="true"]::-webkit-scrollbar { width: 8px !important; }
   .slide-root[data-scrollable="true"]::-webkit-scrollbar-track, body[data-scrollable="true"]::-webkit-scrollbar-track { background: rgba(0,0,0,0.2) !important; }
   .slide-root[data-scrollable="true"]::-webkit-scrollbar-thumb, body[data-scrollable="true"]::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.6) !important; border-radius: 999px !important; }
+  /* Modo Claro/Escuro por slide (ver setSlideColorInverted em
+     slideHtmlUtils.js) — mesma regra injetada por PresentationViewer.jsx no
+     srcdoc do editor/apresentação; copiada aqui de propósito (mesma razão da
+     duplicação do resto deste bloco, ver comentário de baseSlideStyles). */
+  .slide-root[data-color-invert="true"] { filter: invert(1) hue-rotate(180deg); }
+  .slide-root[data-color-invert="true"] img, .slide-root[data-color-invert="true"] video { filter: invert(1) hue-rotate(180deg); }
   @keyframes pos-fade-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes pos-fade-in-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes pos-fade-in-down { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }

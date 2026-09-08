@@ -907,6 +907,17 @@ export function buildZoomGestureScript(zoomGestureEnabled, initialPannable) {
      sem isto, um slide comprido que também foi zoomado perderia a rolagem
      de leitura por toque. */
   html.__pan-active [data-scrollable="true"] { touch-action: pan-y; }
+  /* Controles nativos (slider, campo de texto, checkbox/toggle, botão) de
+     volta ao touch-action normal do navegador mesmo com zoom aplicado — sem
+     isto, o touch-action:none acima (herdado do <html>, ver spec de
+     touch-action: o valor "usado" de um elemento é a interseção dele com o
+     de todos os ancestrais) também bloqueia o PRÓPRIO gesto de arrastar o
+     "thumb" de um <input type="range"> por toque, deixando o slider preso
+     mesmo depois do pointerdown já não ser mais interceptado como pan (ver
+     isInteractiveTarget abaixo). */
+  html.__pan-active input, html.__pan-active textarea, html.__pan-active select,
+  html.__pan-active button, html.__pan-active a, html.__pan-active label,
+  html.__pan-active [contenteditable="true"] { touch-action: manipulation; }
 </style>
 <script>
 (function () {
@@ -933,6 +944,17 @@ export function buildZoomGestureScript(zoomGestureEnabled, initialPannable) {
   function dist(p1, p2) {
     var dx = p1.x - p2.x, dy = p1.y - p2.y;
     return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // Mesmo critério de buildEditorScript (isInteractiveTarget) — sem isto, um
+  // pointerdown num slider/campo/botão do PRÓPRIO slide (ex. simulador com
+  // <input type="range">) era sequestrado aqui como início de arrasto-pra-
+  // navegar (preventDefault + captura do ponteiro no <html>), e o controle
+  // nativo nunca chegava a receber o gesto — com zoom aplicado, o slide
+  // inteiro virava uma superfície de pan e nenhum widget interativo
+  // respondia mais a clique/arrasto.
+  function isInteractiveTarget(el) {
+    return !!(el.closest && el.closest('input, textarea, select, button, a[href], [contenteditable="true"], label'));
   }
 
   function sendZoom(factor) {
@@ -973,7 +995,7 @@ export function buildZoomGestureScript(zoomGestureEnabled, initialPannable) {
       stopPan();
       return;
     }
-    if (ids.length === 1 && panActive && (e.pointerType !== 'mouse' || e.button === 0)) {
+    if (ids.length === 1 && panActive && !isInteractiveTarget(e.target) && (e.pointerType !== 'mouse' || e.button === 0)) {
       // preventDefault aqui só evita seleção nativa de texto/arrasto nativo
       // de imagem ao começar a arrastar — o 'click' de um toque/clique real
       // (sem movimento) continua disparando normalmente depois.
@@ -1318,6 +1340,24 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
   body[data-scrollable="true"]::-webkit-scrollbar-thumb {
     background: rgba(56, 189, 248, 0.6) !important;
     border-radius: 999px !important;
+  }
+
+  /* Modo Claro/Escuro por slide (ver setSlideColorInverted em
+     slideHtmlUtils.js, alternado pelo botão de sol/lua na barra de
+     ferramentas) — inverte a aparência do slide INTEIRO via filtro (não dá
+     pra reescrever cor por cor: o HTML de cada slide é gerado pela IA com
+     CSS arbitrário/inline, sem um conjunto fixo de variáveis de tema).
+     Escuro vira claro (e vice-versa) preservando o matiz aproximado
+     (hue-rotate compensa o giro de matiz que a inversão sozinha causaria).
+     img/video recebem o MESMO filtro de novo pra cancelar a inversão neles
+     (duas inversões = original) — sem isto, toda foto/vídeo do slide vira um
+     negativo junto com o resto. */
+  .slide-root[data-color-invert="true"] {
+    filter: invert(1) hue-rotate(180deg);
+  }
+  .slide-root[data-color-invert="true"] img,
+  .slide-root[data-color-invert="true"] video {
+    filter: invert(1) hue-rotate(180deg);
   }
 
   ${staticPreview ? `

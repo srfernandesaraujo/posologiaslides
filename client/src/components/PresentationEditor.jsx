@@ -33,6 +33,7 @@ import {
   hasTableAt, getTableRowsAt, setTableRowsAt,
   getSlideBackground, setSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml,
   getSlideScrollable, setSlideScrollable,
+  isSlideColorInverted, setSlideColorInverted,
   scaleSlideToCanvas, unscaleSlideFromCanvas, isSlideScaledToCanvas
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
@@ -50,7 +51,7 @@ import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
   GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2, StickyNote,
-  Smartphone, MousePointer2, Minus
+  Smartphone, MousePointer2, Minus, SunMoon
 } from 'lucide-react';
 
 // Trackpad do controle remoto (ver RemoteControl.jsx): os deltas que chegam
@@ -523,6 +524,23 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     if (atClosingSlide || !currentSlide) return;
     const nextScrollable = !isCurrentSlideScrollable;
     const nextHtml = setSlideScrollable(currentSlide.html, nextScrollable);
+    const updatedSlides = presentation.slides.map((s, idx) =>
+      idx === activeIndex ? { ...s, html: nextHtml } : s
+    );
+    commit({ ...presentation, slides: updatedSlides });
+  };
+
+  const isCurrentSlideInverted = currentSlide ? isSlideColorInverted(currentSlide.html) : false;
+
+  // Alterna o slide ativo entre o tema em que foi desenhado e o seu oposto
+  // (claro<->escuro) — ver setSlideColorInverted em slideHtmlUtils.js: não
+  // troca só o fundo (isso o botão de Paleta já faz), inverte o slide INTEIRO
+  // via filtro CSS, pra ficar legível numa sala iluminada/projetor mesmo um
+  // slide desenhado originalmente em tema escuro.
+  const handleToggleSlideColorMode = () => {
+    if (atClosingSlide || !currentSlide) return;
+    const nextInverted = !isCurrentSlideInverted;
+    const nextHtml = setSlideColorInverted(currentSlide.html, nextInverted);
     const updatedSlides = presentation.slides.map((s, idx) =>
       idx === activeIndex ? { ...s, html: nextHtml } : s
     );
@@ -2088,6 +2106,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               </button>
               <button className="btn-icon" onClick={() => setSlideBgModalOpen(true)} title="Alterar Cor de Fundo do Slide Ativo (Cor ou Gradiente)">
                 <Palette size={18} />
+              </button>
+              <button
+                className={`btn-icon ${isCurrentSlideInverted ? 'active' : ''}`}
+                onClick={handleToggleSlideColorMode}
+                disabled={atClosingSlide}
+                title={isCurrentSlideInverted ? "Voltar ao Modo Escuro neste Slide" : "Mudar para Modo Claro neste Slide (inverte todo o slide, ideal para sala iluminada/projetor)"}
+                style={isCurrentSlideInverted ? { background: 'rgba(250, 204, 21, 0.18)', color: '#facc15' } : undefined}
+              >
+                <SunMoon size={18} />
               </button>
               <button className="btn-icon" onClick={() => setSlideBrandingModalOpen(true)} title="Informações Identificadoras (Aplicar Rodapé/Autor em todos os slides)">
                 <UserCheck size={18} />

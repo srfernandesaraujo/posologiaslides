@@ -842,6 +842,51 @@ export function setSlideScrollable(html, scrollable) {
 }
 
 // ==========================================================================
+// Alternância de Modo Claro/Escuro do Slide
+// ==========================================================================
+// Diferente de setSlideBackground (só troca a cor de fundo), isto inverte a
+// aparência do slide INTEIRO — útil pra slides desenhados em tema escuro que
+// precisam virar claro pra sala iluminada/projetor (ou vice-versa) sem
+// reescrever cada cor individualmente (o HTML de cada slide é gerado pela IA
+// com CSS arbitrário/inline, então não há um conjunto fixo de variáveis de
+// cor pra trocar). A técnica é `filter: invert(1) hue-rotate(180deg)` no
+// `.slide-root` inteiro (escuro vira claro, claro vira escuro, mantendo o
+// matiz original aproximado — mesmo truque usado por leitores/navegadores em
+// "modo escuro forçado" tipo Smart Invert) + o MESMO filtro de novo em toda
+// mídia real (img/video) pra cancelar a inversão nelas (dupla inversão =
+// original) e fotos não ficarem com as cores trocadas feito um negativo.
+export function isSlideColorInverted(html) {
+  if (!html) return false;
+  const template = parseFragment(html);
+  const rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+  if (!rootEl) return false;
+  return rootEl.getAttribute('data-color-invert') === 'true';
+}
+
+export function setSlideColorInverted(html, inverted) {
+  if (!html) return html;
+  const template = parseFragment(html);
+  let rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+
+  if (!rootEl) {
+    const container = document.createElement('div');
+    container.className = 'slide-root';
+    container.style.cssText = `display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; position:relative; background:#0b1220;`;
+    container.append(...Array.from(template.content.childNodes));
+    template.content.appendChild(container);
+    rootEl = container;
+  }
+
+  if (inverted) {
+    rootEl.setAttribute('data-color-invert', 'true');
+  } else {
+    rootEl.removeAttribute('data-color-invert');
+  }
+
+  return serializeFragment(template);
+}
+
+// ==========================================================================
 // Reescala de slide feito pro tamanho ANTIGO do canvas (ver mudança de
 // SLIDE_NATIVE_WIDTH/HEIGHT em lib/canvasConstants.js, 1280x720 -> 1920x1080)
 // ==========================================================================
