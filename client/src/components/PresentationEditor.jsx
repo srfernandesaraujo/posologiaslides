@@ -2111,7 +2111,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 className={`btn-icon ${isCurrentSlideInverted ? 'active' : ''}`}
                 onClick={handleToggleSlideColorMode}
                 disabled={atClosingSlide}
-                title={isCurrentSlideInverted ? "Voltar ao Modo Escuro neste Slide" : "Mudar para Modo Claro neste Slide (inverte todo o slide, ideal para sala iluminada/projetor)"}
+                title={isCurrentSlideInverted ? "Desfazer Inversão de Cores neste Slide (voltar à aparência original)" : "Inverter Cores deste Slide (escuro↔claro, ideal para sala iluminada/projetor — a Cor de Fundo escolhida na Paleta continua independente)"}
                 style={isCurrentSlideInverted ? { background: 'rgba(250, 204, 21, 0.18)', color: '#facc15' } : undefined}
               >
                 <SunMoon size={18} />

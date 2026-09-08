@@ -696,13 +696,76 @@ export function appendIntoRoot(html, fragment, meta) {
 }
 
 // ==========================================================================
+// Matemática de cor pro Modo Claro/Escuro (ver setSlideColorInverted mais
+// abaixo) — usada só pra manter a Cor de Fundo escolhida no modal (ver
+// data-bg-intent abaixo) INDEPENDENTE do filtro de inversão do slide, mesmo
+// o fundo estando pintado dentro do próprio elemento filtrado.
+// ==========================================================================
+// Calcula a cor que, depois de passar pelo filtro CSS
+// `invert(1) hue-rotate(180deg)` aplicado no `.slide-root` (ver
+// setSlideColorInverted), renderiza EXATAMENTE como a cor de entrada. A
+// combinação invert+hue-rotate(180deg) é uma involução — aplicá-la duas
+// vezes devolve a cor original, porque hue-rotate(180)∘hue-rotate(180) é a
+// identidade (rotação de 360°) e a matriz de hue-rotate preserva o eixo
+// acromático (cinza/branco/preto não muda de "matiz") — é o mesmo motivo
+// pelo qual o MESMO filtro aplicado duas vezes numa <img>/<video> cancela a
+// inversão nela (ver CSS injetado em PresentationViewer.jsx). Por ser sua
+// própria inversa, esta função serve tanto pra pré-compensar o valor a
+// gravar (pra ele renderizar como a cor desejada sob o filtro) quanto,
+// aplicada de novo, pra desfazer e recuperar a cor original.
+function invertColorChannels(r, g, b) {
+  const ir = 1 - r, ig = 1 - g, ib = 1 - b;
+  // Matriz fixa de hue-rotate(180deg) — spec CSS Filter Effects, coeficientes
+  // do ângulo de 180° já reduzidos (cos=-1, sin=0).
+  const nr = -0.574 * ir + 1.430 * ig + 0.144 * ib;
+  const ng = 0.426 * ir + 0.430 * ig + 0.144 * ib;
+  const nb = 0.426 * ir + 1.430 * ig - 0.856 * ib;
+  const clamp = (v) => Math.max(0, Math.min(255, Math.round(v * 255)));
+  return [clamp(nr), clamp(ng), clamp(nb)];
+}
+
+function invertHexColor(hex) {
+  let h = hex.replace('#', '');
+  if (h.length === 3 || h.length === 4) h = h.split('').map((c) => c + c).join('');
+  if (h.length !== 6 && h.length !== 8) return hex;
+  const hasAlpha = h.length === 8;
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const [nr, ng, nb] = invertColorChannels(r, g, b);
+  const toHex = (v) => v.toString(16).padStart(2, '0');
+  return '#' + toHex(nr) + toHex(ng) + toHex(nb) + (hasAlpha ? h.slice(6, 8) : '');
+}
+
+// Cor sólida OU string com cor(es) embutida(s) (ex.: um gradiente) — troca só
+// as ocorrências reconhecidas (hex ou rgb/rgba), preservando o resto da
+// string (ângulo, stops em %, "linear-gradient(...)") intacto. Cobre 100% do
+// espaço de valores que este app realmente produz pra fundo (hex do seletor
+// de cor customizado e dos presets, inclusive dentro de gradiente) — cor
+// nomeada ("white") ou outra função CSS fica sem tradução (devolvida como
+// veio), caso raro que nenhum preset/seletor deste app gera.
+export function invertColorForFilter(colorStr) {
+  if (!colorStr) return colorStr;
+  return colorStr
+    .replace(/#[0-9a-fA-F]{3,8}\b/g, (m) => invertHexColor(m))
+    .replace(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/g, (m, r, g, b, a) => {
+      const [nr, ng, nb] = invertColorChannels(Number(r) / 255, Number(g) / 255, Number(b) / 255);
+      return a !== undefined ? `rgba(${nr}, ${ng}, ${nb}, ${a})` : `rgb(${nr}, ${ng}, ${nb})`;
+    });
+}
+
+// ==========================================================================
 // Alteração da Cor/Gradiente de Fundo do Slide
 // ==========================================================================
+// getSlideBackground SEMPRE devolve a cor pretendida pelo usuário (ver
+// data-bg-intent) — nunca o valor bruto pintado no CSS, que pode estar
+// pré-compensado pro filtro de inversão (ver setSlideColorInverted) e não
+// bater com o que a pessoa realmente escolheu no modal.
 export function getSlideBackground(html) {
   const template = parseFragment(html);
   const rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
   if (!rootEl) return '#0b1220';
-  return rootEl.style.background || rootEl.style.backgroundColor || '#0b1220';
+  return rootEl.getAttribute('data-bg-intent') || rootEl.style.background || rootEl.style.backgroundColor || '#0b1220';
 }
 
 export function setSlideBackground(html, bgValue) {
@@ -713,10 +776,19 @@ export function setSlideBackground(html, bgValue) {
     const container = document.createElement('div');
     container.className = 'slide-root';
     container.style.cssText = `display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; position:relative; background:${bgValue};`;
+    container.setAttribute('data-bg-intent', bgValue);
     container.append(...Array.from(template.content.childNodes));
     template.content.appendChild(container);
   } else {
-    rootEl.style.background = bgValue;
+    // Grava a INTENÇÃO (o que a pessoa escolheu, sempre neste valor bruto,
+    // nunca invertido) separada do CSS de fato pintado — se o slide já está
+    // em Modo Claro/Escuro invertido (ver data-color-invert), o valor
+    // pintado precisa ser o PRÉ-COMPENSADO (ver invertColorForFilter), senão
+    // o filtro do slide inteiro inverteria de novo esta cor recém-escolhida
+    // e o fundo nunca bateria com o que a pessoa selecionou no modal.
+    rootEl.setAttribute('data-bg-intent', bgValue);
+    const inverted = rootEl.getAttribute('data-color-invert') === 'true';
+    rootEl.style.background = inverted ? invertColorForFilter(bgValue) : bgValue;
   }
 
   return serializeFragment(template);
@@ -881,6 +953,19 @@ export function setSlideColorInverted(html, inverted) {
     rootEl.setAttribute('data-color-invert', 'true');
   } else {
     rootEl.removeAttribute('data-color-invert');
+  }
+
+  // Fundo escolhido de propósito no modal de Cor de Fundo (ver
+  // data-bg-intent em setSlideBackground) fica INDEPENDENTE deste toggle —
+  // sem isto, alternar Modo Claro/Escuro reaplicaria o filtro de inversão
+  // por cima de um fundo que a pessoa já tinha escolhido pra ficar de um
+  // jeito só, fazendo parecer que "claro" e "fundo claro" se cancelam. Só
+  // recompensa quando há uma intenção explícita gravada — sem ela, o fundo
+  // segue o comportamento padrão (o filtro do slide inteiro também vira o
+  // fundo original, exatamente como antes desta função existir).
+  const bgIntent = rootEl.getAttribute('data-bg-intent');
+  if (bgIntent) {
+    rootEl.style.background = inverted ? invertColorForFilter(bgIntent) : bgIntent;
   }
 
   return serializeFragment(template);
