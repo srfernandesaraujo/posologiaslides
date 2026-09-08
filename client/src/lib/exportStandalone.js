@@ -176,7 +176,12 @@ function baseSlideStyles() {
   body::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.35); border-radius: 999px; }
   body::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.55); }
   body { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.35) transparent; }
-  .slide-root[data-scrollable="true"], body[data-scrollable="true"] { overflow-y: auto !important; max-height: 100% !important; }
+  /* Ver comentário completo do mesmo seletor em PresentationViewer.jsx:
+     padding-bottom garante folga rolável extra além do fim natural do
+     conteúdo, pra a última linha sempre poder ser levada pra cima da
+     faixa reservada da barra de ferramentas (STAGE_BOTTOM_RESERVE), mesmo
+     quando a reserva calculada não é exata o bastante sozinha. */
+  .slide-root[data-scrollable="true"], body[data-scrollable="true"] { overflow-y: auto !important; max-height: 100% !important; padding-bottom: 110px !important; }
   .slide-root[data-scrollable="true"]::-webkit-scrollbar, body[data-scrollable="true"]::-webkit-scrollbar { width: 8px !important; }
   .slide-root[data-scrollable="true"]::-webkit-scrollbar-track, body[data-scrollable="true"]::-webkit-scrollbar-track { background: rgba(0,0,0,0.2) !important; }
   .slide-root[data-scrollable="true"]::-webkit-scrollbar-thumb, body[data-scrollable="true"]::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.6) !important; border-radius: 999px !important; }

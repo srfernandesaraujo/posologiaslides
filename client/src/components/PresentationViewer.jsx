@@ -1368,6 +1368,17 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
   body[data-scrollable="true"] {
     overflow-y: auto !important;
     max-height: 100% !important;
+    /* Folga extra rolável no fim do conteúdo — em tela cheia/apresentação a
+       barra de ferramentas flutuante ocupa uma faixa por cima do canvas
+       (ver STAGE_BOTTOM_RESERVE em canvasConstants.js), mas o cálculo de
+       quanto espaço reservar é uma estimativa (altura real da barra pode
+       variar por navegador/fonte), e relatos mostraram a última linha
+       ainda coberta em alguns casos mesmo com a faixa reservada. Em vez de
+       perseguir um número perfeito de reserva, garante que sempre dá pra
+       ROLAR além do fim natural do conteúdo — assim a última linha sempre
+       pode ser levada pra cima da faixa reservada, funcionando mesmo se a
+       estimativa não for exata. */
+    padding-bottom: 110px !important;
   }
   .slide-root[data-scrollable="true"]::-webkit-scrollbar,
   body[data-scrollable="true"]::-webkit-scrollbar {
