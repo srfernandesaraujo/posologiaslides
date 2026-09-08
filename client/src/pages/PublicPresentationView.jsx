@@ -23,7 +23,11 @@ export default function PublicPresentationView({ shareId }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [spotlightOn, setSpotlightOn] = useState(false);
 
-  const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: STAGE_BOTTOM_RESERVE });
+  // Sem reserva em tela cheia — mesmo raciocínio de PresentationEditor.jsx:
+  // o slide ocupa a caixa 16:9 inteira, e a barra flutuante (já semi-
+  // transparente/desfocada, com autohide, ver PublicViewerControls.jsx)
+  // sobrepõe o rodapé quando visível, em vez de deixar uma faixa vazia.
+  const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: isFullscreen ? 0 : STAGE_BOTTOM_RESERVE });
 
   useEffect(() => {
     let cancelled = false;

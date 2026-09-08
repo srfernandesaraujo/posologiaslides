@@ -31,7 +31,7 @@ import {
   setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setAllAnimationsAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt,
   hasTableAt, getTableRowsAt, setTableRowsAt,
-  getSlideBackground, setSlideBackground, getDisplayedSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml,
+  getSlideBackground, setSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml,
   getSlideScrollable, setSlideScrollable,
   isSlideColorInverted, setSlideColorInverted,
   scaleSlideToCanvas, unscaleSlideFromCanvas, isSlideScaledToCanvas
@@ -299,7 +299,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // (só o multiplicador `scale` muda entre os dois modos). `bottomReserve`
   // garante uma faixa inferior sempre livre pra PresentationControls nunca
   // ficar atrás do conteúdo do slide em telas pequenas.
-  const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: STAGE_BOTTOM_RESERVE });
+  // Em tela cheia, sem reserva nenhuma: o slide ocupa a caixa 16:9 inteira
+  // (sem faixa vazia embaixo) e a barra de ferramentas flutuante passa a
+  // sobrepor o rodapé do slide quando visível — ela já é semi-transparente/
+  // desfocada (backdrop-filter, ver .floating-toolbar em index.css) e quase
+  // some sozinha após alguns segundos sem mexer o mouse (autohide, ver
+  // PresentationControls.jsx), mesmo padrão de apresentação do PowerPoint/
+  // Keynote/Google Slides. Fora de tela cheia mantém a reserva de sempre
+  // (ver STAGE_BOTTOM_RESERVE) — só o caso relatado (tela cheia) trocou.
+  const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: isFullscreen ? 0 : STAGE_BOTTOM_RESERVE });
   const chatMessagesRef = useRef(null);
 
   // Zoom manual (multiplicador em cima de canvasScale — ver ZOOM_EDIT_RANGE/
@@ -2437,23 +2445,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         )}
 
         {/* Palco do Slide com Overlay de Metodologias Ativas */}
-        {/* Em tela cheia, .fullscreen-stage letterboxa em 16:9 (ver CSS) e o
-            canvas nativo fica menor que essa caixa por causa do
-            STAGE_BOTTOM_RESERVE (folga reservada pra barra flutuante nunca
-            cobrir conteúdo) — a faixa reservada em si mostra o FUNDO desta
-            caixa, que por padrão (CSS) é preto sólido. Sobrescrever aqui com
-            a cor de fundo REALMENTE exibida do slide atual (ver
-            getDisplayedSlideBackground, que já resolve Modo Claro/Escuro
-            mesmo sem Cor de Fundo explícita na Paleta) faz essa faixa
-            "sumir" (mesma cor do slide) em vez de aparecer como uma tarja
-            preta destoante bem embaixo de um slide claro. Só em tela cheia —
-            fora dela o CSS puro (sem esse contraste isolado, cercado pelo
-            resto da UI escura do editor) já não incomodava. */}
-        <div
-          ref={stageRef}
-          className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}
-          style={isFullscreen ? { background: getDisplayedSlideBackground(currentSlide.html) } : undefined}
-        >
+        <div ref={stageRef} className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}>
           {/* Viewport de rolagem nativa pro zoom manual — só este elemento
               rola (mouse/trackpad/toque/barra de rolagem, tudo de graça do
               navegador); a barra de ação/overlay/barra flutuante abaixo ficam

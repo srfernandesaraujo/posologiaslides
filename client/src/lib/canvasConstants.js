@@ -19,18 +19,16 @@ export const LEGACY_SLIDE_HEIGHT = 720;
 
 // Faixa inferior (em px reais, não escalados) sempre reservada e nunca
 // ocupada pelo conteúdo do slide, para a barra de ferramentas flutuante
-// (.floating-toolbar, ver PresentationControls/index.css) nunca ficar por
-// cima/cobrindo conteúdo do slide em tela cheia. A barra fica a bottom:24px
-// da caixa do palco e sua própria altura (padding 0.6rem + ícones de 36px +
-// borda) soma uns 57px, ou seja, a borda de CIMA da barra fica a uns 81px
-// do fundo do palco — 76px de reserva (valor antigo) deixava margem
-// insuficiente (~5px), e o próprio conteúdo do slide (renderizado por cima
-// dessa folga) ficava coberto/cortado pela barra. 110px dá folga confortável
-// mesmo sem medir ao vivo (variação de fonte/zoom do navegador) — sem custo
-// visual: a faixa reservada usa a MESMA cor do slide (ver
-// getDisplayedSlideBackground em PresentationEditor.jsx), então "sobrar"
-// folga a mais não aparece como espaço vazio destoante.
-export const STAGE_BOTTOM_RESERVE = 110;
+// (.floating-toolbar) nunca ficar por cima/cobrindo conteúdo — usada só
+// FORA de tela cheia (ver useCanvasFit(..., { bottomReserve: isFullscreen
+// ? 0 : STAGE_BOTTOM_RESERVE }) em PresentationEditor.jsx). Em tela cheia a
+// reserva é zerada de propósito: o slide ocupa a caixa 16:9 inteira e a
+// barra (já semi-transparente/desfocada, com autohide) flutua por cima
+// quando visível, em vez de forçar uma faixa vazia embaixo — tentativas
+// anteriores de "disfarçar" essa faixa (cor de fundo adivinhada a partir do
+// HTML do slide) falhavam em slides com CSS customizado embutido (cor
+// definida numa classe própria, não em style inline de .slide-root).
+export const STAGE_BOTTOM_RESERVE = 76;
 
 // Zoom manual (multiplicador aplicado em cima da escala automática de ajuste
 // — ver useCanvasFit.js): faixas diferentes por modo, já que faz sentido
