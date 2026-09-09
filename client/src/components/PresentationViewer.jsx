@@ -1343,6 +1343,21 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
      de imagem em blockCatalog.js, slider antes/depois em widgetCatalog.js)
      — overflow não é herdado pelos filhos em CSS. */
   html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+  /* Exceção ao overflow:hidden acima quando "Ajustar tamanho" (zoom nativo,
+     ver scaleSlideToCanvas em slideHtmlUtils.js) está ativo — descoberto ao
+     medir ao vivo com o usuário (ver memória do bug "Mapa do Néfron"):
+     zoom em <html> faz a PRÓPRIA altura computada de <html> encolher (ex.
+     720px pra zoom:1.5, já que <html> passa a se autodescrever nos termos
+     "de antes do zoom"), mas unidades vh continuam medindo a tela real
+     (1080px) — então body { min-height: 100vh } fica MAIOR que a caixa do
+     próprio <html> que o contém. Isso faz o excedente do body (a diferença
+     inteira, não só um pouco) ser cortado a seco pelo overflow:hidden do
+     html, ANTES de qualquer rolagem entrar em jogo — nenhuma quantidade de
+     scroll ou folga extra (padding-bottom) resolve um corte rígido feito
+     mais acima na árvore. Relaxar só verticalmente (mantendo overflow-x
+     hidden, já que o slide é sempre 1920px de largura por design) faz o
+     body voltar a ficar inteiramente visível/rolável nesse cenário. */
+  html:has(style[data-native-scaled="true"]) { overflow-y: visible; }
   /* staticPreview (miniaturas da lista de slides, ver SlideThumbnail.jsx):
      sem rolagem interna nenhuma — é um "print" reduzido via transform, então
      nunca deveria reagir a gesto de rolagem por conta própria. Sem isto, um

@@ -169,6 +169,12 @@ async function fetchVendorScriptText(path) {
 function baseSlideStyles() {
   return `
   html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+  /* Ver comentário completo do mesmo seletor em PresentationViewer.jsx: com
+     "Ajustar tamanho" (zoom nativo) ativo, <html> encolhe sua própria altura
+     computada mas vh continua medindo a tela real, fazendo body{min-height:
+     100vh} ficar maior que <html> e ser cortado a seco por este
+     overflow:hidden, sem que nenhuma rolagem consiga contornar o corte. */
+  html:has(style[data-native-scaled="true"]) { overflow-y: visible; }
   /* position:relative: ver comentário completo do mesmo seletor em
      PresentationViewer.jsx — sem isto, um elemento de topo posicionado
      livremente (data-el-positioned) sem .slide-root usa o viewport como
