@@ -1352,7 +1352,22 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
      pra só depois rolar a lista e revelar as próximas — mesmo o wrapper de
      fora tendo pointer-events:none, o gesto de rolagem do trackpad ainda
      alcançava o documento do iframe em alguns navegadores. */
-  body { margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: ${staticPreview ? 'hidden' : 'auto'}; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; }
+  /* position:relative é o que faz body virar o "containing block" de um
+     elemento de topo posicionado livremente (data-el-positioned, ver
+     setPositionAt em slideHtmlUtils.js) quando o slide não usa a classe
+     .slide-root (dashboards gerados por IA com sua própria raiz, ex.
+     .app-container). Sem isto, position:absolute sem ancestral posicionado
+     usa o VIEWPORT (<html>) como referência — e como <html> fica
+     overflow:hidden (acima), qualquer conteúdo desse elemento que
+     ultrapasse os 1080px nativos é cortado em silêncio, sem contar pro
+     scrollHeight do body nem aparecer na barra de rolagem, mesmo com
+     data-scrollable ligado (o toggle só afeta .slide-root/body, nunca
+     resolve containing block errado). Foi exatamente o caso do slide "Mapa
+     do Néfron": .app-container é seu próprio elemento raiz (não
+     .slide-root), fica position:absolute, e sem este position:relative sua
+     última linha de conteúdo ficava inacessível em tela cheia mesmo com a
+     barra de rolagem ativada. */
+  body { position: relative; margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: ${staticPreview ? 'hidden' : 'auto'}; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; }
   * { box-sizing: border-box; }
   /* Scrollbar fina e discreta (tema escuro), em vez da barra cinza padrão do
      navegador destoando do visual do slide — só aparece quando há de fato

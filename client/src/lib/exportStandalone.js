@@ -169,7 +169,12 @@ async function fetchVendorScriptText(path) {
 function baseSlideStyles() {
   return `
   html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
-  body { margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; }
+  /* position:relative: ver comentário completo do mesmo seletor em
+     PresentationViewer.jsx — sem isto, um elemento de topo posicionado
+     livremente (data-el-positioned) sem .slide-root usa o viewport como
+     containing block, e seu overflow vertical é cortado por html{overflow:
+     hidden} acima sem nunca contar pro scroll do body. */
+  body { position: relative; margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; }
   * { box-sizing: border-box; }
   body::-webkit-scrollbar { width: 8px; }
   body::-webkit-scrollbar-track { background: transparent; }
