@@ -173,8 +173,12 @@ function baseSlideStyles() {
      "Ajustar tamanho" (zoom nativo) ativo, <html> encolhe sua própria altura
      computada mas vh continua medindo a tela real, fazendo body{min-height:
      100vh} ficar maior que <html> e ser cortado a seco por este
-     overflow:hidden, sem que nenhuma rolagem consiga contornar o corte. */
-  html:has(style[data-native-scaled="true"]) { overflow-y: visible; }
+     overflow:hidden. Usar vh (imune ao encolhimento do zoom) em vez de %
+     pra altura do html evita a sobra inteira, sem precisar mexer em
+     overflow — uma 1a tentativa com overflow-y:visible corrigia o corte mas
+     criava DUAS barras de rolagem independentes (html e body cada um vira
+     sua própria caixa de rolagem); revertida. */
+  html:has(style[data-native-scaled="true"]) { height: 100vh; }
   /* position:relative: ver comentário completo do mesmo seletor em
      PresentationViewer.jsx — sem isto, um elemento de topo posicionado
      livremente (data-el-positioned) sem .slide-root usa o viewport como
