@@ -1006,9 +1006,21 @@ export function scaleSlideToCanvas(html, fromWidth, fromHeight, toWidth, toHeigh
   // sempre 16:9, então a razão de largura já é igual à de altura.
   const ratio = toWidth / fromWidth;
 
+  // --native-scale-ratio (custom property, herda pra todo mundo dentro do
+  // slide): deixa o CSS de data-scrollable (ver PresentationViewer.jsx/
+  // exportStandalone.js) saber que zoom está em jogo e ampliar a folga extra
+  // de rolagem proporcionalmente — zoom em <html> recalcula vh/vw/% do
+  // documento inteiro (de propósito, ver comentário desta função acima), e
+  // isso inclui o cálculo de altura máxima rolável (max-height:100%) do
+  // conteúdo. Relatos mostraram a barra de rolagem parando ANTES do fim
+  // real do conteúdo quando o zoom está ativo — consistente com imprecisão
+  // de arredondamento sub-pixel que este `zoom` não-padrão acumula ao
+  // recalcular layout de várias camadas aninhadas, proporcional ao fator de
+  // zoom. Sem viés visual: só some quando não há ajuste de tamanho
+  // aplicado (var(..., 1) cai pra 1x, sem folga extra nenhuma).
   const styleTag = document.createElement('style');
   styleTag.setAttribute('data-native-scaled', 'true');
-  styleTag.textContent = `html { zoom: ${ratio}; }`;
+  styleTag.textContent = `html { zoom: ${ratio}; --native-scale-ratio: ${ratio}; }`;
   template.content.insertBefore(styleTag, rootEl);
 
   return serializeFragment(template);

@@ -190,8 +190,14 @@ function baseSlideStyles() {
      em slideHtmlUtils.js marca data-scrollable no elemento de topo do slide,
      que em dashboards gerados por IA sem classe .slide-root é a própria raiz
      customizada (ex. .app-container) — restringir a .slide-root/body deixava
-     essa folga (e o scrollbar customizado abaixo) sem efeito nesses slides. */
-  [data-scrollable="true"] { overflow-y: auto !important; max-height: 100% !important; padding-bottom: 110px !important; }
+     essa folga (e o scrollbar customizado abaixo) sem efeito nesses slides.
+     Multiplicado por --native-scale-ratio (ver scaleSlideToCanvas em
+     slideHtmlUtils.js, 1 quando não há "Ajustar tamanho" aplicado): esse
+     recurso aplica zoom em <html>, recalculando vh/vw/% do documento
+     inteiro de propósito — e relatos mostraram a rolagem parando um pouco
+     antes do fim real do conteúdo quando o zoom está ativo, proporcional
+     ao fator aplicado. */
+  [data-scrollable="true"] { overflow-y: auto !important; max-height: 100% !important; padding-bottom: calc(110px * var(--native-scale-ratio, 1)) !important; }
   [data-scrollable="true"]::-webkit-scrollbar { width: 8px !important; }
   [data-scrollable="true"]::-webkit-scrollbar-track { background: rgba(0,0,0,0.2) !important; }
   [data-scrollable="true"]::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.6) !important; border-radius: 999px !important; }

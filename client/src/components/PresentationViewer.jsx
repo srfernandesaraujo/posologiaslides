@@ -1398,8 +1398,13 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
        perseguir um número perfeito de reserva, garante que sempre dá pra
        ROLAR além do fim natural do conteúdo — assim a última linha sempre
        pode ser levada pra cima da faixa reservada, funcionando mesmo se a
-       estimativa não for exata. */
-    padding-bottom: 110px !important;
+       estimativa não for exata. Multiplicado por --native-scale-ratio (ver
+       scaleSlideToCanvas em slideHtmlUtils.js, 1 quando não há "Ajustar
+       tamanho" aplicado): esse recurso aplica zoom em <html>, recalculando
+       vh/vw/% do documento inteiro de propósito — e relatos mostraram a
+       barra de rolagem parando um pouco antes do fim real do conteúdo
+       quando o zoom está ativo, proporcional ao fator aplicado. */
+    padding-bottom: calc(110px * var(--native-scale-ratio, 1)) !important;
   }
   [data-scrollable="true"]::-webkit-scrollbar {
     width: 8px !important;
