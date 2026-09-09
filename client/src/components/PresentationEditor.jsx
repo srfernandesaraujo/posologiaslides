@@ -1255,7 +1255,21 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   useEffect(() => {
     if (!currentSlide) return;
     const ratio = getSlideScaleRatio(currentSlide.html);
-    if (ratio) setZoom(clampZoom(ratio));
+    if (!ratio) return;
+    const nextZoom = clampZoom(ratio);
+    // Evita o useLayoutEffect "recentraliza a rolagem" (ver
+    // prevEffectiveScaleRef acima) reagir a ESTA mudança de zoom
+    // preservando o CENTRO da visão atual — certo pra pinça/roda
+    // interativa (o usuário já está olhando pra algo específico), errado
+    // aqui: o slide acabou de trocar (rolagem já resetada pro canto 0,0
+    // pelo efeito de troca de slide acima) e "preservar o centro" deslocava
+    // a visão pra direita/baixo, cortando a borda esquerda/superior do
+    // conteúdo (relatado ao vivo). Gravar aqui o valor que effectiveScale
+    // VAI assumir faz aquele efeito não encontrar diferença nenhuma quando
+    // rodar, deixando a rolagem no canto — leitura normal, de cima pra baixo
+    // e da esquerda pra direita, como ao abrir o slide pela primeira vez.
+    prevEffectiveScaleRef.current = canvasScale * nextZoom;
+    setZoom(nextZoom);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, isFullscreen, currentSlide?.html]);
 
