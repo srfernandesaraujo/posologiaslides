@@ -367,22 +367,31 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // useEffect) pra aplicar antes do navegador pintar o novo tamanho, sem
   // o "pulo" de um frame com a rolagem ainda desatualizada.
   //
-  // skipNextRecenterRef: usado pelo useEffect de "Ajustar tamanho" mais
-  // abaixo pra pular esta recentralização quando o zoom muda por causa da
-  // preferência do slide, não de um gesto do usuário — "preservar o centro
-  // atual" faz sentido pra pinça (a pessoa está olhando pra algo
-  // específico), mas não faz sentido logo que um slide carrega (a rolagem
-  // acabou de voltar pro canto 0,0) — preservar o centro dali deslocava a
-  // visão e cortava a borda esquerda/de cima (relatado ao vivo).
-  const skipNextRecenterRef = useRef(false);
+  // nextRecenterModeRef: usado pelo useEffect de "Ajustar tamanho" mais
+  // abaixo pra trocar o comportamento desta recentralização quando o zoom
+  // muda por causa da preferência do slide, não de um gesto do usuário —
+  // "preservar o centro da visão ATUAL" (comportamento padrão, null) faz
+  // sentido pra pinça (a pessoa já está olhando pra algo específico), mas
+  // não faz sentido logo que um slide carrega (a rolagem acabou de voltar
+  // pro canto 0,0) — preservar o centro dali deslocava a visão e cortava a
+  // borda esquerda/de cima (relatado ao vivo). 'center-content' centraliza
+  // no MEIO do conteúdo inteiro em vez de preservar posição nenhuma —
+  // usado ao entrar num slide com zoom automático, pra sempre abrir
+  // centralizado (pedido explícito do usuário) em vez de encostado num
+  // canto com toda a sobra de um lado só.
+  const nextRecenterModeRef = useRef(null);
   const prevEffectiveScaleRef = useRef(effectiveScale);
   useLayoutEffect(() => {
-    if (skipNextRecenterRef.current) {
-      skipNextRecenterRef.current = false;
+    const port = zoomScrollportRef.current;
+    if (nextRecenterModeRef.current === 'center-content') {
+      nextRecenterModeRef.current = null;
+      if (port) {
+        port.scrollLeft = Math.max(0, (port.scrollWidth - port.clientWidth) / 2);
+        port.scrollTop = Math.max(0, (port.scrollHeight - port.clientHeight) / 2);
+      }
       prevEffectiveScaleRef.current = effectiveScale;
       return;
     }
-    const port = zoomScrollportRef.current;
     const prevScale = prevEffectiveScaleRef.current;
     if (port && prevScale && Math.abs(prevScale - effectiveScale) > 0.0001) {
       const ratio = effectiveScale / prevScale;
@@ -1280,7 +1289,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     if (!currentSlide) return;
     const ratio = getSlideScaleRatio(currentSlide.html);
     if (ratio) {
-      skipNextRecenterRef.current = true;
+      nextRecenterModeRef.current = 'center-content';
       manualZoomRef.current = false;
       setZoom(clampZoom(ratio));
     } else if (!manualZoomRef.current) {
@@ -1293,7 +1302,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       // que só reseta ao entrar/sair de tela cheia). Se o usuário zoomou
       // manualmente antes de chegar aqui, respeita a escolha dele — mesmo
       // comportamento de sempre.
-      skipNextRecenterRef.current = true;
+      nextRecenterModeRef.current = 'center-content';
       setZoom(1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
