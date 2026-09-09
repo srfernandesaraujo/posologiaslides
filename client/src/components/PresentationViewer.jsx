@@ -1343,26 +1343,6 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
      de imagem em blockCatalog.js, slider antes/depois em widgetCatalog.js)
      — overflow não é herdado pelos filhos em CSS. */
   html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
-  /* Corrige height:100% quando "Ajustar tamanho" (zoom nativo, ver
-     scaleSlideToCanvas em slideHtmlUtils.js) está ativo — descoberto ao
-     medir ao vivo com o usuário (ver memória do bug "Mapa do Néfron"):
-     zoom em <html> faz a PRÓPRIA altura computada de <html> encolher (ex.
-     720px pra zoom:1.5, já que <html> passa a se autodescrever nos termos
-     "de antes do zoom"), mas unidades vh continuam medindo a tela real
-     (1080px) — então body { min-height: 100vh }, do próprio CSS do slide,
-     fica MAIOR que a caixa do <html> que o contém, e o excedente é cortado
-     a seco pelo overflow:hidden acima, ANTES de qualquer rolagem entrar em
-     jogo (nenhuma folga de scroll resolve um corte feito mais acima na
-     árvore). Uma 1a tentativa (soltar overflow-y:visible no html) corrigiu
-     o corte mas criou DUAS barras de rolagem independentes (html vira sua
-     própria caixa de rolagem, e body idem, já que o navegador não promove
-     de forma limpa o overflow do body pro viewport quando overflow-x
-     continua hidden misturado com overflow-y visible) — revertida. Fix
-     certo: dar a <html> uma altura em vh (mede a tela real, imune ao
-     encolhimento do zoom) em vez de % (que encolhe junto com o zoom) —
-     assim <html> e o 100vh do body voltam a bater exatamente, sem
-     sobra pra cortar E sem precisar mexer em overflow. */
-  html:has(style[data-native-scaled="true"]) { height: 100vh; }
   /* staticPreview (miniaturas da lista de slides, ver SlideThumbnail.jsx):
      sem rolagem interna nenhuma — é um "print" reduzido via transform, então
      nunca deveria reagir a gesto de rolagem por conta própria. Sem isto, um
@@ -1418,13 +1398,8 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
        perseguir um número perfeito de reserva, garante que sempre dá pra
        ROLAR além do fim natural do conteúdo — assim a última linha sempre
        pode ser levada pra cima da faixa reservada, funcionando mesmo se a
-       estimativa não for exata. Multiplicado por --native-scale-ratio (ver
-       scaleSlideToCanvas em slideHtmlUtils.js, 1 quando não há "Ajustar
-       tamanho" aplicado): esse recurso aplica zoom em <html>, recalculando
-       vh/vw/% do documento inteiro de propósito — e relatos mostraram a
-       barra de rolagem parando um pouco antes do fim real do conteúdo
-       quando o zoom está ativo, proporcional ao fator aplicado. */
-    padding-bottom: calc(110px * var(--native-scale-ratio, 1)) !important;
+       estimativa não for exata. */
+    padding-bottom: 110px !important;
   }
   [data-scrollable="true"]::-webkit-scrollbar {
     width: 8px !important;

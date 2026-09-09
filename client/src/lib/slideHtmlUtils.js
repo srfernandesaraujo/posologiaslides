@@ -985,15 +985,34 @@ export function setSlideColorInverted(html, inverted) {
 // contra os 1080px reais mas é pintado dentro de uma caixa "local" de só
 // 720px, saindo cortado/deslocado.
 //
-// v3 (esta): em vez de embrulhar ".slide-root" num wrapper aninhado, insere
-// um <style> global (`html { zoom: ... }`) no próprio HTML do slide — regra
-// CSS se aplica ao documento inteiro não importa ONDE o <style> fica no
-// DOM, então isto continua 100% autocontido no HTML salvo do slide (funciona
-// em qualquer lugar que renderize esse HTML — editor, miniatura, exportação
-// — sem precisar mudar nada fora daqui). Zoom aplicado na raiz de verdade
-// do documento (`html`, não um wrapper) é o mesmo mecanismo do zoom nativo
-// do navegador (Ctrl +): TAMBÉM recalcula vh/vw e o viewport que
-// `position:fixed` usa, então overlays em tela cheia continuam corretos.
+// v3 (abandonada): em vez de embrulhar ".slide-root" num wrapper aninhado,
+// inseria um <style> global (`html { zoom: ... }`) no próprio HTML do
+// slide — zoom aplicado na raiz de verdade do documento (`html`, não um
+// wrapper) evitava o mesmo problema de vh/vw do v1/v2 acima. MAS descoberto
+// ao vivo com o usuário (ver memória do bug "Mapa do Néfron"): esse zoom
+// não-padrão faz <html> encolher a PRÓPRIA altura computada (autodescrição
+// "de antes do zoom"), enquanto `vh` usado por slides gerados por IA (ex.
+// `body { min-height: 100vh }`) continua medindo a tela real — o <body>
+// passa a ficar MAIOR que o próprio <html> que o contém, cortado a seco
+// pelo overflow:hidden do html ANTES de qualquer rolagem, sem que nenhuma
+// folga de scroll resolva. Tentativas de consertar por dentro do documento
+// do slide (relaxar overflow, re-basear a altura do html em vh) ou
+// corrigiam o corte mas geravam DUAS barras de rolagem independentes, ou
+// simplesmente não tinham efeito (zoom parece encolher qualquer unidade
+// declarada no PRÓPRIO elemento que o carrega, não só %, então não há como
+// <html> se autodescrever do tamanho real enquanto ele mesmo tem o zoom).
+//
+// v4 (atual): NÃO aplica mais zoom dentro do HTML do slide — só GRAVA a
+// preferência (data-ratio) num marcador; quem aplica o efeito visual é o
+// zoom MANUAL já existente do palco (mesmo mecanismo da pinça/controle
+// remoto durante apresentação, ver getSlideScaleRatio abaixo e
+// PresentationEditor.jsx). Escalar o CANVAS por fora evita o problema
+// inteiro: nada dentro do documento do slide muda (nenhum vh/vw
+// recalculado), e rolagem/navegação já funcionam nesse mecanismo (é o
+// mesmo usado pra pinça e pro controle remoto). Slides salvos no formato
+// v3 (zoom embutido no <style>) continuam lidos corretamente por
+// getSlideScaleRatio, mas só migram pro formato novo quando o usuário
+// clicar "Desfazer ajuste de tamanho" e ligar de novo.
 export function scaleSlideToCanvas(html, fromWidth, fromHeight, toWidth, toHeight) {
   if (!html) return html;
   const template = parseFragment(html);
@@ -1006,30 +1025,19 @@ export function scaleSlideToCanvas(html, fromWidth, fromHeight, toWidth, toHeigh
   // sempre 16:9, então a razão de largura já é igual à de altura.
   const ratio = toWidth / fromWidth;
 
-  // --native-scale-ratio (custom property, herda pra todo mundo dentro do
-  // slide): deixa o CSS de data-scrollable (ver PresentationViewer.jsx/
-  // exportStandalone.js) saber que zoom está em jogo e ampliar a folga extra
-  // de rolagem proporcionalmente — zoom em <html> recalcula vh/vw/% do
-  // documento inteiro (de propósito, ver comentário desta função acima), e
-  // isso inclui o cálculo de altura máxima rolável (max-height:100%) do
-  // conteúdo. Relatos mostraram a barra de rolagem parando ANTES do fim
-  // real do conteúdo quando o zoom está ativo — consistente com imprecisão
-  // de arredondamento sub-pixel que este `zoom` não-padrão acumula ao
-  // recalcular layout de várias camadas aninhadas, proporcional ao fator de
-  // zoom. Sem viés visual: só some quando não há ajuste de tamanho
-  // aplicado (var(..., 1) cai pra 1x, sem folga extra nenhuma).
   const styleTag = document.createElement('style');
   styleTag.setAttribute('data-native-scaled', 'true');
-  styleTag.textContent = `html { zoom: ${ratio}; --native-scale-ratio: ${ratio}; }`;
+  styleTag.setAttribute('data-ratio', String(ratio));
   template.content.insertBefore(styleTag, rootEl);
 
   return serializeFragment(template);
 }
 
-// Desfaz scaleSlideToCanvas. Lida com os dois formatos: o <style> global
-// (v3, atual) e o wrapper <div> aninhado (v2, ainda pode existir em slides
-// já salvos antes desta mudança — sem este fallback, "Desfazer ajuste"
-// pararia de funcionar nesses slides).
+// Desfaz scaleSlideToCanvas. Lida com os três formatos: o marcador atual
+// (v4, só data-ratio), o <style>html{zoom}</style> antigo (v3) e o wrapper
+// <div> aninhado mais antigo ainda (v2) — sem este fallback, "Desfazer
+// ajuste" pararia de funcionar em slides salvos antes de alguma dessas
+// mudanças.
 export function unscaleSlideFromCanvas(html) {
   if (!html) return html;
   const template = parseFragment(html);
@@ -1051,4 +1059,27 @@ export function isSlideScaledToCanvas(html) {
   return !!template.content.querySelector('[data-native-scaled="true"]');
 }
 
+// Fator de ampliação gravado por scaleSlideToCanvas, pro chamador (ver
+// PresentationEditor.jsx) aplicar via zoom MANUAL do palco em vez de zoom
+// interno do slide — ver comentário de scaleSlideToCanvas acima. Lê tanto o
+// formato atual (atributo data-ratio) quanto o antigo (zoom embutido no
+// texto do <style>, de slides salvos antes desta mudança), pra "Ajustar
+// tamanho" continuar funcionando neles sem precisar re-salvar.
+export function getSlideScaleRatio(html) {
+  if (!html) return null;
+  const template = parseFragment(html);
+  const marked = template.content.querySelector('[data-native-scaled="true"]');
+  if (!marked) return null;
+  const attr = marked.getAttribute('data-ratio');
+  if (attr) {
+    const n = parseFloat(attr);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  const match = (marked.textContent || '').match(/zoom:\s*([\d.]+)/);
+  if (match) {
+    const n = parseFloat(match[1]);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  return null;
+}
 

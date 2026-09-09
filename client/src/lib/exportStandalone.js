@@ -169,16 +169,6 @@ async function fetchVendorScriptText(path) {
 function baseSlideStyles() {
   return `
   html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
-  /* Ver comentário completo do mesmo seletor em PresentationViewer.jsx: com
-     "Ajustar tamanho" (zoom nativo) ativo, <html> encolhe sua própria altura
-     computada mas vh continua medindo a tela real, fazendo body{min-height:
-     100vh} ficar maior que <html> e ser cortado a seco por este
-     overflow:hidden. Usar vh (imune ao encolhimento do zoom) em vez de %
-     pra altura do html evita a sobra inteira, sem precisar mexer em
-     overflow — uma 1a tentativa com overflow-y:visible corrigia o corte mas
-     criava DUAS barras de rolagem independentes (html e body cada um vira
-     sua própria caixa de rolagem); revertida. */
-  html:has(style[data-native-scaled="true"]) { height: 100vh; }
   /* position:relative: ver comentário completo do mesmo seletor em
      PresentationViewer.jsx — sem isto, um elemento de topo posicionado
      livremente (data-el-positioned) sem .slide-root usa o viewport como
@@ -200,14 +190,8 @@ function baseSlideStyles() {
      em slideHtmlUtils.js marca data-scrollable no elemento de topo do slide,
      que em dashboards gerados por IA sem classe .slide-root é a própria raiz
      customizada (ex. .app-container) — restringir a .slide-root/body deixava
-     essa folga (e o scrollbar customizado abaixo) sem efeito nesses slides.
-     Multiplicado por --native-scale-ratio (ver scaleSlideToCanvas em
-     slideHtmlUtils.js, 1 quando não há "Ajustar tamanho" aplicado): esse
-     recurso aplica zoom em <html>, recalculando vh/vw/% do documento
-     inteiro de propósito — e relatos mostraram a rolagem parando um pouco
-     antes do fim real do conteúdo quando o zoom está ativo, proporcional
-     ao fator aplicado. */
-  [data-scrollable="true"] { overflow-y: auto !important; max-height: 100% !important; padding-bottom: calc(110px * var(--native-scale-ratio, 1)) !important; }
+     essa folga (e o scrollbar customizado abaixo) sem efeito nesses slides. */
+  [data-scrollable="true"] { overflow-y: auto !important; max-height: 100% !important; padding-bottom: 110px !important; }
   [data-scrollable="true"]::-webkit-scrollbar { width: 8px !important; }
   [data-scrollable="true"]::-webkit-scrollbar-track { background: rgba(0,0,0,0.2) !important; }
   [data-scrollable="true"]::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.6) !important; border-radius: 999px !important; }

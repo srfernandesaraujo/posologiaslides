@@ -34,7 +34,7 @@ import {
   getSlideBackground, setSlideBackground, applyBrandingToSlideHtml, removeBrandingFromSlideHtml,
   getSlideScrollable, setSlideScrollable,
   isSlideColorInverted, setSlideColorInverted, invertColorForFilter,
-  scaleSlideToCanvas, unscaleSlideFromCanvas, isSlideScaledToCanvas
+  scaleSlideToCanvas, unscaleSlideFromCanvas, isSlideScaledToCanvas, getSlideScaleRatio
 } from '../lib/slideHtmlUtils';
 import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_DEFAULTS } from '../lib/animationCatalog';
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES, BG_COLOR_SWATCHES, GRADIENT_SWATCHES } from '../lib/fontCatalog';
@@ -612,9 +612,13 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Slide feito pro tamanho antigo do canvas (1280x720, ver LEGACY_SLIDE_*
   // acima) ficando pequeno/desconfigurado dentro do canvas atual, maior (ver
   // SLIDE_NATIVE_WIDTH/HEIGHT) — em vez de reescrever fonte/espaçamento um por
-  // um, embrulha o conteúdo intocado numa caixa do tamanho antigo escalada
-  // pra caber no tamanho atual (ver scaleSlideToCanvas). Clicar de novo com o
-  // slide já ajustado desfaz (volta pro tamanho original, sem escala).
+  // um, GRAVA a preferência de ampliação no slide (ver scaleSlideToCanvas) e
+  // o efeito visual em si vem do zoom manual do palco (ver useEffect logo
+  // abaixo de "Zoom só reseta pra 100%..." — reaproveita o mesmo mecanismo
+  // da pinça/controle remoto, não mexe em nada dentro do HTML do slide).
+  // Também serve como atalho geral pra aumentar a legibilidade de qualquer
+  // slide (não só os migrados do canvas antigo). Clicar de novo com o slide
+  // já ajustado desfaz (volta pro zoom normal).
   const handleToggleNativeScale = () => {
     if (atClosingSlide || !currentSlide) return;
     const nextHtml = isCurrentSlideNativeScaled
@@ -1233,6 +1237,27 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   useEffect(() => {
     setZoom(1);
   }, [isFullscreen]);
+
+  // "Ajustar tamanho" (botão de setas diagonais, ver isCurrentSlideNativeScaled/
+  // handleToggleNativeScale abaixo) aplica o mesmo zoom MANUAL do palco acima
+  // (pinça/controle remoto) em vez de zoom interno do <html> do slide — ver
+  // comentário longo de scaleSlideToCanvas em slideHtmlUtils.js pra entender
+  // por que a versão anterior (zoom interno) foi abandonada (colidia de forma
+  // imprevisível com o sistema de rolagem em slides gerados por IA). Roda
+  // DEPOIS do efeito acima (mesma ordem de declaração = mesma ordem de
+  // execução), pra a preferência do slide sempre vencer o reset de zoom ao
+  // entrar/sair de tela cheia. Só ATUA quando o slide atual tem a preferência
+  // gravada — slides sem ela não são afetados, preservando o comportamento
+  // padrão já pedido antes pelo usuário (zoom carrega entre slides normalmente,
+  // ver efeito de rolagem acima). Depende de currentSlide?.html (não só
+  // activeIndex) pra reagir também quando o próprio botão liga/desliga o
+  // ajuste no slide atual, sem precisar trocar de slide pra ver o efeito.
+  useEffect(() => {
+    if (!currentSlide) return;
+    const ratio = getSlideScaleRatio(currentSlide.html);
+    if (ratio) setZoom(clampZoom(ratio));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, isFullscreen, currentSlide?.html]);
 
   // Ao selecionar um elemento novo, pré-preenche os controles de duração/atraso
   // do painel "Animar" com a animação já aplicada a ele (se houver) — sem isso,
@@ -2194,7 +2219,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 className={`btn-icon ${isCurrentSlideNativeScaled ? 'active' : ''}`}
                 onClick={handleToggleNativeScale}
                 disabled={atClosingSlide}
-                title={isCurrentSlideNativeScaled ? "Desfazer ajuste de tamanho (voltar ao original)" : "Ajustar conteúdo pro tamanho atual do slide (corrige texto/elementos pequenos após aumento do canvas)"}
+                title={isCurrentSlideNativeScaled ? "Desfazer ajuste de tamanho (voltar ao zoom normal)" : "Ajustar tamanho — amplia o slide (zoom) pra ler melhor, sempre que ele aparecer"}
                 style={isCurrentSlideNativeScaled ? { background: 'rgba(167, 139, 250, 0.18)', color: '#a78bfa' } : undefined}
               >
                 <Maximize2 size={18} />
