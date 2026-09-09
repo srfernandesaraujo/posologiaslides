@@ -185,11 +185,16 @@ function baseSlideStyles() {
      padding-bottom garante folga rolável extra além do fim natural do
      conteúdo, pra a última linha sempre poder ser levada pra cima da
      faixa reservada da barra de ferramentas (STAGE_BOTTOM_RESERVE), mesmo
-     quando a reserva calculada não é exata o bastante sozinha. */
-  .slide-root[data-scrollable="true"], body[data-scrollable="true"] { overflow-y: auto !important; max-height: 100% !important; padding-bottom: 110px !important; }
-  .slide-root[data-scrollable="true"]::-webkit-scrollbar, body[data-scrollable="true"]::-webkit-scrollbar { width: 8px !important; }
-  .slide-root[data-scrollable="true"]::-webkit-scrollbar-track, body[data-scrollable="true"]::-webkit-scrollbar-track { background: rgba(0,0,0,0.2) !important; }
-  .slide-root[data-scrollable="true"]::-webkit-scrollbar-thumb, body[data-scrollable="true"]::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.6) !important; border-radius: 999px !important; }
+     quando a reserva calculada não é exata o bastante sozinha. Seletor de
+     ATRIBUTO puro (não mais restrito a .slide-root/body): setSlideScrollable
+     em slideHtmlUtils.js marca data-scrollable no elemento de topo do slide,
+     que em dashboards gerados por IA sem classe .slide-root é a própria raiz
+     customizada (ex. .app-container) — restringir a .slide-root/body deixava
+     essa folga (e o scrollbar customizado abaixo) sem efeito nesses slides. */
+  [data-scrollable="true"] { overflow-y: auto !important; max-height: 100% !important; padding-bottom: 110px !important; }
+  [data-scrollable="true"]::-webkit-scrollbar { width: 8px !important; }
+  [data-scrollable="true"]::-webkit-scrollbar-track { background: rgba(0,0,0,0.2) !important; }
+  [data-scrollable="true"]::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.6) !important; border-radius: 999px !important; }
   /* Modo Claro/Escuro por slide (ver setSlideColorInverted em
      slideHtmlUtils.js) — mesma regra injetada por PresentationViewer.jsx no
      srcdoc do editor/apresentação; copiada aqui de propósito (mesma razão da

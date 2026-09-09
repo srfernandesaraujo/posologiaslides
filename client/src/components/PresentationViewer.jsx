@@ -1378,9 +1378,15 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
   body::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.55); }
   body { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.35) transparent; }
 
-  /* Suporte a barra de rolagem forçada/destacada no slide */
-  .slide-root[data-scrollable="true"],
-  body[data-scrollable="true"] {
+  /* Suporte a barra de rolagem forçada/destacada no slide. Seletor de
+     ATRIBUTO puro (não ".slide-root[...], body[...]") de propósito:
+     setSlideScrollable (slideHtmlUtils.js) marca data-scrollable no
+     elemento de topo do slide, que em dashboards gerados por IA sem classe
+     .slide-root é a própria raiz customizada do slide (ex. .app-container,
+     ver memória do bug "Mapa do Néfron") — restringir a .slide-root/body
+     deixava essa regra (e o scrollbar customizado abaixo) sem NENHUM efeito
+     nesses slides, por mais que o toggle estivesse ligado. */
+  [data-scrollable="true"] {
     overflow-y: auto !important;
     max-height: 100% !important;
     /* Folga extra rolável no fim do conteúdo — em tela cheia/apresentação a
@@ -1395,16 +1401,13 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
        estimativa não for exata. */
     padding-bottom: 110px !important;
   }
-  .slide-root[data-scrollable="true"]::-webkit-scrollbar,
-  body[data-scrollable="true"]::-webkit-scrollbar {
+  [data-scrollable="true"]::-webkit-scrollbar {
     width: 8px !important;
   }
-  .slide-root[data-scrollable="true"]::-webkit-scrollbar-track,
-  body[data-scrollable="true"]::-webkit-scrollbar-track {
+  [data-scrollable="true"]::-webkit-scrollbar-track {
     background: rgba(0, 0, 0, 0.2) !important;
   }
-  .slide-root[data-scrollable="true"]::-webkit-scrollbar-thumb,
-  body[data-scrollable="true"]::-webkit-scrollbar-thumb {
+  [data-scrollable="true"]::-webkit-scrollbar-thumb {
     background: rgba(56, 189, 248, 0.6) !important;
     border-radius: 999px !important;
   }
@@ -1440,8 +1443,7 @@ const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent,
      num widget específico do slide, ex. lista longa) — na miniatura, nada
      deveria rolar sozinho, então isto precisa do mesmo !important pra
      ganhar da regra de cima. */
-  .slide-root[data-scrollable="true"],
-  body[data-scrollable="true"] {
+  [data-scrollable="true"] {
     overflow-y: hidden !important;
   }
   ` : ''}
