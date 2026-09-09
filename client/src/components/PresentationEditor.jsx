@@ -340,9 +340,20 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     const [min, max] = isFullscreen ? ZOOM_PRESENT_RANGE : ZOOM_EDIT_RANGE;
     return Math.min(max, Math.max(min, z));
   };
-  const handleZoomIn = () => setZoom((z) => clampZoom(z + ZOOM_STEP));
-  const handleZoomOut = () => setZoom((z) => clampZoom(z - ZOOM_STEP));
-  const handleZoomReset = () => setZoom(1);
+  // Diferencia zoom escolhido pelo USUÁRIO (botões, pinça/roda, controle
+  // remoto) de zoom aplicado automaticamente por "Ajustar tamanho" (ver
+  // useEffect mais abaixo) — sem isto, o zoom automático de um slide
+  // marcado "vazava" pros slides seguintes (que nunca pediram ampliação),
+  // porque o zoom sempre carrega entre slides de propósito (pedido
+  // explícito do usuário antes, ver comentário do efeito de reset abaixo) e
+  // não havia como saber se o valor atual era uma escolha manual (deveria
+  // continuar) ou só uma ampliação automática que ficou pra trás (deveria
+  // voltar a 1 ao chegar num slide sem a marca) — relatado ao vivo:
+  // afetava a apresentação inteira, não só o slide marcado.
+  const manualZoomRef = useRef(false);
+  const handleZoomIn = () => { manualZoomRef.current = true; setZoom((z) => clampZoom(z + ZOOM_STEP)); };
+  const handleZoomOut = () => { manualZoomRef.current = true; setZoom((z) => clampZoom(z - ZOOM_STEP)); };
+  const handleZoomReset = () => { manualZoomRef.current = true; setZoom(1); };
 
   // Recentraliza a rolagem quando o zoom muda (botões +/-, gesto de
   // pinça/roda em apresentação) — sem isto, `.zoom-sizer` cresce mas o
@@ -355,8 +366,22 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // centralizado na tela antes e depois da mudança. useLayoutEffect (não
   // useEffect) pra aplicar antes do navegador pintar o novo tamanho, sem
   // o "pulo" de um frame com a rolagem ainda desatualizada.
+  //
+  // skipNextRecenterRef: usado pelo useEffect de "Ajustar tamanho" mais
+  // abaixo pra pular esta recentralização quando o zoom muda por causa da
+  // preferência do slide, não de um gesto do usuário — "preservar o centro
+  // atual" faz sentido pra pinça (a pessoa está olhando pra algo
+  // específico), mas não faz sentido logo que um slide carrega (a rolagem
+  // acabou de voltar pro canto 0,0) — preservar o centro dali deslocava a
+  // visão e cortava a borda esquerda/de cima (relatado ao vivo).
+  const skipNextRecenterRef = useRef(false);
   const prevEffectiveScaleRef = useRef(effectiveScale);
   useLayoutEffect(() => {
+    if (skipNextRecenterRef.current) {
+      skipNextRecenterRef.current = false;
+      prevEffectiveScaleRef.current = effectiveScale;
+      return;
+    }
     const port = zoomScrollportRef.current;
     const prevScale = prevEffectiveScaleRef.current;
     if (port && prevScale && Math.abs(prevScale - effectiveScale) > 0.0001) {
@@ -1176,6 +1201,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         // Pinça de dois dedos ou Ctrl+roda do mouse (ver buildZoomGestureScript,
         // só ativo em apresentação de verdade) — o script só manda o FATOR de
         // variação; quem decide o valor final e aplica o limite é aqui.
+        manualZoomRef.current = true;
         setZoom((z) => clampZoom(z * data.factor));
       } else if (data.type === 'pan-gesture') {
         // Arrasto de 1 ponteiro (dedo/mouse) dentro do iframe com zoom
@@ -1235,6 +1261,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // rolagem). Reset manual (botão "-"/clicar na porcentagem/atalho "0")
   // continua funcionando via handleZoomReset, sem depender deste efeito.
   useEffect(() => {
+    manualZoomRef.current = false;
     setZoom(1);
   }, [isFullscreen]);
 
@@ -1246,30 +1273,29 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // imprevisível com o sistema de rolagem em slides gerados por IA). Roda
   // DEPOIS do efeito acima (mesma ordem de declaração = mesma ordem de
   // execução), pra a preferência do slide sempre vencer o reset de zoom ao
-  // entrar/sair de tela cheia. Só ATUA quando o slide atual tem a preferência
-  // gravada — slides sem ela não são afetados, preservando o comportamento
-  // padrão já pedido antes pelo usuário (zoom carrega entre slides normalmente,
-  // ver efeito de rolagem acima). Depende de currentSlide?.html (não só
+  // entrar/sair de tela cheia. Depende de currentSlide?.html (não só
   // activeIndex) pra reagir também quando o próprio botão liga/desliga o
   // ajuste no slide atual, sem precisar trocar de slide pra ver o efeito.
   useEffect(() => {
     if (!currentSlide) return;
     const ratio = getSlideScaleRatio(currentSlide.html);
-    if (!ratio) return;
-    const nextZoom = clampZoom(ratio);
-    // Evita o useLayoutEffect "recentraliza a rolagem" (ver
-    // prevEffectiveScaleRef acima) reagir a ESTA mudança de zoom
-    // preservando o CENTRO da visão atual — certo pra pinça/roda
-    // interativa (o usuário já está olhando pra algo específico), errado
-    // aqui: o slide acabou de trocar (rolagem já resetada pro canto 0,0
-    // pelo efeito de troca de slide acima) e "preservar o centro" deslocava
-    // a visão pra direita/baixo, cortando a borda esquerda/superior do
-    // conteúdo (relatado ao vivo). Gravar aqui o valor que effectiveScale
-    // VAI assumir faz aquele efeito não encontrar diferença nenhuma quando
-    // rodar, deixando a rolagem no canto — leitura normal, de cima pra baixo
-    // e da esquerda pra direita, como ao abrir o slide pela primeira vez.
-    prevEffectiveScaleRef.current = canvasScale * nextZoom;
-    setZoom(nextZoom);
+    if (ratio) {
+      skipNextRecenterRef.current = true;
+      manualZoomRef.current = false;
+      setZoom(clampZoom(ratio));
+    } else if (!manualZoomRef.current) {
+      // Slide SEM a marca: só força de volta pro zoom normal se o valor
+      // atual não foi uma escolha manual do usuário (pinça/botões/controle
+      // remoto) — sem este cuidado, o zoom automático aplicado num slide
+      // marcado "vazava" pros slides seguintes (relatado ao vivo: afetava a
+      // apresentação inteira), já que o zoom normalmente CARREGA entre
+      // slides de propósito (pedido explícito do usuário, ver efeito acima
+      // que só reseta ao entrar/sair de tela cheia). Se o usuário zoomou
+      // manualmente antes de chegar aqui, respeita a escolha dele — mesmo
+      // comportamento de sempre.
+      skipNextRecenterRef.current = true;
+      setZoom(1);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, isFullscreen, currentSlide?.html]);
 
