@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Loader2, AlertTriangle } from 'lucide-react';
-import PresentationViewer, { measureIframeEdgeBackground } from '../components/PresentationViewer';
+import PresentationViewer, { SLIDE_EDITOR_MESSAGE_SOURCE, measureIframeEdgeBackground } from '../components/PresentationViewer';
 import PublicViewerControls from '../components/PublicViewerControls';
 import useCanvasFit from '../lib/useCanvasFit';
-import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE } from '../lib/canvasConstants';
+import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
 import { resolveTransition } from '../lib/transitionCatalog';
 import { isSlideColorInverted, invertColorForFilter } from '../lib/slideHtmlUtils';
 import { apiFetch } from '../lib/api';
@@ -26,6 +26,68 @@ export default function PublicPresentationView({ shareId }) {
 
   const { outerRef: stageRef, scale: canvasScale } = useCanvasFit(SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, { bottomReserve: STAGE_BOTTOM_RESERVE });
   const stageIframeRef = useRef(null);
+
+  // Zoom manual pro aluno ampliar slides densos enquanto estuda sozinho
+  // (pedido do usuário — a página pública nunca teve nenhum mecanismo de
+  // zoom, diferente do editor). Mesmo padrão de PresentationEditor.jsx
+  // (zoom/effectiveScale/.zoom-scrollport/.zoom-sizer + gesto de
+  // pinça/roda via buildZoomGestureScript), simplificado: sem "Ajustar
+  // tamanho" nem controle remoto aqui (decisão explícita — só controle
+  // manual, o aluno decide quando/quanto ampliar, nenhum slide abre
+  // pré-ampliado pra ele mesmo que o professor tenha marcado "Ajustar
+  // tamanho" pra si mesmo apresentar).
+  const [zoom, setZoom] = useState(1);
+  const zoomScrollportRef = useRef(null);
+  const effectiveScale = canvasScale * zoom;
+  const clampZoom = (z) => Math.min(ZOOM_PRESENT_RANGE[1], Math.max(ZOOM_PRESENT_RANGE[0], z));
+  const handleZoomIn = () => setZoom((z) => clampZoom(z + ZOOM_STEP));
+  const handleZoomOut = () => setZoom((z) => clampZoom(z - ZOOM_STEP));
+  const handleZoomReset = () => setZoom(1);
+
+  // Recentraliza a rolagem quando o zoom muda — ver comentário completo do
+  // mesmo mecanismo em PresentationEditor.jsx (sem isto o conteúdo "foge"
+  // pro canto superior esquerdo em vez de crescer a partir do centro).
+  const prevEffectiveScaleRef = useRef(effectiveScale);
+  useLayoutEffect(() => {
+    const port = zoomScrollportRef.current;
+    const prevScale = prevEffectiveScaleRef.current;
+    if (port && prevScale && Math.abs(prevScale - effectiveScale) > 0.0001) {
+      const ratio = effectiveScale / prevScale;
+      const centerX = port.scrollLeft + port.clientWidth / 2;
+      const centerY = port.scrollTop + port.clientHeight / 2;
+      port.scrollLeft = Math.max(0, centerX * ratio - port.clientWidth / 2);
+      port.scrollTop = Math.max(0, centerY * ratio - port.clientHeight / 2);
+    }
+    prevEffectiveScaleRef.current = effectiveScale;
+  }, [effectiveScale]);
+
+  // Rolagem volta pro canto ao trocar de slide (conteúdo diferente, a
+  // posição rolada do slide anterior não faz sentido aqui) — zoom em si
+  // continua entre slides de propósito, mesmo comportamento do editor.
+  useEffect(() => {
+    zoomScrollportRef.current?.scrollTo(0, 0);
+  }, [activeIndex]);
+
+  // Gesto de pinça/roda (ver buildZoomGestureScript em PresentationViewer,
+  // zoomGestureEnabled abaixo) e arrasto-pra-navegar com zoom aplicado —
+  // mesmo mecanismo do editor, ver comentário lá.
+  useEffect(() => {
+    const handleMessage = (event) => {
+      const data = event.data;
+      if (!data || data.source !== SLIDE_EDITOR_MESSAGE_SOURCE) return;
+      if (data.type === 'zoom-gesture') {
+        setZoom((z) => clampZoom(z * data.factor));
+      } else if (data.type === 'pan-gesture') {
+        const port = zoomScrollportRef.current;
+        if (port) {
+          port.scrollLeft = Math.max(0, port.scrollLeft - data.dx);
+          port.scrollTop = Math.max(0, port.scrollTop - data.dy);
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   // `currentSlide` (mais abaixo) só existe depois dos "return" antecipados
   // de loading/erro — precisa ficar num ref (atualizado logo depois de
@@ -126,36 +188,65 @@ export default function PublicPresentationView({ shareId }) {
           className={`presentation-stage ${isFullscreen ? 'fullscreen-stage' : ''}`}
           style={isFullscreen && stageBg ? { background: stageBg } : undefined}
         >
+          {/* Viewport de rolagem nativa pro zoom manual — ver comentário
+              completo do mesmo mecanismo em PresentationEditor.jsx. overflow
+              só vira "auto" quando o zoom não é 100%, pra nunca aparecer uma
+              barra de rolagem de 1px por erro de ponto flutuante em zoom
+              normal. */}
           <div
-            className="canvas-native-layer"
+            ref={zoomScrollportRef}
+            className="zoom-scrollport"
             style={{
               position: 'absolute',
-              top: 0,
-              left: 0,
-              width: `${SLIDE_NATIVE_WIDTH}px`,
-              height: `${SLIDE_NATIVE_HEIGHT}px`,
-              // scale3d + backface-visibility:hidden (sem will-change:transform — ver
-              // comentário equivalente em PresentationEditor.jsx) força o Safari a
-              // promover esta camada pra compositing de GPU e redesenhar o <iframe>
-              // filho na resolução final em vez de esticar um bitmap borrado.
-              transform: `scale3d(${canvasScale}, ${canvasScale}, 1)`,
-              transformOrigin: 'top left',
-              WebkitBackfaceVisibility: 'hidden',
-              backfaceVisibility: 'hidden'
+              inset: 0,
+              overflow: Math.abs(zoom - 1) < 0.01 ? 'hidden' : 'auto',
+              scrollbarGutter: 'stable both-edges',
+              touchAction: zoom > 1.01 ? 'none' : 'auto',
+              cursor: zoom > 1.01 ? 'grab' : 'default'
             }}
           >
             <div
-              key={activeIndex}
-              className={`slide-transition-wrapper pos-transition-${currentTransition.type}`}
-              style={{ '--pos-transition-duration': `${currentTransition.duration}s` }}
+              className="zoom-sizer"
+              style={{
+                position: 'relative',
+                width: `${SLIDE_NATIVE_WIDTH * effectiveScale}px`,
+                height: `${SLIDE_NATIVE_HEIGHT * effectiveScale}px`
+              }}
             >
-              <PresentationViewer
-                ref={stageIframeRef}
-                htmlContent={currentSlide.html}
-                editable={false}
-                spotlightEnabled={isFullscreen && spotlightOn}
-                onReady={isFullscreen ? handleStageReady : undefined}
-              />
+              <div
+                className="canvas-native-layer"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: `${SLIDE_NATIVE_WIDTH}px`,
+                  height: `${SLIDE_NATIVE_HEIGHT}px`,
+                  // scale3d + backface-visibility:hidden (sem will-change:transform — ver
+                  // comentário equivalente em PresentationEditor.jsx) força o Safari a
+                  // promover esta camada pra compositing de GPU e redesenhar o <iframe>
+                  // filho na resolução final em vez de esticar um bitmap borrado.
+                  transform: `scale3d(${effectiveScale}, ${effectiveScale}, 1)`,
+                  transformOrigin: 'top left',
+                  WebkitBackfaceVisibility: 'hidden',
+                  backfaceVisibility: 'hidden'
+                }}
+              >
+                <div
+                  key={activeIndex}
+                  className={`slide-transition-wrapper pos-transition-${currentTransition.type}`}
+                  style={{ '--pos-transition-duration': `${currentTransition.duration}s` }}
+                >
+                  <PresentationViewer
+                    ref={stageIframeRef}
+                    htmlContent={currentSlide.html}
+                    editable={false}
+                    spotlightEnabled={isFullscreen && spotlightOn}
+                    zoomGestureEnabled
+                    panEnabled={zoom > 1.01}
+                    onReady={isFullscreen ? handleStageReady : undefined}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -168,6 +259,10 @@ export default function PublicPresentationView({ shareId }) {
             toggleFullscreen={toggleFullscreen}
             spotlightOn={spotlightOn}
             onToggleSpotlight={() => setSpotlightOn((v) => !v)}
+            zoom={zoom}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onZoomReset={handleZoomReset}
           />
         </div>
       </div>

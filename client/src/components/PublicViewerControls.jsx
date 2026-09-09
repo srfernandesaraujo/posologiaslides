@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Maximize, Minimize, Lightbulb } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize, Minimize, Lightbulb, ZoomIn, ZoomOut } from 'lucide-react';
 
 // Versão enxuta de PresentationControls.jsx pro visualizador público
-// (PublicPresentationView.jsx) — só navegação, destaque e tela cheia. Sem as
-// ferramentas de desenho (pen/highlighter/laser/eraser), que não fazem
-// sentido pro aluno sozinho revendo o conteúdo.
+// (PublicPresentationView.jsx) — navegação, destaque, zoom manual e tela
+// cheia. Sem as ferramentas de desenho (pen/highlighter/laser/eraser), que
+// não fazem sentido pro aluno sozinho revendo o conteúdo.
 export default function PublicViewerControls({
   currentIndex,
   totalSlides,
@@ -13,7 +13,11 @@ export default function PublicViewerControls({
   isFullscreen,
   toggleFullscreen,
   spotlightOn,
-  onToggleSpotlight
+  onToggleSpotlight,
+  zoom,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset
 }) {
   const [autohide, setAutohide] = useState(false);
 
@@ -47,12 +51,23 @@ export default function PublicViewerControls({
       } else if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
         toggleFullscreen();
+      } else if (e.key === '+' || e.key === '=') {
+        // Sem Ctrl (o navegador reserva Ctrl+/Ctrl- pro próprio zoom da
+        // página) — mesma convenção sem modificador dos outros atalhos.
+        e.preventDefault();
+        onZoomIn();
+      } else if (e.key === '-') {
+        e.preventDefault();
+        onZoomOut();
+      } else if (e.key === '0') {
+        e.preventDefault();
+        onZoomReset();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onPrev, onNext, toggleFullscreen]);
+  }, [onPrev, onNext, toggleFullscreen, onZoomIn, onZoomOut, onZoomReset]);
 
   return (
     <div className={`floating-toolbar ${autohide ? 'autohide' : ''}`}>
@@ -76,6 +91,27 @@ export default function PublicViewerControls({
         title="Modo Destaque (escurece os demais elementos ao tocar um)"
       >
         <Lightbulb size={18} />
+      </button>
+
+      <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.15)', margin: '0 0.4rem' }} />
+
+      {/* Zoom manual — pra ampliar slides densos (ex. dashboards/diagramas)
+          enquanto estuda sozinho. "-"/"+" mudam o nível; clicar na
+          porcentagem reseta pra 100%. Mesmo padrão de PresentationControls.jsx
+          (barra do editor), sem "Ajustar tamanho" nem controle remoto aqui —
+          só controle manual, decisão do próprio aluno. */}
+      <button className="btn-icon" onClick={onZoomOut} title="Reduzir Zoom (Atalho -)">
+        <ZoomOut size={18} />
+      </button>
+      <button
+        onClick={onZoomReset}
+        title="Redefinir Zoom para 100% (Atalho 0)"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700, color: '#9ca3af', padding: '0 0.3rem', minWidth: '3rem' }}
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      <button className="btn-icon" onClick={onZoomIn} title="Aumentar Zoom (Atalho +)">
+        <ZoomIn size={18} />
       </button>
 
       <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.15)', margin: '0 0.4rem' }} />
