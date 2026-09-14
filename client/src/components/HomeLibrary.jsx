@@ -119,6 +119,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
   const [folders, setFolders] = useState([]);
   const [sizeLimitBytes, setSizeLimitBytes] = useState(DEFAULT_SIZE_LIMIT_BYTES);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('todos');
   const [activeFolderId, setActiveFolderId] = useState(null);
@@ -217,18 +218,34 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
     setMoveMenuFor(presentationId);
   };
 
-  const loadTree = () => {
+  // `attempt` (0 na primeira chamada) permite uma segunda tentativa automática
+  // antes de admitir falha — falhas de rede passageiras entre o navegador e o
+  // servidor doméstico (viu-se isso na prática: erro de conexão que o Chrome
+  // relata como "bloqueado por CORS" mesmo o CORS estando configurado certo)
+  // não deveriam deixar a biblioteca parecendo vazia sem explicação.
+  const loadTree = (attempt = 0) => {
     setLoading(true);
+    const retryOrFail = () => {
+      if (attempt < 1) {
+        setTimeout(() => loadTree(attempt + 1), 1500);
+        return;
+      }
+      setLoadError(true);
+      setLoading(false);
+    };
     apiFetch('/api/presentations/tree')
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
           setFolders(data.folders);
           if (data.sizeLimitBytes) setSizeLimitBytes(data.sizeLimitBytes);
+          setLoadError(false);
+          setLoading(false);
+        } else {
+          retryOrFail();
         }
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(retryOrFail);
   };
 
   // `active` (App.jsx agora mantém HomeLibrary sempre montada, só escondida
@@ -861,7 +878,16 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
           </div>
         )}
 
-        {!loading && visiblePresentations.length === 0 && (
+        {!loading && loadError && visiblePresentations.length === 0 && (
+          <div className="library-empty">
+            Não foi possível carregar suas apresentações — parece um problema de conexão com o servidor.{' '}
+            <button type="button" className="link-button" onClick={() => loadTree()}>
+              Tentar novamente
+            </button>
+          </div>
+        )}
+
+        {!loading && !loadError && visiblePresentations.length === 0 && (
           <div className="library-empty">
             {activeTab === 'favoritos'
               ? 'Nenhuma apresentação favoritada ainda.'
