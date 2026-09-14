@@ -101,7 +101,16 @@ async function backupAllUsers() {
   if (failed > 0) process.exitCode = 1;
 }
 
-backupAllUsers().catch((err) => {
-  console.error('[backup] erro fatal:', err);
-  process.exitCode = 1;
-});
+// `process.exit()` explícito no final é necessário: o cliente Firestore do
+// Admin SDK mantém um canal gRPC aberto internamente, o que impede o processo
+// de terminar sozinho por esvaziamento natural do event loop mesmo depois do
+// backup já ter acabado de verdade. Sem isto, cada execução do systemd timer
+// ficava pendurada pra sempre (visto em produção: múltiplos processos
+// `scheduledBackup.js` acumulados ao longo de dias, parados em 0% CPU,
+// consumindo memória até o servidor ficar instável).
+backupAllUsers()
+  .then(() => process.exit(process.exitCode || 0))
+  .catch((err) => {
+    console.error('[backup] erro fatal:', err);
+    process.exit(1);
+  });
