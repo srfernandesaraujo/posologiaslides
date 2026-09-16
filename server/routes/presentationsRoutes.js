@@ -3,7 +3,8 @@ import {
   getFolderTree, getPresentation, savePresentation, setFavorite, touchPresentation,
   createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder, movePresentationToSubfolder, renamePresentation,
   findInvalidNestedArrayPath, findOversizedSlide, FIRESTORE_MAX_DOCUMENT_BYTES,
-  trashPresentation, restorePresentation, permanentlyDeletePresentation, emptyTrash, getTrash
+  trashPresentation, restorePresentation, permanentlyDeletePresentation, emptyTrash, getTrash,
+  listSessionReports, getSavedSessionReport
 } from '../services/store.js';
 
 const router = express.Router();
@@ -190,6 +191,22 @@ router.post('/:id/share', asyncHandler(async (req, res) => {
 router.get('/:id/share', asyncHandler(async (req, res) => {
   const share = await getShareForPresentation(req.params.id, req.user.id);
   res.json({ success: true, shareId: share?.shareId || null });
+}));
+
+// Relatórios finais de sessões ao vivo já encerradas desta apresentação
+// (ranking + desempenho por assunto, ver POST /api/sessions/:pin/end) —
+// lista, mais recentes primeiro.
+router.get('/:id/sessionReports', asyncHandler(async (req, res) => {
+  const reports = await listSessionReports(req.user.id, req.params.id);
+  res.json({ success: true, reports });
+}));
+
+router.get('/:id/sessionReports/:reportId', asyncHandler(async (req, res) => {
+  const report = await getSavedSessionReport(req.user.id, req.params.id, req.params.reportId);
+  if (!report) {
+    return res.status(404).json({ error: 'Relatório não encontrado.' });
+  }
+  res.json({ success: true, report });
 }));
 
 router.delete('/:id/share', asyncHandler(async (req, res) => {

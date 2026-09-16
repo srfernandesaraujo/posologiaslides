@@ -655,6 +655,63 @@ export async function generateClosingQuote({ presentationTitle, description, api
   }
 }
 
+// Fallback baseado em regra (sem IA) pro feedback de encerramento de sessão —
+// usado quando não há chave configurada ou a chamada ao Gemini falha, pra o
+// relatório final nunca ficar sem nenhum texto de orientação.
+function ruleBasedSessionInsight({ perTopic, overallAccuracyPct }) {
+  if (!perTopic.length) {
+    return 'Nenhuma pergunta desta sessão teve um assunto associado, então não foi possível calcular o desempenho por tema. Marque um "Assunto" nas perguntas de quiz/hotspot para habilitar essa análise nas próximas aulas.';
+  }
+  const worst = perTopic[0];
+  const best = perTopic[perTopic.length - 1];
+  const parts = [`Desempenho geral da turma: ${overallAccuracyPct}% de acerto.`];
+  parts.push(`Assunto com maior dificuldade: "${worst.topic}" (${worst.accuracyPct}% de acerto em ${worst.totalAnswers} respostas) — vale revisar esse tema na próxima aula.`);
+  if (best.topic !== worst.topic) {
+    parts.push(`Melhor desempenho: "${best.topic}" (${best.accuracyPct}% de acerto).`);
+  }
+  return parts.join(' ');
+}
+
+// Gera um parágrafo de feedback construtivo sobre o desempenho da turma por
+// assunto, a partir das estatísticas REAIS calculadas em sessionAnalytics.js
+// (nunca inventa números — só interpreta os que já foram calculados). Mesmo
+// padrão best-effort de generateClosingQuote: sem chave/erro na chamada,
+// cai num resumo baseado em regra em vez de deixar o relatório sem insight.
+export async function generateSessionInsight({ title, perTopic, overallAccuracyPct, apiKey }) {
+  const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+  const fallback = ruleBasedSessionInsight({ perTopic, overallAccuracyPct });
+
+  if (!effectiveApiKey || !perTopic.length) {
+    return { insight: fallback };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(effectiveApiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const topicTable = perTopic
+      .map((t) => `- ${t.topic}: ${t.accuracyPct}% de acerto (${t.correctAnswers}/${t.totalAnswers} respostas)`)
+      .join('\n');
+
+    const prompt = `
+    Você é um assistente pedagógico ajudando um professor a interpretar o resultado de um quiz ao vivo aplicado durante a aula "${title}".
+    Acerto geral da turma: ${overallAccuracyPct}%.
+    Acerto por assunto (do pior para o melhor):
+    ${topicTable}
+
+    Escreva um parágrafo curto (3 a 6 frases), em português, com feedback construtivo para o professor: destaque o(s) assunto(s) com pior desempenho, e sugira uma direção prática de revisão para a próxima aula.
+    Use APENAS os números fornecidos acima — não invente estatísticas. Tom direto e profissional, sem saudação, sem markdown, sem introdução como "Aqui está".
+    `;
+
+    const result = await generateContentWithRetry(model, prompt);
+    const insight = result.response.text().trim();
+    return { insight: insight || fallback };
+  } catch (error) {
+    console.error('Erro na API Gemini (Session Insight):', error.message);
+    return { insight: fallback, warning: `Falha ao gerar o insight com IA (${error.message}). Exibindo um resumo baseado nos números.` };
+  }
+}
+
 // Perguntas de exemplo só quando não há chave de API — nunca usadas com IA
 // disponível (ver generateSlideQuestions).
 const FALLBACK_QUESTIONS = [

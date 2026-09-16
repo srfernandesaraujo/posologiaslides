@@ -124,6 +124,11 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [isWidgetDrawerOpen, setIsWidgetDrawerOpen] = useState(false);
   const [showBranchPanel, setShowBranchPanel] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
+  // true quando o relatório foi aberto automaticamente ao chegar no slide de
+  // encerramento (ver handleNext) — nesse caso o modal chama POST /:pin/end
+  // (ranking + desempenho por assunto); false no clique manual do ícone
+  // "Relatórios da sessão", que mantém o GET /:pin/report básico de sempre.
+  const [reportFinalize, setReportFinalize] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [promptGeneratorOpen, setPromptGeneratorOpen] = useState(false);
@@ -472,6 +477,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         title: presentation.title || 'Apresentação',
         slideType: presentation.slides?.[0]?.type || null,
         correctAnswer: presentation.slides?.[0]?.correctAnswer || null,
+        topic: presentation.slides?.[0]?.topic || null,
         hotspotConfig: presentation.slides?.[0]?.hotspotConfig || null,
         pointsConfig: presentation.slides?.[0]?.pointsConfig || null,
         wordcloudConfig: presentation.slides?.[0]?.wordcloudConfig || null,
@@ -677,6 +683,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         newIndex,
         slideType: slide?.type || null,
         correctAnswer: slide?.correctAnswer || null,
+        topic: slide?.topic || null,
         hotspotConfig: slide?.hotspotConfig || null,
         pointsConfig: slide?.pointsConfig || null,
         wordcloudConfig: slide?.wordcloudConfig || null,
@@ -756,6 +763,14 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], correctAnswer: answer || undefined };
     commit({ ...presentation, slides: updatedSlides });
+  };
+
+  // Assunto do slide (quiz/hotspot) — usado pro relatório final agrupar
+  // acerto/erro por tema, ver PresentationReportModal.
+  const handleChangeTopic = (topic) => {
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], topic: topic || undefined };
+    commitDebounced({ ...presentation, slides: updatedSlides });
   };
 
   // Anotações do apresentador para o slide atual (painel embaixo do canvas,
@@ -1033,6 +1048,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         setAtClosingSlide(true);
         if (socket) {
           socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, wordcloudConfig: null, branches: null, slideTitle: 'Encerramento', slideNotes: null, totalSlides: presentation.slides.length });
+          // Sessão ao vivo chegou ao fim — mostra o ranking + desempenho por
+          // assunto automaticamente (ver PresentationReportModal/finalize).
+          setReportFinalize(true);
+          setIsReportOpen(true);
         }
       }
     } else {
@@ -1042,6 +1061,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         setAtClosingSlide(true);
         if (socket) {
           socket.emit('slide_changed', { pin, newIndex: presentation.slides.length, slideType: null, correctAnswer: null, hotspotConfig: null, pointsConfig: null, wordcloudConfig: null, branches: null, slideTitle: 'Encerramento', slideNotes: null, totalSlides: presentation.slides.length });
+          setReportFinalize(true);
+          setIsReportOpen(true);
         }
       }
     }
@@ -2313,7 +2334,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               >
                 <Share2 size={18} />
               </button>
-              <button className="btn-icon" onClick={() => setIsReportOpen(true)} title="Relatórios da sessão">
+              <button className="btn-icon" onClick={() => { setReportFinalize(false); setIsReportOpen(true); }} title="Relatórios da sessão">
                 <BarChart3 size={18} />
               </button>
               <button className="btn-icon" onClick={() => setRemoteControlOpen(true)} title="Controle remoto pelo celular (avançar/voltar slide à distância)">
@@ -2378,6 +2399,21 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 {opt}
               </button>
             ))}
+            <input
+              type="text"
+              list="quiz-topic-options"
+              className="chat-input"
+              placeholder="Assunto (ex: Farmacocinética)"
+              value={currentSlide.topic || ''}
+              onChange={(e) => handleChangeTopic(e.target.value)}
+              style={{ flex: '0 1 220px', fontSize: '0.8rem', boxSizing: 'border-box', marginLeft: 'auto' }}
+              title="Agrupa esta pergunta no relatório final de desempenho por assunto"
+            />
+            <datalist id="quiz-topic-options">
+              {[...new Set(presentation.slides.map((s) => s.topic).filter(Boolean))].map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
           </div>
         )}
 
@@ -2430,6 +2466,21 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                   onChange={(e) => handleChangeHotspotConfig({ radius: Number(e.target.value) })}
                   style={{ width: '70px', fontSize: '0.8rem' }}
                 />
+                <input
+                  type="text"
+                  list="quiz-topic-options"
+                  className="chat-input"
+                  placeholder="Assunto (ex: Farmacocinética)"
+                  value={currentSlide.topic || ''}
+                  onChange={(e) => handleChangeTopic(e.target.value)}
+                  style={{ flex: 1, fontSize: '0.8rem', boxSizing: 'border-box' }}
+                  title="Agrupa esta pergunta no relatório final de desempenho por assunto"
+                />
+                <datalist id="quiz-topic-options">
+                  {[...new Set(presentation.slides.map((s) => s.topic).filter(Boolean))].map((t) => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
               </div>
               <p style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: '0.4rem' }}>
                 Clique na miniatura ao lado para marcar o ponto correto.
@@ -3510,8 +3561,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
         presentationTitle={presentation.title}
+        presentationId={presentation.id}
         pin={pin}
         slides={presentation.slides}
+        finalize={reportFinalize}
       />
     </div>
   );

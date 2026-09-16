@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import { auth } from '../services/firebaseAdmin.js';
+import { computeTopicStats } from '../services/sessionAnalytics.js';
 
 // Armazenamento em memória das sessões ativas de apresentação
 const activeSessions = new Map();
@@ -30,7 +31,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, topic, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -52,6 +53,10 @@ export function setupSocketIO(httpServer) {
         // NUNCA é retransmitido pro aluno via sync_slide/joined_successfully — só o
         // necessário pra responder (ex.: a URL da imagem) é enviado pra sala.
         currentCorrectAnswer: correctAnswer || null,
+        // Assunto do slide atual (quiz/hotspot) — usado pra rotular cada
+        // resposta com o tema em session.responses e assim gerar o
+        // relatório final de desempenho por assunto (ver sessionAnalytics.js).
+        currentTopic: topic || null,
         currentHotspotConfig: hotspotConfig || null,
         // Pergunta + rótulos das opções da Distribuição de 100 Pontos — ao
         // contrário do gabarito/zona certa do hotspot, não é sigiloso (não há
@@ -211,11 +216,15 @@ export function setupSocketIO(httpServer) {
       let scoreResult = null; // { correct, points } — só existe quando a resposta é pontuável
 
       if (responseType === 'quiz') {
-        slideData.answers.push({ student: studentName, answer, timestamp: Date.now() });
+        // correct fica undefined quando não há gabarito definido — mantém a
+        // distinção entre "enquete sem certo/errado" e "resposta errada"
+        // (ver scoreableEntries em sessionAnalytics.js).
+        const correct = session.currentCorrectAnswer ? answer === session.currentCorrectAnswer : undefined;
+        slideData.answers.push({ student: studentName, answer, correct, topic: session.currentTopic || null, timestamp: Date.now() });
         // Quiz só pontua se o apresentador marcou um gabarito — sem isso continua
         // sendo uma enquete de opinião comum, sem certo/errado (comportamento original).
         if (session.currentCorrectAnswer) {
-          scoreResult = scoreAndRecord(session, socket.id, studentName, answer === session.currentCorrectAnswer);
+          scoreResult = scoreAndRecord(session, socket.id, studentName, correct);
         }
       } else if (responseType === 'wordcloud') {
         slideData.words.push({ student: studentName, word: answer.trim(), timestamp: Date.now() });
@@ -224,7 +233,7 @@ export function setupSocketIO(httpServer) {
       } else if (responseType === 'hotspot') {
         const zone = session.currentHotspotConfig;
         const correct = !!zone && isWithinHotspot(answer, zone);
-        slideData.hotspots.push({ student: studentName, x: answer?.x, y: answer?.y, correct, timestamp: Date.now() });
+        slideData.hotspots.push({ student: studentName, x: answer?.x, y: answer?.y, correct, topic: session.currentTopic || null, timestamp: Date.now() });
         scoreResult = scoreAndRecord(session, socket.id, studentName, correct);
       } else if (responseType === 'branch') {
         // Votação da turma na Trilha de Decisão — raciocínio clínico em grupo,
@@ -240,6 +249,10 @@ export function setupSocketIO(httpServer) {
         // Feedback de pontuação vai só pro aluno que respondeu (não pra sala toda)
         socket.emit('response_scored', scoreResult);
         io.to(`session_${pin}`).emit('leaderboard_update', { leaderboard: topScores(session) });
+        // Recalcula acerto por assunto a cada resposta pontuável, pro
+        // apresentador acompanhar ao vivo (ver ActiveMethodologiesOverlay.jsx)
+        // — mesma fonte de dados usada no relatório final (sessionAnalytics.js).
+        io.to(session.presenterSocketId).emit('topic_progress_update', { perTopic: computeTopicStats(session) });
       }
 
       // Transmite resultado agregado em tempo real para o Apresentador e Telão
@@ -252,13 +265,14 @@ export function setupSocketIO(httpServer) {
     });
 
     // 4. Apresentador altera slide
-    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides }) => {
+    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, topic, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides }) => {
       const session = activeSessions.get(pin);
       if (session) {
         commitDwellTime(session);
         session.currentSlideIndex = newIndex;
         session.currentSlideType = slideType || null;
         session.currentCorrectAnswer = correctAnswer || null;
+        session.currentTopic = topic || null;
         session.currentHotspotConfig = hotspotConfig || null;
         session.currentPointsConfig = pointsConfig || null;
         session.currentWordcloudConfig = wordcloudConfig || null;

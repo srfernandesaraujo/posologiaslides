@@ -24,6 +24,7 @@ export default function ActiveMethodologiesOverlay({
   const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   const [participantCount, setParticipantCount] = useState(0);
   const [leaderboard, setLeaderboard] = useState([]);
+  const [topicProgress, setTopicProgress] = useState([]);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
@@ -40,17 +41,23 @@ export default function ActiveMethodologiesOverlay({
     const handleJoined = ({ count }) => setParticipantCount(count);
     const handleLeft = ({ count }) => setParticipantCount(count);
     const handleLeaderboard = ({ leaderboard: board }) => setLeaderboard(board || []);
+    // Acerto por assunto recalculado a cada resposta pontuável (ver
+    // sessionSocket.js) — só um indicador ao vivo; o relatório completo por
+    // assunto (com insight de IA) aparece no encerramento, ver PresentationReportModal.
+    const handleTopicProgress = ({ perTopic }) => setTopicProgress(perTopic || []);
 
     socket.on('live_results_update', handleUpdate);
     socket.on('participant_joined', handleJoined);
     socket.on('participant_left', handleLeft);
     socket.on('leaderboard_update', handleLeaderboard);
+    socket.on('topic_progress_update', handleTopicProgress);
 
     return () => {
       socket.off('live_results_update', handleUpdate);
       socket.off('participant_joined', handleJoined);
       socket.off('participant_left', handleLeft);
       socket.off('leaderboard_update', handleLeaderboard);
+      socket.off('topic_progress_update', handleTopicProgress);
     };
   }, [socket, slideIndex]);
 
@@ -209,6 +216,30 @@ export default function ActiveMethodologiesOverlay({
               <div key={entry.name + idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: idx < 3 ? '#fff' : '#9ca3af' }}>
                 <span>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`} {entry.name}</span>
                 <span style={{ fontWeight: 700 }}>{entry.score}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Acerto por assunto acumulado ao vivo — indicador rápido pro
+          professor; o relatório completo (com insight de IA) só aparece no
+          encerramento da sessão, ver PresentationReportModal. */}
+      {topicProgress.length > 0 && (
+        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+            <PieChart size={15} /> Acerto por Assunto
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            {topicProgress.map((t) => (
+              <div key={t.topic} style={{ fontSize: '0.78rem', color: '#e5e7eb' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{t.topic}</span>
+                  <span style={{ fontWeight: 700, color: t.accuracyPct < 60 ? '#f87171' : '#34d399' }}>{t.accuracyPct}%</span>
+                </div>
+                <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginTop: '0.2rem' }}>
+                  <div style={{ height: '100%', width: `${t.accuracyPct}%`, borderRadius: '2px', background: t.accuracyPct < 60 ? '#f87171' : '#34d399' }} />
+                </div>
               </div>
             ))}
           </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Clock, Users, MessageSquare, X, Loader2 } from 'lucide-react';
+import { BarChart3, Clock, Users, MessageSquare, X, Loader2, Trophy, Sparkles, History } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 
 function formatDuration(totalSeconds) {
@@ -8,17 +8,29 @@ function formatDuration(totalSeconds) {
   return `${m}m ${s}s`;
 }
 
-export default function PresentationReportModal({ isOpen, onClose, presentationTitle, pin, slides = [] }) {
+// `finalize` = true → chama POST /:pin/end (calcula ranking + desempenho por
+// assunto, gera insight com IA e persiste no Firestore, ver sessionsRoutes.js)
+// — usado quando o apresentador chega no slide de encerramento com uma
+// sessão ao vivo ativa. `finalize` = false mantém o comportamento original:
+// GET /:pin/report, o relatório básico ao vivo (dwell time etc.), sem
+// persistir nada — usado quando o professor abre o relatório manualmente no
+// meio da aula, antes de a sessão ter terminado.
+export default function PresentationReportModal({ isOpen, onClose, presentationTitle, presentationId, pin, slides = [], finalize = false }) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [pastReports, setPastReports] = useState([]);
 
   useEffect(() => {
     if (!isOpen || !pin) return;
 
     setLoading(true);
     setError(null);
-    apiFetch(`/api/sessions/${pin}/report`)
+    const request = finalize
+      ? apiFetch(`/api/sessions/${pin}/end`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+      : apiFetch(`/api/sessions/${pin}/report`);
+
+    request
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
@@ -29,7 +41,31 @@ export default function PresentationReportModal({ isOpen, onClose, presentationT
       })
       .catch(() => setError('Não foi possível carregar o relatório.'))
       .finally(() => setLoading(false));
-  }, [isOpen, pin]);
+  }, [isOpen, pin, finalize]);
+
+  // Sessões anteriores já encerradas desta apresentação (persistidas no
+  // Firestore por POST /:pin/end) — só busca quando o modal tem pra onde
+  // reabrir (precisa do id da apresentação).
+  useEffect(() => {
+    if (!isOpen || !presentationId) return;
+    apiFetch(`/api/presentations/${presentationId}/sessionReports`)
+      .then((res) => res.json())
+      .then((data) => setPastReports(data.success ? data.reports : []))
+      .catch(() => setPastReports([]));
+  }, [isOpen, presentationId]);
+
+  const openPastReport = (reportId) => {
+    setLoading(true);
+    setError(null);
+    apiFetch(`/api/presentations/${presentationId}/sessionReports/${reportId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) setReport(data.report);
+        else setError(data.error || 'Não foi possível carregar o relatório.');
+      })
+      .catch(() => setError('Não foi possível carregar o relatório.'))
+      .finally(() => setLoading(false));
+  };
 
   if (!isOpen) return null;
 
@@ -52,6 +88,26 @@ export default function PresentationReportModal({ isOpen, onClose, presentationT
             <X size={20} />
           </button>
         </div>
+
+        {pastReports.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem', fontSize: '0.8rem', color: '#9ca3af' }}>
+            <History size={15} />
+            Sessões anteriores:
+            <select
+              className="chat-input"
+              defaultValue=""
+              onChange={(e) => e.target.value && openPastReport(e.target.value)}
+              style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem' }}
+            >
+              <option value="">Sessão atual</option>
+              {pastReports.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {new Date(r.startTime).toLocaleString('pt-BR')}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {loading && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-primary)', padding: '2rem', justifyContent: 'center' }}>
@@ -96,6 +152,62 @@ export default function PresentationReportModal({ isOpen, onClose, presentationT
                 </div>
               </div>
             </div>
+
+            {/* Desempenho por Assunto + Ranking + Insight de IA — só existem
+                quando o relatório veio de POST /:pin/end (ver `finalize`
+                acima) ou foi reaberto do histórico, nunca do GET /:pin/report
+                básico usado no meio da aula. */}
+            {report.perTopic && (
+              <>
+                {report.overallAccuracyPct !== null && report.overallAccuracyPct !== undefined && (
+                  <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                      <BarChart3 size={14} color="#a78bfa" /> Desempenho por Assunto ({report.overallAccuracyPct}% de acerto geral)
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                      {report.perTopic.map((t) => (
+                        <div key={t.topic}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#e5e7eb' }}>
+                            <span>{t.topic}</span>
+                            <span style={{ fontWeight: 700, color: t.accuracyPct < 60 ? '#f87171' : '#34d399' }}>
+                              {t.accuracyPct}% ({t.correctAnswers}/{t.totalAnswers})
+                            </span>
+                          </div>
+                          <div style={{ height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', marginTop: '0.25rem' }}>
+                            <div style={{ height: '100%', width: `${t.accuracyPct}%`, borderRadius: '3px', background: t.accuracyPct < 60 ? '#f87171' : '#34d399' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {report.insight && (
+                  <div style={{ background: 'rgba(167, 139, 250, 0.08)', border: '1px solid rgba(167, 139, 250, 0.25)', borderRadius: '0.75rem', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', fontWeight: 700 }}>
+                      <Sparkles size={14} /> Sugestão gerada por IA
+                    </div>
+                    <p style={{ fontSize: '0.85rem', color: '#e5e7eb', margin: 0, lineHeight: 1.5 }}>{report.insight}</p>
+                  </div>
+                )}
+
+                {report.ranking?.length > 0 && (
+                  <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: '1.5rem' }}>
+                    <div style={{ padding: '0.75rem 1rem', fontSize: '0.75rem', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '0.4rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                      <Trophy size={14} color="#fbbf24" /> Ranking Final
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {report.ranking.slice(0, 10).map((r) => (
+                        <div key={r.name + r.position} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 1rem', fontSize: '0.85rem', color: r.position <= 3 ? '#fff' : '#9ca3af', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          <span>{r.position === 1 ? '🥇' : r.position === 2 ? '🥈' : r.position === 3 ? '🥉' : `${r.position}.`} {r.name}</span>
+                          <span style={{ fontWeight: 700 }}>{r.score}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
             {/* Tabela de Detalhamento por Slide */}
             <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: '1.5rem' }}>

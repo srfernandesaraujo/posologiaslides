@@ -688,3 +688,27 @@ export async function saveUserSettings(userId, { geminiApiKey, openaiApiKey, ant
   }, { merge: true });
   return getUserSettings(userId);
 }
+
+// Relatórios finais de sessão ao vivo (ranking + desempenho por assunto, ver
+// sessionAnalytics.js) — subcoleção da apresentação, pra sobreviver a um
+// restart do servidor (diferente do resto da sessão, que é só em memória, ver
+// activeSessions em sessionSocket.js) e o professor poder reabrir depois.
+function sessionReportsRef(userId, presentationId) {
+  return presentationsRef(userId).doc(presentationId).collection('sessionReports');
+}
+
+export async function saveSessionReport(userId, presentationId, report) {
+  const id = `${report.pin}_${report.startTime}`;
+  await sessionReportsRef(userId, presentationId).doc(id).set(report);
+  return { id, ...report };
+}
+
+export async function listSessionReports(userId, presentationId) {
+  const snap = await sessionReportsRef(userId, presentationId).orderBy('startTime', 'desc').get();
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+}
+
+export async function getSavedSessionReport(userId, presentationId, reportId) {
+  const snap = await sessionReportsRef(userId, presentationId).doc(reportId).get();
+  return snap.exists ? { id: snap.id, ...snap.data() } : null;
+}
