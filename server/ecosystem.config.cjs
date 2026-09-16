@@ -10,6 +10,10 @@ module.exports = {
       name: 'posologia-backend',
       script: 'index.js',
       cwd: __dirname,
+      // Máquina é compartilhada com Umbrel/n8n/flowise/etc — se um vizinho
+      // faminto de RAM empurrar o backend a vazar/inchar memória, reinicia
+      // sozinho em vez de travar junto com o resto da máquina (swap 100%).
+      max_memory_restart: '500M',
       env: {
         NODE_ENV: 'production'
       }
