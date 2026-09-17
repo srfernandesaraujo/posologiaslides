@@ -552,6 +552,20 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       newSocket = io(API_URL || window.location.origin, { auth: { token } });
       setSocket(newSocket);
 
+      // Diagnóstico temporário (bug "2a pergunta não chega") — o socket do
+      // professor nunca teve log de connect/disconnect, diferente do aluno
+      // (ver StudentJoin.jsx); sem isto não tinha como saber se ele caiu
+      // silenciosamente no intervalo entre perguntas.
+      newSocket.on('connect', () => {
+        console.log(`[quiz-debug] socket do professor conectou (id=${newSocket.id})`);
+      });
+      newSocket.on('disconnect', (reason) => {
+        console.log(`[quiz-debug] socket do professor desconectou: ${reason}`);
+      });
+      newSocket.on('reconnect', (attempt) => {
+        console.log(`[quiz-debug] socket do professor RECONECTOU (tentativa ${attempt}, novo id=${newSocket.id})`);
+      });
+
       const firstSlide = presentation.slides?.[0];
       const firstSlideQuizQuestions = getQuizQuestions(firstSlide);
       const firstQuizQuestion = firstSlideQuizQuestions?.[0] || null;
@@ -903,6 +917,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setActiveQuizQuestionIndex(idx);
 
     if (socket && pin) {
+      // Diagnóstico temporário (bug "2a pergunta não chega") — o servidor
+      // não recebe NADA quando isto falha (confirmado via pm2 logs), então
+      // suspeita agora é o socket do PRÓPRIO professor caído/zumbi na hora
+      // do clique (sem tratamento de connect/disconnect nele, diferente do
+      // lado do aluno). Loga o estado exato do socket bem no instante do clique.
+      console.log(`[quiz-debug] clique em liberar pergunta ${idx} — socket.connected=${socket.connected} socket.id=${socket.id}`);
       // .timeout(...) + callback (ack do Socket.IO): antes disto, se o
       // pedido não chegasse a valer no servidor (sessão sumida, aluno caído
       // da sala) não havia ERRO NENHUM — só "mudou na minha tela e não na do
