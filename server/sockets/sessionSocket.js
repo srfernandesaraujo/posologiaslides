@@ -346,11 +346,18 @@ export function setupSocketIO(httpServer) {
 
     // 4b. Apresentador libera a PRÓXIMA pergunta de um quiz com várias
     // perguntas sequenciais no mesmo slide (ver "Pergunta N de M" no editor)
-    // — não navega slide nenhum, só troca qual pergunta está ativa. Só o
-    // próprio apresentador da sessão pode disparar isso.
+    // — não navega slide nenhum, só troca qual pergunta está ativa.
+    // Só exige que a sessão exista (mesma regra de slide_changed/
+    // submit_response, únicos outros eventos que mexem no estado da sessão)
+    // — chegou a existir uma checagem extra `presenterSocketId === socket.id`
+    // aqui, mas ela quebrava em silêncio sempre que o socket do apresentador
+    // reconectava no meio da aula (rede instável, aba em segundo plano etc.):
+    // o id mudava, o pedido de "próxima pergunta" era descartado sem erro
+    // nenhum, e só os ALUNOS ficavam sem saber (a tela do professor já tinha
+    // avançado localmente antes de confirmar com o servidor).
     socket.on('activate_quiz_question', ({ pin, questionIndex, totalQuestions, correctAnswer, topic, quizOptions }) => {
       const session = activeSessions.get(pin);
-      if (!session || session.presenterSocketId !== socket.id) return;
+      if (!session) return;
 
       // Reseta o relógio da pontuação por velocidade (ver scoreAndRecord)
       // pra esta pergunta nova — sem isto, ele continuava contando desde que
