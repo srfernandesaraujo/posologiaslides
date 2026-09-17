@@ -903,13 +903,27 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setActiveQuizQuestionIndex(idx);
 
     if (socket && pin) {
-      socket.emit('activate_quiz_question', {
+      // .timeout(...) + callback (ack do Socket.IO): antes disto, se o
+      // pedido não chegasse a valer no servidor (sessão sumida, aluno caído
+      // da sala) não havia ERRO NENHUM — só "mudou na minha tela e não na do
+      // aluno", sem pista do motivo. Agora qualquer falha (sem resposta
+      // nenhuma, ou resposta dizendo que a sessão não existe mais) vira um
+      // aviso claro pro professor, na hora.
+      socket.timeout(5000).emit('activate_quiz_question', {
         pin,
         questionIndex: idx,
         totalQuestions: questions.length,
         correctAnswer: q.correctAnswer || null,
         topic: q.topic || null,
         quizOptions: getActiveQuizOptionsFromQuestion(q)
+      }, (err, ack) => {
+        if (err) {
+          alert('Não foi possível confirmar com o servidor que a pergunta foi liberada (sem resposta em 5s) — verifique sua conexão. Os alunos podem não ter recebido.');
+        } else if (!ack?.success) {
+          alert('A sessão ao vivo não foi encontrada no servidor — ela pode ter caído. Recarregue a página e comece uma nova sessão (o PIN muda; avise a turma).');
+        } else if (ack.participantCount === 0) {
+          alert('A pergunta foi liberada, mas não há nenhum aluno conectado à sessão agora. Peça pra eles recarregarem a página e entrarem de novo com o PIN.');
+        }
       });
     }
   };

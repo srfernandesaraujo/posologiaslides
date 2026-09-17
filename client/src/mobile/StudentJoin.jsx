@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { API_URL } from '../lib/api';
 import { Smartphone, Send, CheckCircle2, Sparkles, Users, Clock } from 'lucide-react';
@@ -97,6 +97,16 @@ export default function StudentJoin() {
   const [branches, setBranches] = useState(null);
   const [quizOptions, setQuizOptions] = useState(null);
   const [scoreFeedback, setScoreFeedback] = useState(null);
+  // "Sempre frescas" pro handler de reconexão (ver 'connect' abaixo), que
+  // roda dentro do efeito de conexão (deps `[]`, registrado só uma vez) —
+  // sem refs, ele veria pin/name/joined do instante em que o socket foi
+  // criado (quase sempre "ainda não entrou"), nunca o valor atual.
+  const pinRef = useRef('');
+  const nameRef = useRef('');
+  const joinedRef = useRef(false);
+  useEffect(() => { pinRef.current = pin; }, [pin]);
+  useEffect(() => { nameRef.current = name; }, [name]);
+  useEffect(() => { joinedRef.current = joined; }, [joined]);
   // Pergunta ativa dentro de um quiz com várias perguntas sequenciais no
   // mesmo slide (ver sync_quiz_question abaixo) — totalQuestions > 1 é o
   // que liga o rótulo "Pergunta X de N" na tela do aluno.
@@ -118,6 +128,21 @@ export default function StudentJoin() {
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
 
+    // Celular reconectando sozinho (tela bloqueou, navegador jogou a aba pro
+    // segundo plano, rede caiu um instante — bem comum durante o intervalo
+    // entre uma pergunta e outra) ganha um socket NOVO no servidor, que não
+    // está mais na sala da sessão (join_session só era mandado uma vez, ao
+    // entrar) — sem reenviar aqui, o aluno virava "fantasma": não contava
+    // mais como participante e parava de receber qualquer coisa da sala,
+    // inclusive a próxima pergunta liberada pelo professor. 'connect' dispara
+    // tanto na conexão inicial (joinedRef ainda false, não faz nada) quanto
+    // em toda reconexão depois dela.
+    newSocket.on('connect', () => {
+      if (joinedRef.current && pinRef.current && nameRef.current) {
+        newSocket.emit('join_session', { pin: pinRef.current, name: nameRef.current });
+      }
+    });
+
     newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions, questionIndex, totalQuestions }) => {
       setJoined(true);
       setSessionTitle(title);
@@ -130,6 +155,12 @@ export default function StudentJoin() {
       setQuizOptions(quizOptions || null);
       setQuestionIndex(questionIndex || 0);
       setTotalQuestions(totalQuestions || 1);
+      // Também dispara numa RECONEXÃO (ver 'connect' acima), não só no 1º
+      // ingresso — reseta pra o aluno não ficar preso na tela de "resposta
+      // enviada" de uma pergunta antiga se, enquanto ele estava
+      // desconectado, o professor já tiver avançado pra outra.
+      setSubmitted(false);
+      setScoreFeedback(null);
       setPointsAllocation(buildEvenSplit(pointsConfig));
     });
 

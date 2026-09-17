@@ -355,9 +355,18 @@ export function setupSocketIO(httpServer) {
     // o id mudava, o pedido de "próxima pergunta" era descartado sem erro
     // nenhum, e só os ALUNOS ficavam sem saber (a tela do professor já tinha
     // avançado localmente antes de confirmar com o servidor).
-    socket.on('activate_quiz_question', ({ pin, questionIndex, totalQuestions, correctAnswer, topic, quizOptions }) => {
+    // Recebe um `callback` (ack do Socket.IO) pra o apresentador SABER se o
+    // pedido chegou de verdade — antes falhava tudo em silêncio (sessão
+    // sumida por reinício do servidor, aluno desconectado etc.) e a única
+    // pista era "só mudou na minha tela" (ver handleActivateQuizQuestion em
+    // PresentationEditor.jsx, que usa socket.timeout(...) pra também pegar o
+    // caso de nem chegar resposta nenhuma, ex.: conexão caiu de vez).
+    socket.on('activate_quiz_question', ({ pin, questionIndex, totalQuestions, correctAnswer, topic, quizOptions }, callback) => {
       const session = activeSessions.get(pin);
-      if (!session) return;
+      if (!session) {
+        if (typeof callback === 'function') callback({ success: false, reason: 'session-not-found' });
+        return;
+      }
 
       // Reseta o relógio da pontuação por velocidade (ver scoreAndRecord)
       // pra esta pergunta nova — sem isto, ele continuava contando desde que
@@ -390,6 +399,12 @@ export function setupSocketIO(httpServer) {
         responses: session.responses[responseKey(session.currentSlideIndex, session.currentQuestionIndex)] || emptyResponses(),
         totalParticipants: session.participants.size
       });
+
+      // participantCount vai junto pro apresentador perceber na hora se
+      // "funcionou" mas não tem mais ninguém pra receber (ex.: todos os
+      // alunos caíram da sala por outro motivo) — sem isto pareceria sucesso
+      // mesmo com a sala vazia.
+      if (typeof callback === 'function') callback({ success: true, participantCount: session.participants.size });
     });
 
     // Desconexão
