@@ -119,14 +119,27 @@ export default function StudentJoin() {
   const [pointsAllocation, setPointsAllocation] = useState(() => buildEvenSplit(null));
   const [submitted, setSubmitted] = useState(false);
 
+  // Log visual na própria tela (?debug=1 na URL) pra depurar em celular real,
+  // onde não tem como abrir o DevTools/F12 — mostra os mesmos eventos que
+  // iriam pro console, direto na tela, pra o aluno/professor fotografar.
+  const [debugEnabled] = useState(() => new URLSearchParams(window.location.search).get('debug') === '1');
+  const [debugLog, setDebugLog] = useState([]);
+
   useEffect(() => {
     // Tenta obter PIN da URL caso o aluno tenha escaneado o QR Code
     const params = new URLSearchParams(window.location.search);
     const pinParam = params.get('pin');
     if (pinParam) setPin(pinParam);
 
+    const logDebug = (msg) => {
+      if (!debugEnabled) return;
+      const line = `${new Date().toLocaleTimeString()} ${msg}`;
+      setDebugLog((prev) => [...prev.slice(-9), line]);
+    };
+
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
+    logDebug('pagina carregada, conectando...');
 
     // Celular reconectando sozinho (tela bloqueou, navegador jogou a aba pro
     // segundo plano, rede caiu um instante — bem comum durante o intervalo
@@ -138,9 +151,15 @@ export default function StudentJoin() {
     // tanto na conexão inicial (joinedRef ainda false, não faz nada) quanto
     // em toda reconexão depois dela.
     newSocket.on('connect', () => {
+      logDebug(`connect (socket.id=${newSocket.id})`);
       if (joinedRef.current && pinRef.current && nameRef.current) {
+        logDebug('reenviando join_session apos (re)conexao');
         newSocket.emit('join_session', { pin: pinRef.current, name: nameRef.current });
       }
+    });
+
+    newSocket.on('disconnect', (reason) => {
+      logDebug(`disconnect (motivo: ${reason})`);
     });
 
     newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions, questionIndex, totalQuestions }) => {
@@ -184,7 +203,7 @@ export default function StudentJoin() {
     // estado do slide (hotspot/pointsConfig/wordcloud/branches continuam
     // como estavam, já que o slide não mudou).
     newSocket.on('sync_quiz_question', ({ questionIndex, totalQuestions, quizOptions }) => {
-      console.log('[quiz] sync_quiz_question recebido', { questionIndex, totalQuestions, quizOptions });
+      logDebug(`sync_quiz_question recebido: pergunta ${(questionIndex || 0) + 1}/${totalQuestions || 1}`);
       setQuestionIndex(questionIndex || 0);
       setTotalQuestions(totalQuestions || 1);
       setQuizOptions(quizOptions || null);
@@ -212,6 +231,7 @@ export default function StudentJoin() {
     // reenvie join_session, trazendo o estado atual do zero.
     const handleVisibility = () => {
       if (document.visibilityState === 'visible' && joinedRef.current) {
+        logDebug(`aba visivel de novo (socket.connected=${newSocket.connected}) -> forcando reconexao`);
         newSocket.disconnect();
         newSocket.connect();
       }
@@ -342,6 +362,11 @@ export default function StudentJoin() {
             </button>
           </form>
         </div>
+        {debugEnabled && (
+          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxHeight: '35vh', overflowY: 'auto', background: 'rgba(0,0,0,0.85)', color: '#22d3ee', fontSize: '0.65rem', fontFamily: 'monospace', padding: '0.5rem', zIndex: 9999, borderTop: '1px solid #22d3ee' }}>
+            {debugLog.map((line, i) => <div key={i}>{line}</div>)}
+          </div>
+        )}
       </div>
     );
   }
@@ -542,6 +567,12 @@ export default function StudentJoin() {
       <div style={{ textAlign: 'center', fontSize: '0.75rem', color: '#6b7280' }}>
         Posologia Slides
       </div>
+
+      {debugEnabled && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxHeight: '35vh', overflowY: 'auto', background: 'rgba(0,0,0,0.85)', color: '#22d3ee', fontSize: '0.65rem', fontFamily: 'monospace', padding: '0.5rem', zIndex: 9999, borderTop: '1px solid #22d3ee' }}>
+          {debugLog.map((line, i) => <div key={i}>{line}</div>)}
+        </div>
+      )}
     </div>
   );
 }
