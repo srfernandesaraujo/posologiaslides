@@ -97,6 +97,11 @@ export default function StudentJoin() {
   const [branches, setBranches] = useState(null);
   const [quizOptions, setQuizOptions] = useState(null);
   const [scoreFeedback, setScoreFeedback] = useState(null);
+  // Pergunta ativa dentro de um quiz com várias perguntas sequenciais no
+  // mesmo slide (ver sync_quiz_question abaixo) — totalQuestions > 1 é o
+  // que liga o rótulo "Pergunta X de N" na tela do aluno.
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [totalQuestions, setTotalQuestions] = useState(1);
 
   // Estados de resposta do aluno
   const [quizChoice, setQuizChoice] = useState('');
@@ -113,7 +118,7 @@ export default function StudentJoin() {
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
 
-    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions }) => {
+    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions, questionIndex, totalQuestions }) => {
       setJoined(true);
       setSessionTitle(title);
       setCurrentSlideIndex(currentSlideIndex);
@@ -123,10 +128,12 @@ export default function StudentJoin() {
       setWordcloudConfig(wordcloudConfig || null);
       setBranches(branches || null);
       setQuizOptions(quizOptions || null);
+      setQuestionIndex(questionIndex || 0);
+      setTotalQuestions(totalQuestions || 1);
       setPointsAllocation(buildEvenSplit(pointsConfig));
     });
 
-    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions }) => {
+    newSocket.on('sync_slide', ({ currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions, questionIndex, totalQuestions }) => {
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
       setHotspotImageUrl(hotspotImageUrl || null);
@@ -134,9 +141,23 @@ export default function StudentJoin() {
       setWordcloudConfig(wordcloudConfig || null);
       setBranches(branches || null);
       setQuizOptions(quizOptions || null);
+      setQuestionIndex(questionIndex || 0);
+      setTotalQuestions(totalQuestions || 1);
       setSubmitted(false); // Reseta estado de envio para o novo slide
       setScoreFeedback(null);
       setPointsAllocation(buildEvenSplit(pointsConfig));
+    });
+
+    // Professor liberou a PRÓXIMA pergunta do mesmo quiz (sem trocar de
+    // slide) — mesmo reset de sync_slide, só que sem mexer no restante do
+    // estado do slide (hotspot/pointsConfig/wordcloud/branches continuam
+    // como estavam, já que o slide não mudou).
+    newSocket.on('sync_quiz_question', ({ questionIndex, totalQuestions, quizOptions }) => {
+      setQuestionIndex(questionIndex || 0);
+      setTotalQuestions(totalQuestions || 1);
+      setQuizOptions(quizOptions || null);
+      setSubmitted(false);
+      setScoreFeedback(null);
     });
 
     newSocket.on('response_scored', ({ correct, points }) => {
@@ -168,6 +189,7 @@ export default function StudentJoin() {
       socket.emit('submit_response', {
         pin,
         slideIndex: currentSlideIndex,
+        questionIndex,
         responseType: slideType === 'tbl' ? 'tbl' : 'quiz',
         answer: choice
       });
@@ -299,7 +321,11 @@ export default function StudentJoin() {
             ) : (
               <>
                 <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#34d399' }}>Resposta Enviada!</h3>
-                <p style={{ fontSize: '0.9rem', color: '#a7f3d0', margin: '0.5rem 0 0 0' }}>Sua resposta foi computada e já está aparecendo no telão do professor.</p>
+                <p style={{ fontSize: '0.9rem', color: '#a7f3d0', margin: '0.5rem 0 0 0' }}>
+                  {totalQuestions > 1 && questionIndex + 1 < totalQuestions
+                    ? 'Aguarde o professor liberar a próxima pergunta.'
+                    : 'Sua resposta foi computada e já está aparecendo no telão do professor.'}
+                </p>
               </>
             )}
           </div>
@@ -406,11 +432,16 @@ export default function StudentJoin() {
           </div>
         ) : (slideType === 'quiz' || slideType === 'tbl') ? (
           <div style={{ width: '100%', maxWidth: '400px' }}>
-            <h4 style={{ textAlign: 'center', fontSize: '1.1rem', color: '#9ca3af', marginBottom: '1.5rem' }}>
+            <h4 style={{ textAlign: 'center', fontSize: '1.1rem', color: '#9ca3af', marginBottom: totalQuestions > 1 && slideType === 'quiz' ? '0.3rem' : '1.5rem' }}>
               {slideType === 'tbl'
                 ? 'Verificação Individual (iRAT) — selecione sua resposta:'
                 : `Slide #${currentSlideIndex + 1} - Selecione sua resposta:`}
             </h4>
+            {totalQuestions > 1 && slideType === 'quiz' && (
+              <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#67e8f9', fontWeight: 700, marginBottom: '1.2rem' }}>
+                Pergunta {questionIndex + 1} de {totalQuestions}
+              </p>
+            )}
 
             {/* Alternativas de Quiz — só as letras que o professor de fato
                 preencheu no slide (ver quizOptions); "tbl" (iRAT) não tem

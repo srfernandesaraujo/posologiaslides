@@ -375,6 +375,18 @@ export function getElementMeta(html, index) {
 // não gera o data-quiz-option correspondente) — usada tanto pro seletor de
 // gabarito quanto pra avisar o celular do aluno de quais botões mostrar
 // (ver emitSlideChanged em PresentationEditor.jsx).
+// Acha o índice (filho direto de ".slide-root") do primeiro elemento que
+// casa com `selector` — usada pra localizar um widget específico (ex.: o
+// quiz, ver data-el-source="interativos:quiz-question") antes de chamar
+// getElementMeta/replaceElementInnerAt, que só aceitam índice, não seletor.
+export function findElementIndexBySelector(html, selector) {
+  const template = parseFragment(html);
+  const container = getContainer(template);
+  const el = container.querySelector(selector);
+  if (!el) return -1;
+  return Array.from(container.children).indexOf(el);
+}
+
 export function getActiveQuizOptions(html) {
   const template = parseFragment(html || '');
   const letters = Array.from(template.content.querySelectorAll('[data-quiz-option]'))

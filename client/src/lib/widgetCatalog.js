@@ -377,7 +377,7 @@ function buildOptionRow(letter, text) {
     </div>`;
 }
 
-function buildQuizQuestion(config = {}) {
+export function buildQuizQuestion(config = {}) {
   const question = (config.question || 'Digite a pergunta aqui').trim();
   const rows = ['A', 'B', 'C', 'D'].map((letter) => buildOptionRow(letter, config[`option${letter}`])).join('');
   return `

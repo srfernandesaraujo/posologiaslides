@@ -5,6 +5,19 @@ import { computeTopicStats } from '../services/sessionAnalytics.js';
 // Armazenamento em memória das sessões ativas de apresentação
 const activeSessions = new Map();
 
+// Chave composta usada em session.responses — permite várias perguntas
+// sequenciais dentro do MESMO slide de quiz (ver activate_quiz_question
+// abaixo) sem colidir respostas de perguntas diferentes no mesmo bucket.
+// questionIndex ausente/0 vira só o slideIndex puro (compatível com o
+// formato antigo, de antes de existir mais de uma pergunta por slide).
+function responseKey(slideIndex, questionIndex) {
+  return questionIndex ? `${slideIndex}:${questionIndex}` : String(slideIndex);
+}
+
+function emptyResponses() {
+  return { answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] };
+}
+
 // Verifica o ID token do Firebase enviado pelo cliente no handshake do socket
 // (io(url, { auth: { token } })), o mesmo token usado nas rotas HTTP autenticadas.
 async function getAuthenticatedUserId(socket) {
@@ -31,7 +44,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, topic, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, topic, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides, totalQuestions }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -69,6 +82,13 @@ export function setupSocketIO(httpServer) {
         // getActiveQuizOptions em slideHtmlUtils.js). Mesmo caso do
         // pointsConfig acima: não é sigiloso, retransmitido como está.
         currentQuizOptions: quizOptions || null,
+        // Índice da pergunta ATIVA dentro do quiz do slide atual, e quantas
+        // perguntas o quiz tem no total — permite várias perguntas
+        // sequenciais no MESMO slide (ver activate_quiz_question abaixo),
+        // liberadas manualmente pelo professor uma de cada vez. Default
+        // 0/1 = comportamento de sempre (quiz de 1 pergunta só).
+        currentQuestionIndex: 0,
+        currentTotalQuestions: totalQuestions || 1,
         // Pergunta disparadora da Nuvem de Palavras — mesmo caso do pointsConfig
         // acima: não é sigiloso, retransmitido pro aluno como está.
         currentWordcloudConfig: wordcloudConfig || null,
@@ -119,6 +139,8 @@ export function setupSocketIO(httpServer) {
         wordcloudConfig: session.currentWordcloudConfig,
         branches: publicBranches(session.currentBranches),
         quizOptions: session.currentQuizOptions,
+        questionIndex: session.currentQuestionIndex || 0,
+        totalQuestions: session.currentTotalQuestions || 1,
         slideTitle: session.currentSlideTitle,
         slideNotes: session.currentSlideNotes,
         totalSlides: session.totalSlides
@@ -201,18 +223,19 @@ export function setupSocketIO(httpServer) {
     });
 
     // 3. Aluno envia resposta (Quiz / Wordcloud / iRAT / Hotspot)
-    socket.on('submit_response', ({ pin, slideIndex, responseType, answer }) => {
+    socket.on('submit_response', ({ pin, slideIndex, questionIndex, responseType, answer }) => {
       const session = activeSessions.get(pin);
       if (!session) return;
 
       const participant = session.participants.get(socket.id);
       const studentName = participant ? participant.name : 'Anônimo';
 
-      if (!session.responses[slideIndex]) {
-        session.responses[slideIndex] = { answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] };
+      const key = responseKey(slideIndex, questionIndex);
+      if (!session.responses[key]) {
+        session.responses[key] = emptyResponses();
       }
 
-      const slideData = session.responses[slideIndex];
+      const slideData = session.responses[key];
       let scoreResult = null; // { correct, points } — só existe quando a resposta é pontuável
 
       if (responseType === 'quiz') {
@@ -258,6 +281,7 @@ export function setupSocketIO(httpServer) {
       // Transmite resultado agregado em tempo real para o Apresentador e Telão
       io.to(`session_${pin}`).emit('live_results_update', {
         slideIndex,
+        questionIndex: questionIndex || 0,
         responseType,
         responses: slideData,
         totalParticipants: session.participants.size
@@ -265,7 +289,7 @@ export function setupSocketIO(httpServer) {
     });
 
     // 4. Apresentador altera slide
-    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, topic, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides }) => {
+    socket.on('slide_changed', ({ pin, newIndex, slideType, correctAnswer, topic, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides, totalQuestions }) => {
       const session = activeSessions.get(pin);
       if (session) {
         commitDwellTime(session);
@@ -278,6 +302,11 @@ export function setupSocketIO(httpServer) {
         session.currentWordcloudConfig = wordcloudConfig || null;
         session.currentBranches = branches || null;
         session.currentQuizOptions = quizOptions || null;
+        // Trocar de slide sempre reinicia pra 1ª pergunta do quiz (se houver
+        // mais de uma, ver activate_quiz_question abaixo) — mesmo espírito
+        // do reset de `submitted` no celular do aluno a cada slide novo.
+        session.currentQuestionIndex = 0;
+        session.currentTotalQuestions = totalQuestions || 1;
         session.currentSlideTitle = slideTitle || null;
         session.currentSlideNotes = slideNotes || null;
         if (totalSlides) session.totalSlides = totalSlides;
@@ -293,6 +322,8 @@ export function setupSocketIO(httpServer) {
           wordcloudConfig: session.currentWordcloudConfig,
           branches: publicBranches(session.currentBranches),
           quizOptions: session.currentQuizOptions,
+          questionIndex: session.currentQuestionIndex,
+          totalQuestions: session.currentTotalQuestions,
           slideTitle: session.currentSlideTitle,
           slideNotes: session.currentSlideNotes,
           totalSlides: session.totalSlides
@@ -305,11 +336,45 @@ export function setupSocketIO(httpServer) {
         // só é emitido reativamente em `submit_response` (ver abaixo).
         io.to(`session_${pin}`).emit('live_results_update', {
           slideIndex: newIndex,
+          questionIndex: 0,
           responseType: null,
-          responses: session.responses[newIndex] || { answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] },
+          responses: session.responses[responseKey(newIndex, 0)] || emptyResponses(),
           totalParticipants: session.participants.size
         });
       }
+    });
+
+    // 4b. Apresentador libera a PRÓXIMA pergunta de um quiz com várias
+    // perguntas sequenciais no mesmo slide (ver "Pergunta N de M" no editor)
+    // — não navega slide nenhum, só troca qual pergunta está ativa. Só o
+    // próprio apresentador da sessão pode disparar isso.
+    socket.on('activate_quiz_question', ({ pin, questionIndex, totalQuestions, correctAnswer, topic, quizOptions }) => {
+      const session = activeSessions.get(pin);
+      if (!session || session.presenterSocketId !== socket.id) return;
+
+      session.currentQuestionIndex = questionIndex || 0;
+      if (totalQuestions) session.currentTotalQuestions = totalQuestions;
+      session.currentCorrectAnswer = correctAnswer || null;
+      session.currentTopic = topic || null;
+      session.currentQuizOptions = quizOptions || null;
+
+      // Nunca inclui o gabarito — mesma regra de sync_slide acima.
+      io.to(`session_${pin}`).emit('sync_quiz_question', {
+        questionIndex: session.currentQuestionIndex,
+        totalQuestions: session.currentTotalQuestions,
+        quizOptions: session.currentQuizOptions
+      });
+
+      // Reenvia as respostas já acumuladas desta pergunta específica (mesmo
+      // motivo do reenvio em slide_changed: o professor pode voltar pra uma
+      // pergunta anterior já respondida).
+      io.to(`session_${pin}`).emit('live_results_update', {
+        slideIndex: session.currentSlideIndex,
+        questionIndex: session.currentQuestionIndex,
+        responseType: null,
+        responses: session.responses[responseKey(session.currentSlideIndex, session.currentQuestionIndex)] || emptyResponses(),
+        totalParticipants: session.participants.size
+      });
     });
 
     // Desconexão
@@ -389,14 +454,28 @@ export function getSessionReport(pin) {
   const liveElapsed = (Date.now() - session.lastSlideChangeAt) / 1000;
   dwellTimes[session.currentSlideIndex] = (dwellTimes[session.currentSlideIndex] || 0) + liveElapsed;
 
+  // Chaves de session.responses viram "slideIndex" (pergunta única) ou
+  // "slideIndex:questionIndex" (quiz com várias perguntas sequenciais, ver
+  // responseKey/activate_quiz_question acima) — o relatório por slide soma
+  // as respostas de TODAS as perguntas daquele slide num único bucket,
+  // mesmo formato de saída de sempre.
   const slideIndexes = new Set([
-    ...Object.keys(session.responses).map(Number),
+    ...Object.keys(session.responses).map((key) => Number(key.split(':')[0])),
     ...Object.keys(dwellTimes).map(Number)
   ]);
 
   let totalResponses = 0;
   const perSlide = [...slideIndexes].sort((a, b) => a - b).map((slideIndex) => {
-    const data = session.responses[slideIndex] || { answers: [], words: [], irat: [], hotspots: [], points: [] };
+    const data = Object.entries(session.responses)
+      .filter(([key]) => Number(key.split(':')[0]) === slideIndex)
+      .reduce((acc, [, bucket]) => {
+        acc.answers.push(...bucket.answers);
+        acc.words.push(...bucket.words);
+        acc.irat.push(...bucket.irat);
+        acc.hotspots.push(...(bucket.hotspots || []));
+        acc.points.push(...(bucket.points || []));
+        return acc;
+      }, { answers: [], words: [], irat: [], hotspots: [], points: [] });
     const responseCount = data.answers.length + data.words.length + data.irat.length + (data.hotspots?.length || 0) + (data.points?.length || 0);
     totalResponses += responseCount;
 

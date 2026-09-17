@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Users, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2 } from 'lucide-react';
+import { Users, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2, ListChecks, ArrowRight, ArrowLeft } from 'lucide-react';
 import { layoutWordCloud } from '../lib/wordCloudLayout';
 import { apiFetch } from '../lib/api';
 import { PARENT_TO_SLIDE_MESSAGE_SOURCE } from './PresentationViewer';
@@ -19,7 +19,15 @@ export default function ActiveMethodologiesOverlay({
   expanded = false,
   onToggleExpand,
   isFullscreen = false,
-  stageIframeRef = null
+  stageIframeRef = null,
+  // Quiz com várias perguntas sequenciais no mesmo slide (ver
+  // PresentationEditor.jsx) — quizQuestions é o array completo (pra saber o
+  // total e o texto de cada pergunta), activeQuizQuestionIndex é a que está
+  // no ar AGORA, e onActivateQuizQuestion(idx) libera outra pro celular dos
+  // alunos sem navegar de slide.
+  quizQuestions = null,
+  activeQuizQuestionIndex = 0,
+  onActivateQuizQuestion = null
 }) {
   const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   const [participantCount, setParticipantCount] = useState(0);
@@ -31,8 +39,12 @@ export default function ActiveMethodologiesOverlay({
   useEffect(() => {
     if (!socket) return;
 
-    const handleUpdate = ({ slideIndex: updatedSlideIndex, responses, totalParticipants }) => {
-      if (updatedSlideIndex === slideIndex) {
+    const handleUpdate = ({ slideIndex: updatedSlideIndex, questionIndex, responses, totalParticipants }) => {
+      // Um quiz com várias perguntas sequenciais reaproveita o MESMO
+      // slideIndex pra todas elas (ver responseKey em sessionSocket.js) —
+      // sem também comparar questionIndex, a resposta da pergunta 2
+      // aparecia misturada/sobrepondo o painel da pergunta 1 ainda em tela.
+      if (updatedSlideIndex === slideIndex && (questionIndex || 0) === (activeQuizQuestionIndex || 0)) {
         setLiveData(responses || { answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
       }
       setParticipantCount(totalParticipants || 0);
@@ -59,7 +71,7 @@ export default function ActiveMethodologiesOverlay({
       socket.off('leaderboard_update', handleLeaderboard);
       socket.off('topic_progress_update', handleTopicProgress);
     };
-  }, [socket, slideIndex]);
+  }, [socket, slideIndex, activeQuizQuestionIndex]);
 
   // Reseta o resumo de IA e os dados ao vivo ao trocar de slide — sem isto, o
   // painel continuava mostrando as respostas do slide ANTERIOR (ex.: duas
@@ -70,7 +82,7 @@ export default function ActiveMethodologiesOverlay({
   useEffect(() => {
     setSummary(null);
     setLiveData({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
-  }, [slideIndex]);
+  }, [slideIndex, activeQuizQuestionIndex]);
 
   const handleSummarize = async () => {
     setSummaryLoading(true);
@@ -175,9 +187,12 @@ export default function ActiveMethodologiesOverlay({
   // Nada pra ampliar (nenhum widget seria mostrado mesmo) — sem isto o botão
   // de ampliar aparecia mesmo em slides sem QR/leaderboard/interatividade
   // nenhuma, expandindo pra uma tela vazia.
+  const hasMultipleQuizQuestions = currentSlide?.type === 'quiz' && (quizQuestions?.length || 0) > 1;
+
   const hasAnythingToShow = (isIntroSlide && pin) || leaderboard.length > 0
     || (!!currentSlide?.type && currentSlide.type !== 'quiz')
-    || (currentSlide?.branches && currentSlide.branches.length > 0);
+    || (currentSlide?.branches && currentSlide.branches.length > 0)
+    || hasMultipleQuizQuestions;
 
   // Conteúdo dos widgets — extraído pra variável porque é reaproveitado nos
   // dois estados do `return` abaixo (ampliado, via Portal; e o card pequeno
@@ -242,6 +257,42 @@ export default function ActiveMethodologiesOverlay({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Progresso do Quiz com várias perguntas sequenciais no mesmo slide —
+          o professor libera a próxima manualmente conforme a turma vai
+          respondendo (ver activate_quiz_question em sessionSocket.js); o
+          resultado da pergunta ATIVA continua aparecendo direto em cima das
+          alternativas do próprio slide (ver buildLiveQuizVoteScript), este
+          card só controla o avanço entre perguntas. */}
+      {hasMultipleQuizQuestions && (
+        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(280px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#67e8f9', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+            <ListChecks size={15} /> Pergunta {activeQuizQuestionIndex + 1} de {quizQuestions.length}
+          </div>
+          <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0 0 0.75rem 0' }}>
+            {liveData.answers.length} resposta{liveData.answers.length === 1 ? '' : 's'} recebida{liveData.answers.length === 1 ? '' : 's'} nesta pergunta.
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              className="btn-secondary"
+              disabled={activeQuizQuestionIndex <= 0}
+              onClick={() => onActivateQuizQuestion?.(activeQuizQuestionIndex - 1)}
+              style={{ flex: '0 0 auto', padding: '0.5rem 0.7rem', fontSize: '0.78rem' }}
+              title="Voltar pra pergunta anterior"
+            >
+              <ArrowLeft size={14} />
+            </button>
+            <button
+              className="btn-primary"
+              disabled={activeQuizQuestionIndex >= quizQuestions.length - 1}
+              onClick={() => onActivateQuizQuestion?.(activeQuizQuestionIndex + 1)}
+              style={{ flex: 1, justifyContent: 'center', padding: '0.5rem 0.8rem', fontSize: '0.78rem', fontWeight: 700 }}
+            >
+              {activeQuizQuestionIndex >= quizQuestions.length - 1 ? 'Última pergunta' : (<>Liberar próxima <ArrowRight size={14} /></>)}
+            </button>
           </div>
         </div>
       )}

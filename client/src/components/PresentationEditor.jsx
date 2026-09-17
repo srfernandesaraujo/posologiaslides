@@ -27,7 +27,7 @@ import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
   moveElementAt, bringToFrontAt, sendToBackAt, regenerateElementIds, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
-  getActiveQuizOptions,
+  getActiveQuizOptions, findElementIndexBySelector, uniqueId,
   setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setAllAnimationsAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt,
   hasTableAt, getTableRowsAt, setTableRowsAt,
@@ -40,7 +40,7 @@ import { ANIMATION_PRESETS, ANIMATION_CATEGORIES, ANIMATION_TRIGGERS, ANIMATION_
 import { FONT_OPTIONS, TEXT_COLOR_SWATCHES, BG_COLOR_SWATCHES, GRADIENT_SWATCHES } from '../lib/fontCatalog';
 import { TRANSITION_PRESETS, TRANSITION_DEFAULTS, TRANSITION_DURATION_RANGE, resolveTransition } from '../lib/transitionCatalog';
 import { buildClosingSlideHtml, RELATED_LINK_MESSAGE_SOURCE } from '../lib/closingSlideTemplate';
-import { buildDefaultQuizQuestionWidget } from '../lib/widgetCatalog';
+import { buildDefaultQuizQuestionWidget, buildQuizQuestion } from '../lib/widgetCatalog';
 import useCanvasFit from '../lib/useCanvasFit';
 import { SLIDE_NATIVE_WIDTH, SLIDE_NATIVE_HEIGHT, LEGACY_SLIDE_WIDTH, LEGACY_SLIDE_HEIGHT, STAGE_BOTTOM_RESERVE, ZOOM_EDIT_RANGE, ZOOM_PRESENT_RANGE, ZOOM_STEP } from '../lib/canvasConstants';
 import useUndoHistory from '../lib/useUndoHistory';
@@ -83,6 +83,31 @@ function normalizeFontValue(value) {
   return (value || '').replace(/["']/g, '').trim().toLowerCase();
 }
 
+// Quiz com várias perguntas sequenciais no mesmo slide: null = modo legado
+// (1 pergunta só, via slide.correctAnswer/topic + o widget do canvas), array
+// = modo novo, criado na hora em que o professor adiciona a 2ª pergunta (ver
+// handleAddQuizQuestion). Ver plano em C:\Users\sergi\.claude\plans\robust-pondering-glacier.md.
+function getQuizQuestions(slide) {
+  return slide?.quizQuestions?.length ? slide.quizQuestions : null;
+}
+
+const QUIZ_WIDGET_SELECTOR = '[data-el-source="interativos:quiz-question"]';
+
+// Só question/optionA-D vão pro data-el-config do widget (visível no HTML
+// do slide, inclusive na página pública do aluno) — correctAnswer/topic
+// NUNCA podem ir junto, senão o gabarito vazaria no DOM pro aluno inspecionar
+// (mesmo motivo pelo qual slide.correctAnswer sempre foi transmitido só via
+// socket pro servidor, nunca embutido no HTML, ver sessionSocket.js).
+function pickQuizWidgetFields(q) {
+  return {
+    question: q?.question || '',
+    optionA: q?.optionA || '',
+    optionB: q?.optionB || '',
+    optionC: q?.optionC || '',
+    optionD: q?.optionD || ''
+  };
+}
+
 export default function PresentationEditor({ presentation, setPresentation, onOpenModal, onOpenPresentation }) {
   const { user } = useAuth();
   // Desfazer/Refazer: `commit`/`commitDebounced` substituem `setPresentation`
@@ -91,6 +116,14 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // usando os setters normais, esses não fazem parte do histórico.
   const { commit, commitDebounced, undo, redo, canUndo, canRedo } = useUndoHistory(presentation, setPresentation);
   const [activeIndex, setActiveIndex] = useState(0);
+  // Pergunta ativa dentro de um quiz com várias perguntas sequenciais no
+  // mesmo slide (ver getQuizQuestions/handleSelectQuizQuestion abaixo) —
+  // sempre volta pra 0 ao trocar de slide, mesmo espírito do reset de
+  // `submitted` no celular do aluno.
+  const [activeQuizQuestionIndex, setActiveQuizQuestionIndex] = useState(0);
+  useEffect(() => {
+    setActiveQuizQuestionIndex(0);
+  }, [activeIndex]);
   // Refs "sempre frescas" — usadas só por handlers que continuam depois de um
   // `await` (upload de mídia, resposta da IA no chat): a variável `presentation`/
   // `activeIndex` capturada por closure nesses handlers é a versão de QUANDO
@@ -472,18 +505,22 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       newSocket = io(API_URL || window.location.origin, { auth: { token } });
       setSocket(newSocket);
 
+      const firstSlide = presentation.slides?.[0];
+      const firstSlideQuizQuestions = getQuizQuestions(firstSlide);
+      const firstQuizQuestion = firstSlideQuizQuestions?.[0] || null;
       newSocket.emit('create_session', {
         presentationId: presentation.id || 'p-1',
         title: presentation.title || 'Apresentação',
-        slideType: presentation.slides?.[0]?.type || null,
-        correctAnswer: presentation.slides?.[0]?.correctAnswer || null,
-        topic: presentation.slides?.[0]?.topic || null,
-        hotspotConfig: presentation.slides?.[0]?.hotspotConfig || null,
-        pointsConfig: presentation.slides?.[0]?.pointsConfig || null,
-        wordcloudConfig: presentation.slides?.[0]?.wordcloudConfig || null,
-        branches: presentation.slides?.[0]?.branches || null,
-        slideTitle: presentation.slides?.[0]?.title || null,
-        slideNotes: presentation.slides?.[0]?.notes || null,
+        slideType: firstSlide?.type || null,
+        correctAnswer: firstQuizQuestion ? (firstQuizQuestion.correctAnswer || null) : (firstSlide?.correctAnswer || null),
+        topic: firstQuizQuestion ? (firstQuizQuestion.topic || null) : (firstSlide?.topic || null),
+        hotspotConfig: firstSlide?.hotspotConfig || null,
+        pointsConfig: firstSlide?.pointsConfig || null,
+        wordcloudConfig: firstSlide?.wordcloudConfig || null,
+        branches: firstSlide?.branches || null,
+        totalQuestions: firstSlideQuizQuestions?.length || 1,
+        slideTitle: firstSlide?.title || null,
+        slideNotes: firstSlide?.notes || null,
         totalSlides: presentation.slides?.length || null
       });
 
@@ -678,17 +715,27 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     setAtClosingSlide(false);
     if (socket) {
       const slide = presentation.slides[newIndex];
+      // Slide de quiz com várias perguntas: entrar no slide sempre começa
+      // pela pergunta 0 (ver reset de activeQuizQuestionIndex acima) — o
+      // gabarito/assunto/opções enviados aqui são os DA PRIMEIRA pergunta;
+      // as demais só ficam disponíveis quando o professor clicar "Liberar
+      // próxima pergunta" (ver handleActivateQuizQuestion).
+      const quizQuestions = slide?.type === 'quiz' ? getQuizQuestions(slide) : null;
+      const firstQuestion = quizQuestions?.[0] || null;
       socket.emit('slide_changed', {
         pin,
         newIndex,
         slideType: slide?.type || null,
-        correctAnswer: slide?.correctAnswer || null,
-        topic: slide?.topic || null,
+        correctAnswer: firstQuestion ? (firstQuestion.correctAnswer || null) : (slide?.correctAnswer || null),
+        topic: firstQuestion ? (firstQuestion.topic || null) : (slide?.topic || null),
         hotspotConfig: slide?.hotspotConfig || null,
         pointsConfig: slide?.pointsConfig || null,
         wordcloudConfig: slide?.wordcloudConfig || null,
         branches: slide?.branches || null,
-        quizOptions: slide?.type === 'quiz' ? getActiveQuizOptions(slide.html) : null,
+        quizOptions: slide?.type === 'quiz'
+          ? getActiveQuizOptions(firstQuestion ? buildQuizQuestion(firstQuestion) : slide.html)
+          : null,
+        totalQuestions: quizQuestions?.length || 1,
         slideTitle: slide?.title || null,
         slideNotes: slide?.notes || null,
         totalSlides: presentation.slides.length
@@ -740,7 +787,14 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     // deixa "Editar campos" (barra do elemento) abrir um formulário normal
     // em vez de obrigar a mexer no HTML bruto.
     if (type === 'quiz' && !targetSlide.html?.includes('data-el-source="interativos:quiz-question"')) {
-      const quizWidget = buildDefaultQuizQuestionWidget();
+      // Slide já tinha quizQuestions (ex.: professor desligou e religou o
+      // tipo "quiz") — reinsere a pergunta que estava ativa em vez de voltar
+      // pro texto padrão em branco.
+      const existingQuestions = getQuizQuestions(targetSlide);
+      const activeQuestion = existingQuestions?.[Math.min(activeQuizQuestionIndex, existingQuestions.length - 1)];
+      const quizWidget = activeQuestion
+        ? { source: 'interativos:quiz-question', config: pickQuizWidgetFields(activeQuestion), html: buildQuizQuestion(activeQuestion) }
+        : buildDefaultQuizQuestionWidget();
       targetSlide = { ...targetSlide, html: appendIntoRoot(targetSlide.html, quizWidget.html, { source: quizWidget.source, config: quizWidget.config }) };
     }
     updatedSlides[activeIndex] = targetSlide;
@@ -759,18 +813,148 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     commitDebounced({ ...presentation, slides: updatedSlides });
   };
 
+  // Gabarito do quiz — com quizQuestions (várias perguntas), grava na
+  // pergunta ATIVA (activeQuizQuestionIndex); slide de pergunta única
+  // (legado) continua gravando direto em slide.correctAnswer.
   const handleChangeCorrectAnswer = (answer) => {
     const updatedSlides = [...presentation.slides];
-    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], correctAnswer: answer || undefined };
+    const slide = updatedSlides[activeIndex];
+    const questions = getQuizQuestions(slide);
+    updatedSlides[activeIndex] = questions
+      ? { ...slide, quizQuestions: questions.map((q, i) => (i === activeQuizQuestionIndex ? { ...q, correctAnswer: answer || '' } : q)) }
+      : { ...slide, correctAnswer: answer || undefined };
     commit({ ...presentation, slides: updatedSlides });
   };
 
   // Assunto do slide (quiz/hotspot) — usado pro relatório final agrupar
-  // acerto/erro por tema, ver PresentationReportModal.
+  // acerto/erro por tema, ver PresentationReportModal. Mesma ramificação
+  // pergunta-ativa-vs-legado de handleChangeCorrectAnswer acima.
   const handleChangeTopic = (topic) => {
     const updatedSlides = [...presentation.slides];
-    updatedSlides[activeIndex] = { ...updatedSlides[activeIndex], topic: topic || undefined };
+    const slide = updatedSlides[activeIndex];
+    const questions = getQuizQuestions(slide);
+    updatedSlides[activeIndex] = questions
+      ? { ...slide, quizQuestions: questions.map((q, i) => (i === activeQuizQuestionIndex ? { ...q, topic: topic || '' } : q)) }
+      : { ...slide, topic: topic || undefined };
     commitDebounced({ ...presentation, slides: updatedSlides });
+  };
+
+  // Troca qual pergunta do quiz está sendo mostrada/editada no widget único
+  // do canvas — usada tanto pelas abas "Pergunta 1/2/3" no editor (fora da
+  // apresentação) quanto por handleActivateQuizQuestion (durante a
+  // apresentação, ver abaixo). Antes de trocar, persiste o texto que
+  // "Editar campos" deixou no widget de volta em quizQuestions[idx atual] —
+  // sem isso, editar o texto e trocar de aba sem clicar fora perderia a
+  // digitação (getElementMeta só lê o que já foi salvo no data-el-config).
+  const handleSelectQuizQuestion = (idx) => {
+    const slide = presentation.slides[activeIndex];
+    const questions = getQuizQuestions(slide);
+    if (!questions?.[idx]) return;
+
+    const widgetIndex = findElementIndexBySelector(slide.html, QUIZ_WIDGET_SELECTOR);
+    let updatedQuestions = questions;
+    if (widgetIndex >= 0) {
+      const meta = getElementMeta(slide.html, widgetIndex);
+      if (meta?.config) {
+        updatedQuestions = questions.map((q, i) => (i === activeQuizQuestionIndex ? { ...q, ...pickQuizWidgetFields(meta.config) } : q));
+      }
+    }
+
+    const nextQuestion = updatedQuestions[idx];
+    const nextHtml = widgetIndex >= 0
+      ? replaceElementInnerAt(slide.html, widgetIndex, buildQuizQuestion(nextQuestion), pickQuizWidgetFields(nextQuestion))
+      : appendIntoRoot(slide.html, buildQuizQuestion(nextQuestion), { source: 'interativos:quiz-question', config: pickQuizWidgetFields(nextQuestion) });
+
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...slide, html: nextHtml, quizQuestions: updatedQuestions };
+    setActiveQuizQuestionIndex(idx);
+    commit({ ...presentation, slides: updatedSlides });
+  };
+
+  // "+ Nova pergunta" — na 1ª chamada, materializa slide.quizQuestions
+  // migrando a pergunta única de hoje (widget + slide.correctAnswer/topic)
+  // pro índice 0; nas chamadas seguintes só acrescenta uma pergunta em
+  // branco ao array já existente.
+  const handleAddQuizQuestion = () => {
+    const slide = presentation.slides[activeIndex];
+    const widgetIndex = findElementIndexBySelector(slide.html, QUIZ_WIDGET_SELECTOR);
+    let questions = getQuizQuestions(slide);
+
+    if (!questions) {
+      const meta = widgetIndex >= 0 ? getElementMeta(slide.html, widgetIndex) : null;
+      questions = [{
+        id: uniqueId('quizq'),
+        ...pickQuizWidgetFields(meta?.config || {}),
+        correctAnswer: slide.correctAnswer || '',
+        topic: slide.topic || ''
+      }];
+    }
+
+    const blankDefaults = buildDefaultQuizQuestionWidget().config;
+    const newQuestion = {
+      id: uniqueId('quizq'),
+      ...pickQuizWidgetFields(blankDefaults),
+      correctAnswer: '',
+      // Herda o assunto da pergunta anterior — o mais comum é várias
+      // perguntas seguidas cobrirem o mesmo tema do slide.
+      topic: questions[questions.length - 1]?.topic || ''
+    };
+    const updatedQuestions = [...questions, newQuestion];
+    const newIndex = updatedQuestions.length - 1;
+
+    const nextHtml = widgetIndex >= 0
+      ? replaceElementInnerAt(slide.html, widgetIndex, buildQuizQuestion(newQuestion), pickQuizWidgetFields(newQuestion))
+      : appendIntoRoot(slide.html, buildQuizQuestion(newQuestion), { source: 'interativos:quiz-question', config: pickQuizWidgetFields(newQuestion) });
+
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...slide, html: nextHtml, quizQuestions: updatedQuestions };
+    setActiveQuizQuestionIndex(newIndex);
+    commit({ ...presentation, slides: updatedSlides });
+  };
+
+  const handleDeleteQuizQuestion = (idx) => {
+    const slide = presentation.slides[activeIndex];
+    const questions = getQuizQuestions(slide);
+    if (!questions || questions.length <= 1) return; // sempre precisa sobrar 1 pergunta
+
+    const updatedQuestions = questions.filter((_, i) => i !== idx);
+    const nextActive = Math.min(idx < activeQuizQuestionIndex ? activeQuizQuestionIndex - 1 : activeQuizQuestionIndex, updatedQuestions.length - 1);
+    const nextQuestion = updatedQuestions[nextActive];
+
+    const widgetIndex = findElementIndexBySelector(slide.html, QUIZ_WIDGET_SELECTOR);
+    const nextHtml = widgetIndex >= 0
+      ? replaceElementInnerAt(slide.html, widgetIndex, buildQuizQuestion(nextQuestion), pickQuizWidgetFields(nextQuestion))
+      : slide.html;
+
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = { ...slide, html: nextHtml, quizQuestions: updatedQuestions };
+    setActiveQuizQuestionIndex(nextActive);
+    commit({ ...presentation, slides: updatedSlides });
+  };
+
+  // Libera a pergunta `idx` pro celular dos alunos SEM navegar de slide —
+  // troca o widget em tela (mesmo mecanismo das abas acima) e avisa a sessão
+  // ao vivo via socket (gabarito/assunto só trafegam por aqui, nunca no HTML
+  // do slide, ver pickQuizWidgetFields). Botão "Liberar próxima pergunta" em
+  // ActiveMethodologiesOverlay.jsx.
+  const handleActivateQuizQuestion = (idx) => {
+    const slide = presentation.slides[activeIndex];
+    const questions = getQuizQuestions(slide);
+    if (!questions?.[idx]) return;
+
+    handleSelectQuizQuestion(idx);
+
+    if (socket && pin) {
+      const q = questions[idx];
+      socket.emit('activate_quiz_question', {
+        pin,
+        questionIndex: idx,
+        totalQuestions: questions.length,
+        correctAnswer: q.correctAnswer || null,
+        topic: q.topic || null,
+        quizOptions: getActiveQuizOptions(buildQuizQuestion(q))
+      });
+    }
   };
 
   // Anotações do apresentador para o slide atual (painel embaixo do canvas,
@@ -2381,41 +2565,92 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           </div>
         )}
 
-        {!isFullscreen && currentSlide.type === 'quiz' && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px', fontSize: '0.8rem', color: '#9ca3af' }}>
-            Resposta certa (opcional, ativa pontuação):
-            {getActiveQuizOptions(currentSlide.html).map((opt) => (
-              <button
-                key={opt}
-                className="btn-icon"
-                onClick={() => handleChangeCorrectAnswer(currentSlide.correctAnswer === opt ? '' : opt)}
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  background: currentSlide.correctAnswer === opt ? 'var(--accent-primary)' : undefined,
-                  color: currentSlide.correctAnswer === opt ? '#071019' : undefined
-                }}
-              >
-                {opt}
-              </button>
-            ))}
-            <input
-              type="text"
-              list="quiz-topic-options"
-              className="chat-input"
-              placeholder="Assunto (ex: Farmacocinética)"
-              value={currentSlide.topic || ''}
-              onChange={(e) => handleChangeTopic(e.target.value)}
-              style={{ flex: '0 1 220px', fontSize: '0.8rem', boxSizing: 'border-box', marginLeft: 'auto' }}
-              title="Agrupa esta pergunta no relatório final de desempenho por assunto"
-            />
-            <datalist id="quiz-topic-options">
-              {[...new Set(presentation.slides.map((s) => s.topic).filter(Boolean))].map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-          </div>
-        )}
+        {!isFullscreen && currentSlide.type === 'quiz' && (() => {
+          const quizQuestions = getQuizQuestions(currentSlide);
+          const activeQuestion = quizQuestions?.[activeQuizQuestionIndex];
+          const activeCorrectAnswer = activeQuestion ? activeQuestion.correctAnswer : currentSlide.correctAnswer;
+          const activeTopic = activeQuestion ? activeQuestion.topic : currentSlide.topic;
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px' }}>
+              {/* Perguntas do quiz — mais de uma vira "Pergunta 1/2/3...",
+                  liberadas manualmente pro aluno durante a apresentação (ver
+                  botão "Liberar próxima pergunta" no overlay). */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.4rem' }}>
+                {(quizQuestions || [null]).map((q, idx) => (
+                  <div key={q?.id ?? 'q0'} style={{ display: 'flex', alignItems: 'center' }}>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => handleSelectQuizQuestion(idx)}
+                      disabled={!quizQuestions}
+                      style={{
+                        padding: '0.3rem 0.7rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        borderRadius: quizQuestions && quizQuestions.length > 1 ? '0.4rem 0 0 0.4rem' : '0.4rem',
+                        background: idx === activeQuizQuestionIndex ? 'var(--accent-primary)' : undefined,
+                        color: idx === activeQuizQuestionIndex ? '#071019' : undefined
+                      }}
+                    >
+                      Pergunta {idx + 1}
+                    </button>
+                    {quizQuestions && quizQuestions.length > 1 && (
+                      <button
+                        className="btn-icon"
+                        title="Apagar esta pergunta"
+                        onClick={() => handleDeleteQuizQuestion(idx)}
+                        style={{ width: '26px', height: '26px', borderRadius: '0 0.4rem 0.4rem 0', borderLeft: '1px solid rgba(255,255,255,0.1)' }}
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  className="btn-secondary"
+                  onClick={handleAddQuizQuestion}
+                  title="Adicionar mais uma pergunta a este quiz"
+                  style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                >
+                  <Plus size={13} /> Nova pergunta
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: '#9ca3af' }}>
+                Resposta certa (opcional, ativa pontuação):
+                {getActiveQuizOptions(currentSlide.html).map((opt) => (
+                  <button
+                    key={opt}
+                    className="btn-icon"
+                    onClick={() => handleChangeCorrectAnswer(activeCorrectAnswer === opt ? '' : opt)}
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      background: activeCorrectAnswer === opt ? 'var(--accent-primary)' : undefined,
+                      color: activeCorrectAnswer === opt ? '#071019' : undefined
+                    }}
+                  >
+                    {opt}
+                  </button>
+                ))}
+                <input
+                  type="text"
+                  list="quiz-topic-options"
+                  className="chat-input"
+                  placeholder="Assunto (ex: Farmacocinética)"
+                  value={activeTopic || ''}
+                  onChange={(e) => handleChangeTopic(e.target.value)}
+                  style={{ flex: '0 1 220px', fontSize: '0.8rem', boxSizing: 'border-box', marginLeft: 'auto' }}
+                  title="Agrupa esta pergunta no relatório final de desempenho por assunto"
+                />
+                <datalist id="quiz-topic-options">
+                  {[...new Set(presentation.slides.map((s) => s.topic).filter(Boolean))].map((t) => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
+              </div>
+            </div>
+          );
+        })()}
 
         {!isFullscreen && currentSlide.type === 'wordcloud' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', width: '100%', maxWidth: '1100px' }}>
@@ -3266,6 +3501,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             onToggleExpand={() => setOverlayExpanded((v) => !v)}
             isFullscreen={isFullscreen}
             stageIframeRef={stageIframeRef}
+            quizQuestions={getQuizQuestions(currentSlide)}
+            activeQuizQuestionIndex={activeQuizQuestionIndex}
+            onActivateQuizQuestion={handleActivateQuizQuestion}
           />
 
           <DrawingCanvas
