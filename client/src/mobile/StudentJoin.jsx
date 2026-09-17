@@ -184,6 +184,7 @@ export default function StudentJoin() {
     // estado do slide (hotspot/pointsConfig/wordcloud/branches continuam
     // como estavam, já que o slide não mudou).
     newSocket.on('sync_quiz_question', ({ questionIndex, totalQuestions, quizOptions }) => {
+      console.log('[quiz] sync_quiz_question recebido', { questionIndex, totalQuestions, quizOptions });
       setQuestionIndex(questionIndex || 0);
       setTotalQuestions(totalQuestions || 1);
       setQuizOptions(quizOptions || null);
@@ -199,7 +200,28 @@ export default function StudentJoin() {
       alert(message);
     });
 
-    return () => newSocket.close();
+    // Aluno troca de app (ex.: abre a Câmera pra ler o QR Code, olha uma
+    // notificação) e volta pro navegador — a aba ficou em segundo plano por
+    // um tempo. Navegadores mobile pausam/throttlam abas em segundo plano de
+    // forma agressiva, e o socket pode voltar "zumbi": o cliente ainda acha
+    // que está conectado (socket.connected === true), mas nenhuma
+    // desconexão de fato ocorreu, então o 'connect' acima NUNCA dispara pra
+    // ressincronizar — eventos liberados nesse intervalo (ex.: a próxima
+    // pergunta do quiz) somem. Ao voltar a ficar visível, força um ciclo de
+    // desconexão/reconexão pra garantir que 'connect' dispare de verdade e
+    // reenvie join_session, trazendo o estado atual do zero.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && joinedRef.current) {
+        newSocket.disconnect();
+        newSocket.connect();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      newSocket.close();
+    };
   }, []);
 
   const handleJoin = (e) => {
