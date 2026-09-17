@@ -370,29 +370,63 @@ export function getElementMeta(html, index) {
   return { source: el.getAttribute('data-el-source'), config };
 }
 
-// Letras (A/B/C/D) das alternativas de Quiz ao Vivo que o professor de fato
-// preencheu (ver buildOptionRow em widgetCatalog.js: alternativa em branco
-// não gera o data-quiz-option correspondente) — usada tanto pro seletor de
-// gabarito quanto pra avisar o celular do aluno de quais botões mostrar
-// (ver emitSlideChanged em PresentationEditor.jsx).
-// Acha o índice (filho direto de ".slide-root") do primeiro elemento que
-// casa com `selector` — usada pra localizar um widget específico (ex.: o
-// quiz, ver data-el-source="interativos:quiz-question") antes de chamar
-// getElementMeta/replaceElementInnerAt, que só aceitam índice, não seletor.
-export function findElementIndexBySelector(html, selector) {
+// ==========================================================================
+// Marcador de Quiz ao Vivo (ícone "?" fixo no slide)
+// ==========================================================================
+// A pergunta/alternativas do quiz NÃO ficam mais em texto dentro do HTML do
+// slide (isso poluía slides com outros conteúdos, e um bloco de texto
+// arrastado/alinhado no canvas podia perder a referência de edição). Viram
+// dado puro em slide.quizQuestions (ver PresentationEditor.jsx); o slide só
+// leva este marcador clicável, mesmo padrão de applyBrandingToSlideHtml logo
+// abaixo. Clicar nele dispara 'quiz-badge-click' via postMessage (ver
+// buildQuizBadgeClickScript em PresentationViewer.jsx) — o app pai decide se
+// isso abre o modal de edição ou revela a pergunta ativa pros alunos,
+// dependendo se está em apresentação ou não.
+export function hasQuizBadge(html) {
+  if (!html) return false;
   const template = parseFragment(html);
-  const container = getContainer(template);
-  const el = container.querySelector(selector);
-  if (!el) return -1;
-  return Array.from(container.children).indexOf(el);
+  return !!template.content.querySelector('[data-quiz-badge="true"]');
 }
 
-export function getActiveQuizOptions(html) {
-  const template = parseFragment(html || '');
-  const letters = Array.from(template.content.querySelectorAll('[data-quiz-option]'))
-    .map((el) => el.getAttribute('data-quiz-option'))
-    .filter((letter) => ['A', 'B', 'C', 'D'].includes(letter));
-  return letters.length ? letters : ['A', 'B', 'C', 'D'];
+export function removeQuizBadgeFromSlideHtml(html) {
+  if (!html) return html;
+  const template = parseFragment(html);
+  const existing = template.content.querySelector('[data-quiz-badge="true"]');
+  if (existing) existing.remove();
+  return serializeFragment(template);
+}
+
+export function applyQuizBadgeToSlideHtml(html, questionCount = 1) {
+  if (!html) return html;
+  const template = parseFragment(html);
+  let rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;
+
+  if (!rootEl) {
+    const container = document.createElement('div');
+    container.className = 'slide-root';
+    container.style.cssText = `display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%; padding:2.5rem; color:#f3f4f6; text-align:center; box-sizing:border-box; position:relative; background:#0b1220;`;
+    container.append(...Array.from(template.content.childNodes));
+    template.content.appendChild(container);
+    rootEl = container;
+  }
+
+  if (rootEl.style && !rootEl.style.position) {
+    rootEl.style.position = 'relative';
+  }
+
+  const existing = rootEl.querySelector('[data-quiz-badge="true"]');
+  if (existing) existing.remove();
+
+  const badge = document.createElement('div');
+  badge.setAttribute('data-quiz-badge', 'true');
+  badge.style.cssText = 'position:absolute; top:14px; right:14px; z-index:95; width:38px; height:38px; border-radius:50%; background:rgba(15,23,42,0.85); backdrop-filter:blur(6px); border:1px solid rgba(34,211,238,0.4); color:#67e8f9; font-size:1.15rem; font-weight:800; display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.35); font-family:\'Plus Jakarta Sans\', sans-serif;';
+  // Bolinha com o total de perguntas só quando há mais de uma — sem isso,
+  // pra 90% dos quizzes (1 pergunta só) seria um número "1" sempre visível
+  // à toa, ruído visual sem informação nova.
+  badge.innerHTML = `?${questionCount > 1 ? `<span style="position:absolute; top:-4px; right:-4px; min-width:16px; height:16px; padding:0 3px; border-radius:999px; background:#22d3ee; color:#071019; font-size:0.62rem; font-weight:800; display:flex; align-items:center; justify-content:center; line-height:1;">${questionCount}</span>` : ''}`;
+
+  rootEl.appendChild(badge);
+  return serializeFragment(template);
 }
 
 // Tira o elemento em `index` do fluxo normal e fixa uma posição livre em

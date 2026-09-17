@@ -1,14 +1,22 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Users, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2, ListChecks, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Users, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2, HelpCircle, ArrowRight, ArrowLeft, X } from 'lucide-react';
 import { layoutWordCloud } from '../lib/wordCloudLayout';
 import { apiFetch } from '../lib/api';
-import { PARENT_TO_SLIDE_MESSAGE_SOURCE } from './PresentationViewer';
 
 // Fator do `transform: scale(...)` aplicado a TODOS os widgets no modo
 // ampliado (ver `expanded` mais abaixo) — extraído pra constante porque a
 // nuvem de palavras precisa cancelá-lo localmente (ver EXPANDED_WORD_CLOUD_AREA).
 const EXPANDED_SCALE = 1.7;
+
+// Letras (A-D) das alternativas que o professor de fato preencheu nesta
+// pergunta (mesma lógica de getActiveQuizOptionsFromQuestion em
+// PresentationEditor.jsx — duplicada aqui de propósito, é só isto, não vale
+// acoplar os dois arquivos por uma função de 2 linhas).
+function getActiveQuizOptionsFromQuestion(q) {
+  const letters = ['A', 'B', 'C', 'D'].filter((l) => (q?.[`option${l}`] || '').trim());
+  return letters.length ? letters : ['A', 'B', 'C', 'D'];
+}
 
 export default function ActiveMethodologiesOverlay({
   socket,
@@ -19,15 +27,17 @@ export default function ActiveMethodologiesOverlay({
   expanded = false,
   onToggleExpand,
   isFullscreen = false,
-  stageIframeRef = null,
-  // Quiz com várias perguntas sequenciais no mesmo slide (ver
-  // PresentationEditor.jsx) — quizQuestions é o array completo (pra saber o
-  // total e o texto de cada pergunta), activeQuizQuestionIndex é a que está
-  // no ar AGORA, e onActivateQuizQuestion(idx) libera outra pro celular dos
-  // alunos sem navegar de slide.
-  quizQuestions = null,
+  // Quiz ao Vivo (ver PresentationEditor.jsx): quizQuestions é o array
+  // completo (pergunta ativa + total), activeQuizQuestionIndex é a que está
+  // no ar AGORA, onActivateQuizQuestion(idx) libera outra pro celular dos
+  // alunos sem navegar de slide. quizRevealed/onCloseQuizReveal controlam se
+  // este painel aparece — ligado/desligado pelo clique no ícone "?" do
+  // próprio slide (ver applyQuizBadgeToSlideHtml em slideHtmlUtils.js).
+  quizQuestions = [],
   activeQuizQuestionIndex = 0,
-  onActivateQuizQuestion = null
+  onActivateQuizQuestion = null,
+  quizRevealed = false,
+  onCloseQuizReveal = null
 }) {
   const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   const [participantCount, setParticipantCount] = useState(0);
@@ -112,22 +122,6 @@ export default function ActiveMethodologiesOverlay({
     if (quizCounts[a.answer] !== undefined) quizCounts[a.answer]++;
   });
 
-  // Manda os votos direto pro iframe do slide, que desenha a barra de
-  // resultado em cima da própria alternativa (ver data-quiz-option em
-  // widgetCatalog.js e buildLiveQuizVoteScript em PresentationViewer.jsx) —
-  // antes existia um card flutuante só pra isso (removido abaixo), duplicando
-  // a mesma informação que já aparece nas alternativas do slide.
-  useEffect(() => {
-    if (currentSlide?.type !== 'quiz') return;
-    const iframe = stageIframeRef?.current;
-    if (!iframe || !iframe.contentWindow) return;
-    iframe.contentWindow.postMessage(
-      { source: PARENT_TO_SLIDE_MESSAGE_SOURCE, type: 'quiz-vote-update', counts: quizCounts, total: liveData.answers.length },
-      '*'
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveData.answers, currentSlide?.type, stageIframeRef]);
-
   // Calcula estatísticas de TBL/iRAT (Verificação de Prontidão Individual)
   const iratCounts = { A: 0, B: 0, C: 0, D: 0 };
   liveData.irat.forEach(r => {
@@ -184,15 +178,19 @@ export default function ActiveMethodologiesOverlay({
     [JSON.stringify(wordEntries), expanded]
   );
 
+  // Pergunta atualmente revelada (clique no ícone "?" do slide, ver
+  // quizRevealed) — a pergunta/alternativas em si só existem como dado
+  // (slide.quizQuestions), nunca em texto no HTML do slide.
+  const activeQuizQuestion = quizQuestions?.[activeQuizQuestionIndex];
+  const showQuizPanel = currentSlide?.type === 'quiz' && quizRevealed && !!activeQuizQuestion;
+
   // Nada pra ampliar (nenhum widget seria mostrado mesmo) — sem isto o botão
   // de ampliar aparecia mesmo em slides sem QR/leaderboard/interatividade
   // nenhuma, expandindo pra uma tela vazia.
-  const hasMultipleQuizQuestions = currentSlide?.type === 'quiz' && (quizQuestions?.length || 0) > 1;
-
   const hasAnythingToShow = (isIntroSlide && pin) || leaderboard.length > 0
     || (!!currentSlide?.type && currentSlide.type !== 'quiz')
     || (currentSlide?.branches && currentSlide.branches.length > 0)
-    || hasMultipleQuizQuestions;
+    || showQuizPanel;
 
   // Conteúdo dos widgets — extraído pra variável porque é reaproveitado nos
   // dois estados do `return` abaixo (ampliado, via Portal; e o card pequeno
@@ -261,39 +259,69 @@ export default function ActiveMethodologiesOverlay({
         </div>
       )}
 
-      {/* Progresso do Quiz com várias perguntas sequenciais no mesmo slide —
-          o professor libera a próxima manualmente conforme a turma vai
-          respondendo (ver activate_quiz_question em sessionSocket.js); o
-          resultado da pergunta ATIVA continua aparecendo direto em cima das
-          alternativas do próprio slide (ver buildLiveQuizVoteScript), este
-          card só controla o avanço entre perguntas. */}
-      {hasMultipleQuizQuestions && (
-        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(280px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#67e8f9', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
-            <ListChecks size={15} /> Pergunta {activeQuizQuestionIndex + 1} de {quizQuestions.length}
+      {/* Pergunta ativa do Quiz ao Vivo revelada via clique no ícone "?" do
+          slide (ver quizRevealed) — a pergunta/alternativas moram só aqui
+          (nunca em texto no HTML do slide, ver applyQuizBadgeToSlideHtml),
+          com o resultado ao vivo desenhado em cada alternativa. */}
+      {showQuizPanel && (
+        <div className="glass-panel" style={{ padding: '1rem 1.1rem', width: 'min(420px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(34,211,238,0.35)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.6rem', gap: '0.5rem' }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#67e8f9', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <HelpCircle size={15} /> {quizQuestions.length > 1 ? `Pergunta ${activeQuizQuestionIndex + 1} de ${quizQuestions.length}` : 'Pergunta do Quiz'}
+            </div>
+            {onCloseQuizReveal && (
+              <button className="btn-icon" onClick={onCloseQuizReveal} title="Esconder" style={{ width: '24px', height: '24px', flexShrink: 0 }}>
+                <X size={13} />
+              </button>
+            )}
           </div>
-          <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0 0 0.75rem 0' }}>
-            {liveData.answers.length} resposta{liveData.answers.length === 1 ? '' : 's'} recebida{liveData.answers.length === 1 ? '' : 's'} nesta pergunta.
+
+          <p style={{ fontSize: '1rem', fontWeight: 700, color: '#fff', margin: '0 0 0.75rem 0', lineHeight: 1.35 }}>
+            {activeQuizQuestion.question || 'Digite a pergunta aqui'}
           </p>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button
-              className="btn-secondary"
-              disabled={activeQuizQuestionIndex <= 0}
-              onClick={() => onActivateQuizQuestion?.(activeQuizQuestionIndex - 1)}
-              style={{ flex: '0 0 auto', padding: '0.5rem 0.7rem', fontSize: '0.78rem' }}
-              title="Voltar pra pergunta anterior"
-            >
-              <ArrowLeft size={14} />
-            </button>
-            <button
-              className="btn-primary"
-              disabled={activeQuizQuestionIndex >= quizQuestions.length - 1}
-              onClick={() => onActivateQuizQuestion?.(activeQuizQuestionIndex + 1)}
-              style={{ flex: 1, justifyContent: 'center', padding: '0.5rem 0.8rem', fontSize: '0.78rem', fontWeight: 700 }}
-            >
-              {activeQuizQuestionIndex >= quizQuestions.length - 1 ? 'Última pergunta' : (<>Liberar próxima <ArrowRight size={14} /></>)}
-            </button>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {getActiveQuizOptionsFromQuestion(activeQuizQuestion).map((letter) => {
+              const text = activeQuizQuestion[`option${letter}`];
+              const count = quizCounts[letter] || 0;
+              const total = liveData.answers.length;
+              const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+              return (
+                <div key={letter} style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.55rem 0.75rem', borderRadius: '0.5rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ position: 'absolute', inset: 0, width: `${pct}%`, background: 'rgba(34,211,238,0.18)', transition: 'width 0.4s ease' }} />
+                  <span style={{ position: 'relative', flexShrink: 0, width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: 'rgba(34,211,238,0.15)', border: '1px solid rgba(34,211,238,0.4)', color: '#67e8f9', fontSize: '0.7rem', fontWeight: 800 }}>
+                    {letter}
+                  </span>
+                  <span style={{ position: 'relative', color: '#e2e8f0', fontSize: '0.85rem', flex: 1 }}>{text}</span>
+                  {total > 0 && (
+                    <span style={{ position: 'relative', color: '#67e8f9', fontSize: '0.75rem', fontWeight: 800, whiteSpace: 'nowrap' }}>{count} ({pct}%)</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
+
+          {quizQuestions.length > 1 && (
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem' }}>
+              <button
+                className="btn-secondary"
+                disabled={activeQuizQuestionIndex <= 0}
+                onClick={() => onActivateQuizQuestion?.(activeQuizQuestionIndex - 1)}
+                style={{ flex: '0 0 auto', padding: '0.5rem 0.7rem', fontSize: '0.78rem' }}
+                title="Voltar pra pergunta anterior"
+              >
+                <ArrowLeft size={14} />
+              </button>
+              <button
+                className="btn-primary"
+                disabled={activeQuizQuestionIndex >= quizQuestions.length - 1}
+                onClick={() => onActivateQuizQuestion?.(activeQuizQuestionIndex + 1)}
+                style={{ flex: 1, justifyContent: 'center', padding: '0.5rem 0.8rem', fontSize: '0.78rem', fontWeight: 700 }}
+              >
+                {activeQuizQuestionIndex >= quizQuestions.length - 1 ? 'Última pergunta' : (<>Liberar próxima <ArrowRight size={14} /></>)}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

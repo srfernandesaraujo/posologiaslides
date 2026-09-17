@@ -357,35 +357,6 @@ function buildBeforeAfter(config = {}) {
 </script>`;
 }
 
-function buildOptionRow(letter, text) {
-  // Alternativa deixada em branco pelo professor não vira linha nenhuma —
-  // nem no canvas, nem (por consequência) na votação do aluno, que deriva
-  // as letras disponíveis a partir dos data-quiz-option presentes no slide
-  // (ver emitSlideChanged em PresentationEditor.jsx).
-  const label = (text || '').trim();
-  if (!label) return '';
-  // data-quiz-option/-vote-bar/-vote-pct: alvos do listener injetado por
-  // buildLiveQuizVoteScript (PresentationViewer.jsx) — a própria alternativa
-  // do slide vira a barra de resultado ao vivo, em vez de existir um card
-  // separado só pra mostrar os votos (ver ActiveMethodologiesOverlay).
-  return `
-    <div data-quiz-option="${letter}" style="position:relative; overflow:hidden; display:flex; align-items:center; gap:0.75rem; padding:0.85rem 1.1rem; border-radius:0.65rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1);">
-      <div data-quiz-vote-bar style="position:absolute; inset:0; width:0%; background:rgba(34,211,238,0.18); transition:width 0.4s ease;"></div>
-      <span style="position:relative; flex-shrink:0; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:50%; background:rgba(34,211,238,0.15); border:1px solid rgba(34,211,238,0.4); color:#67e8f9; font-size:0.8rem; font-weight:800;">${letter}</span>
-      <span style="position:relative; color:#e2e8f0; font-size:1.05rem; line-height:1.4; flex:1;">${label}</span>
-      <span data-quiz-vote-pct style="position:relative; display:none; color:#67e8f9; font-size:0.85rem; font-weight:800; white-space:nowrap;"></span>
-    </div>`;
-}
-
-export function buildQuizQuestion(config = {}) {
-  const question = (config.question || 'Digite a pergunta aqui').trim();
-  const rows = ['A', 'B', 'C', 'D'].map((letter) => buildOptionRow(letter, config[`option${letter}`])).join('');
-  return `
-<div data-quiz-widget="live-quiz" style="width:100%; max-width:640px; text-align:left;">
-  <h2 style="font-size:2rem; font-weight:800; color:#fff; letter-spacing:-0.01em; line-height:1.25; margin:0 0 1.5rem;">${question}</h2>
-  <div style="display:flex; flex-direction:column; gap:0.65rem;">${rows}</div>
-</div>`;
-}
 
 function buildAcademicCalendar(config = {}) {
   const uid = uniqueId('calendar-schedule');
@@ -628,20 +599,6 @@ export const WIDGET_CATALOG = [
     buildHtml: buildBeforeAfter
   },
   {
-    id: 'quiz-question',
-    title: 'Pergunta do Quiz ao Vivo',
-    description: 'Pergunta e as 4 alternativas exibidas no slide — a resposta certa é marcada na barra acima do slide (ativa pontuação).',
-    iconName: 'Target',
-    configFields: [
-      { key: 'question', label: 'Pergunta', type: 'text', default: 'Digite a pergunta aqui' },
-      { key: 'optionA', label: 'Alternativa A', type: 'text', default: 'Alternativa A' },
-      { key: 'optionB', label: 'Alternativa B', type: 'text', default: 'Alternativa B' },
-      { key: 'optionC', label: 'Alternativa C', type: 'text', default: 'Alternativa C' },
-      { key: 'optionD', label: 'Alternativa D', type: 'text', default: 'Alternativa D' }
-    ],
-    buildHtml: buildQuizQuestion
-  },
-  {
     id: 'academic-calendar',
     title: 'Cronograma · Calendário Acadêmico',
     description: 'Calendário de aulas e compromissos com seletor de mês e ano para apresentar aos alunos.',
@@ -660,14 +617,3 @@ export const WIDGET_CATALOG = [
     buildHtml: buildAcademicCalendar
   }
 ];
-
-// Usado por handleChangeSlideType (PresentationEditor.jsx) pra inserir a
-// pergunta+alternativas do quiz automaticamente quando o slide vira "Quiz ao
-// Vivo" — mesmo widget do catálogo (fica editável por "Editar campos", com
-// formulário normal, em vez de exigir mexer no HTML bruto do elemento).
-export function buildDefaultQuizQuestionWidget() {
-  const item = WIDGET_CATALOG.find((i) => i.id === 'quiz-question');
-  const config = {};
-  item.configFields.forEach((field) => { config[field.key] = field.default; });
-  return { source: 'interativos:quiz-question', config, html: item.buildHtml(config) };
-}

@@ -1208,37 +1208,22 @@ export function buildAnimationTriggerScript(enabled) {
 </script>`;
 }
 
-// Script injetado só na apresentação de verdade em tela cheia (mesmo gate de
-// buildAnimationTriggerScript) — recebe do app pai, via postMessage, a
-// contagem de votos ao vivo do quiz e atualiza a barra/percentual dentro da
-// PRÓPRIA alternativa (ver data-quiz-option/-vote-bar/-vote-pct em
-// widgetCatalog.js/buildOptionRow). Existia um card flutuante à parte
-// (ActiveMethodologiesOverlay) só pra mostrar esses números; ele foi
-// removido pra sobrar só um quadro na tela — este script é quem agora
-// desenha o resultado, direto em cima da alternativa que o professor edita.
-export function buildLiveQuizVoteScript(enabled) {
-  if (!enabled) return '';
+// Sempre injetado (igual buildNavKeyRelayScript — não depende de estar em
+// tela cheia nem de nenhuma prop liga/desliga): escuta clique no ícone "?"
+// do Quiz ao Vivo (ver applyQuizBadgeToSlideHtml em slideHtmlUtils.js) e
+// avisa o app pai via postMessage. Só um repasse — quem decide o que fazer
+// com o clique (abrir o modal de perguntas, editando; ou revelar a pergunta
+// ativa, apresentando) é o app pai (ver handleMessage em
+// PresentationEditor.jsx), porque só ele sabe em qual desses dois modos o
+// usuário está agora. Se o slide não tiver o badge (a maioria, quiz nenhum),
+// querySelectorAll não acha nada e o listener nunca dispara — sem custo.
+export function buildQuizBadgeClickScript() {
   return `
 <script>
 (function () {
-  window.addEventListener('message', function (e) {
-    var data = e.data;
-    if (!data || data.source !== '${PARENT_TO_SLIDE_MESSAGE_SOURCE}' || data.type !== 'quiz-vote-update') return;
-    var counts = data.counts || {};
-    var total = data.total || 0;
-    var rows = document.querySelectorAll('[data-quiz-option]');
-    Array.prototype.forEach.call(rows, function (row) {
-      var letter = row.getAttribute('data-quiz-option');
-      var bar = row.querySelector('[data-quiz-vote-bar]');
-      var pct = row.querySelector('[data-quiz-vote-pct]');
-      var count = counts[letter] || 0;
-      var percent = total > 0 ? Math.round((count / total) * 100) : 0;
-      if (bar) bar.style.width = percent + '%';
-      if (pct) {
-        pct.style.display = total > 0 ? 'inline' : 'none';
-        pct.textContent = count + ' (' + percent + '%)';
-      }
-    });
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest || !e.target.closest('[data-quiz-badge]')) return;
+    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'quiz-badge-click' }, '*');
   });
 })();
 </script>`;
@@ -1252,7 +1237,7 @@ export function buildLiveQuizVoteScript(enabled) {
 // carregado) + `document.fonts.ready` + um pequeno delay extra pra Chart.js/
 // Mermaid/animações CSS assentarem. Só o exportDeck.js usa isto hoje — sem
 // consumidor, o callback nunca dispara e não custa nada pro resto do app.
-const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, liveQuizEnabled = false, selectedElement = null, cropMode = false, panEnabled = false, staticPreview = false, onReady = null }, forwardedRef) {
+const PresentationViewer = forwardRef(function PresentationViewer({ htmlContent, editable = false, spotlightEnabled = false, zoomGestureEnabled = false, animationTriggersEnabled = false, selectedElement = null, cropMode = false, panEnabled = false, staticPreview = false, onReady = null }, forwardedRef) {
   const iframeRef = useRef(null);
   useImperativeHandle(forwardedRef, () => iframeRef.current, []);
   // Ref (não estado/dependência do efeito abaixo): só precisamos do valor mais
@@ -1479,7 +1464,7 @@ ${buildNavKeyRelayScript()}
 ${buildSpotlightScript(spotlightEnabled)}
 ${buildZoomGestureScript(zoomGestureEnabled, panEnabledRef.current)}
 ${buildAnimationTriggerScript(animationTriggersEnabled)}
-${buildLiveQuizVoteScript(liveQuizEnabled)}
+${buildQuizBadgeClickScript()}
 ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) : ''}
 </body>
 </html>`;
@@ -1513,7 +1498,7 @@ ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) 
       if (settleTimeout) clearTimeout(settleTimeout);
       iframe.removeEventListener('load', handleLoad);
     };
-  }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled, animationTriggersEnabled, liveQuizEnabled, staticPreview]);
+  }, [htmlContent, editable, spotlightEnabled, zoomGestureEnabled, animationTriggersEnabled, staticPreview]);
 
   return (
     <iframe
