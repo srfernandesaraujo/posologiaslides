@@ -362,8 +362,13 @@ export function setupSocketIO(httpServer) {
     // PresentationEditor.jsx, que usa socket.timeout(...) pra também pegar o
     // caso de nem chegar resposta nenhuma, ex.: conexão caiu de vez).
     socket.on('activate_quiz_question', ({ pin, questionIndex, totalQuestions, correctAnswer, topic, quizOptions }, callback) => {
+      // Diagnóstico temporário (bug "2a pergunta não chega") — confirma se o
+      // servidor recebe o evento e se o callback chega a ser chamado, já que
+      // o professor está vendo timeout no ack mesmo em sessão nova/recente.
+      console.log(`[quiz-debug] activate_quiz_question recebido: pin=${pin} questionIndex=${questionIndex} socket.id=${socket.id} temCallback=${typeof callback === 'function'}`);
       const session = activeSessions.get(pin);
       if (!session) {
+        console.log(`[quiz-debug] sessao NAO encontrada para pin=${pin}`);
         if (typeof callback === 'function') callback({ success: false, reason: 'session-not-found' });
         return;
       }
@@ -404,6 +409,8 @@ export function setupSocketIO(httpServer) {
       // "funcionou" mas não tem mais ninguém pra receber (ex.: todos os
       // alunos caíram da sala por outro motivo) — sem isto pareceria sucesso
       // mesmo com a sala vazia.
+      const roomSize = io.sockets.adapter.rooms.get(`session_${pin}`)?.size || 0;
+      console.log(`[quiz-debug] sync_quiz_question emitido pra sala session_${pin} (participants.size=${session.participants.size}, socket.io room size=${roomSize}) — chamando callback agora`);
       if (typeof callback === 'function') callback({ success: true, participantCount: session.participants.size });
     });
 
