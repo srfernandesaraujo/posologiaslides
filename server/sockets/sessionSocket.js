@@ -352,6 +352,14 @@ export function setupSocketIO(httpServer) {
       const session = activeSessions.get(pin);
       if (!session || session.presenterSocketId !== socket.id) return;
 
+      // Reseta o relógio da pontuação por velocidade (ver scoreAndRecord)
+      // pra esta pergunta nova — sem isto, ele continuava contando desde que
+      // o SLIDE apareceu (só resetado em slide_changed), então a 2ª pergunta
+      // em diante sempre dava só o piso mínimo de pontos, não importa quão
+      // rápido o aluno respondesse. commitDwellTime já bota o tempo decorrido
+      // até aqui na conta do slide atual antes de zerar o relógio, mesma
+      // lógica usada em slide_changed.
+      commitDwellTime(session);
       session.currentQuestionIndex = questionIndex || 0;
       if (totalQuestions) session.currentTotalQuestions = totalQuestions;
       session.currentCorrectAnswer = correctAnswer || null;
