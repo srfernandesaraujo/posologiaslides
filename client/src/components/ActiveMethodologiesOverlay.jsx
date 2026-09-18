@@ -45,6 +45,12 @@ export default function ActiveMethodologiesOverlay({
   const [topicProgress, setTopicProgress] = useState([]);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  // Ranking + Acerto por Assunto ficam sempre visíveis por padrão, mas às
+  // vezes cobrem conteúdo do próprio slide (ver rankingGroupPanel mais
+  // abaixo) — o professor pode fechar e reabrir quando precisar, igual ao
+  // "?" do quiz, só que aqui o controle é um ícone que substitui o próprio
+  // painel no lugar dele, não algo fora da tela.
+  const [rankingHidden, setRankingHidden] = useState(false);
   // Perguntas do quiz cujo resultado já foi liberado pro telão (ver botão
   // "Liberar resultado" mais abaixo) — por índice, não um boolean único,
   // pra "Voltar" numa pergunta anterior já liberada continuar mostrando o
@@ -630,48 +636,81 @@ export default function ActiveMethodologiesOverlay({
   // resultado final liberado (ver hideRankingWidgets) — do contrário a
   // pontuação ao vivo denunciava quem já acertou antes da turma terminar
   // de responder.
-  const rankingGroupPanel = (leaderboard.length > 0 || topicProgress.length > 0) && !hideRankingWidgets && (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
-      {leaderboard.length > 0 && (
-        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
-            <Trophy size={15} /> Ranking da Turma
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-            {leaderboard.slice(0, 5).map((entry, idx) => (
-              <div key={entry.name + idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: idx < 3 ? '#fff' : '#9ca3af' }}>
-                <span>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`} {entry.name}</span>
-                <span style={{ fontWeight: 700 }}>{entry.score}</span>
+  const hasRankingData = (leaderboard.length > 0 || topicProgress.length > 0) && !hideRankingWidgets;
+  const rankingGroupPanel = hasRankingData && (
+    rankingHidden ? (
+      // Ícone no MESMO lugar do painel fechado (não um botão perdido em
+      // outro canto) — o professor fechou porque estava cobrindo o slide;
+      // clicar aqui reabre exatamente onde clicou pra fechar.
+      <button
+        className="btn-icon"
+        onClick={() => setRankingHidden(false)}
+        title="Mostrar Ranking da Turma / Acerto por Assunto"
+        style={{ width: '40px', height: '40px', background: 'rgba(15, 23, 42, 0.85)', border: '1px solid rgba(251,191,36,0.4)', flexShrink: 0 }}
+      >
+        <Trophy size={18} color="#fbbf24" />
+      </button>
+    ) : (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
+        {leaderboard.length > 0 && (
+          <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Trophy size={15} /> Ranking da Turma
               </div>
-            ))}
+              {/* Fecha o GRUPO inteiro (ranking + acerto por assunto), não só
+                  este card — os dois cobrem o slide juntos, então fazem
+                  sentido esconder juntos também. */}
+              <button className="btn-icon" onClick={() => setRankingHidden(true)} title="Esconder" style={{ width: '22px', height: '22px', flexShrink: 0 }}>
+                <X size={12} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              {leaderboard.slice(0, 5).map((entry, idx) => (
+                <div key={entry.name + idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: idx < 3 ? '#fff' : '#9ca3af' }}>
+                  <span>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`} {entry.name}</span>
+                  <span style={{ fontWeight: 700 }}>{entry.score}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Acerto por assunto acumulado ao vivo — indicador rápido pro
-          professor; o relatório completo (com insight de IA) só aparece no
-          encerramento da sessão, ver PresentationReportModal. */}
-      {topicProgress.length > 0 && (
-        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
-            <PieChart size={15} /> Acerto por Assunto
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-            {topicProgress.map((t) => (
-              <div key={t.topic} style={{ fontSize: '0.78rem', color: '#e5e7eb' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>{t.topic}</span>
-                  <span style={{ fontWeight: 700, color: t.accuracyPct < 60 ? '#f87171' : '#34d399' }}>{t.accuracyPct}%</span>
-                </div>
-                <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginTop: '0.2rem' }}>
-                  <div style={{ height: '100%', width: `${t.accuracyPct}%`, borderRadius: '2px', background: t.accuracyPct < 60 ? '#f87171' : '#34d399' }} />
-                </div>
+        {/* Acerto por assunto acumulado ao vivo — indicador rápido pro
+            professor; o relatório completo (com insight de IA) só aparece no
+            encerramento da sessão, ver PresentationReportModal. */}
+        {topicProgress.length > 0 && (
+          <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <PieChart size={15} /> Acerto por Assunto
               </div>
-            ))}
+              {/* Só aparece aqui quando o Ranking da Turma não existe ainda
+                  (leaderboard vazio) — do contrário o X de cima já fecha os
+                  dois juntos e este ficaria duplicado. */}
+              {leaderboard.length === 0 && (
+                <button className="btn-icon" onClick={() => setRankingHidden(true)} title="Esconder" style={{ width: '22px', height: '22px', flexShrink: 0 }}>
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              {topicProgress.map((t) => (
+                <div key={t.topic} style={{ fontSize: '0.78rem', color: '#e5e7eb' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{t.topic}</span>
+                    <span style={{ fontWeight: 700, color: t.accuracyPct < 60 ? '#f87171' : '#34d399' }}>{t.accuracyPct}%</span>
+                  </div>
+                  <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginTop: '0.2rem' }}>
+                    <div style={{ height: '100%', width: `${t.accuracyPct}%`, borderRadius: '2px', background: t.accuracyPct < 60 ? '#f87171' : '#34d399' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    )
   );
 
   // Voltou a renderizar DENTRO de `.presentation-stage` (nada de Portal) —
@@ -788,9 +827,12 @@ export default function ActiveMethodologiesOverlay({
                 linhas dentro do card (ex.: "Farmacodinâmica dos Adjuvantes
                 Analgésicos") faz o algoritmo calcular o tamanho hipotético
                 desta coluna pelo conteúdo SEM quebra de linha (bem mais
-                largo que 260px), inflando o cálculo de quebra à toa. */}
+                largo que 260px), inflando o cálculo de quebra à toa. Fechado
+                (ver `rankingHidden`), o conteúdo é só o botão de 40px pra
+                reabrir — mantém `flex-basis` no tamanho real dele, senão
+                sobrava uma caixa vazia de 260px do lado da atividade. */}
             {rankingGroupPanel && (
-              <div style={{ flex: '0 0 260px' }}>
+              <div style={{ flex: rankingHidden ? '0 0 auto' : '0 0 260px' }}>
                 {rankingGroupPanel}
               </div>
             )}
