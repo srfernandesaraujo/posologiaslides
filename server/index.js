@@ -54,6 +54,14 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.options('*', cors());
+// Diagnóstico temporário (apresentações travando em "Carregando...", 524 do
+// Cloudflare) — confirma se a requisição chega até aqui de verdade e quando.
+app.use((req, res, next) => {
+  const t0 = Date.now();
+  console.log(`[req-debug] IN  ${req.method} ${req.path}`);
+  res.on('finish', () => console.log(`[req-debug] OUT ${req.method} ${req.path} -> ${res.statusCode} em ${Date.now() - t0}ms`));
+  next();
+});
 // `verify` guarda os bytes crus do corpo em req.rawBody ANTES de parsear —
 // necessário pro webhook de deploy validar a assinatura HMAC do GitHub
 // (ver deployWebhookRoutes.js), que é calculada sobre o payload exato, não
