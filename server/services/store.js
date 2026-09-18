@@ -234,12 +234,14 @@ function debugTimed(label, promise) {
 }
 
 export async function getFolderTree(userId) {
-  const [foldersSnap, subfoldersSnap, presentationsSnap, profileSnap] = await Promise.all([
-    debugTimed('folders', foldersRef(userId).orderBy('createdAt', 'asc').get()),
-    debugTimed('subfolders', subfoldersRef(userId).get()),
-    debugTimed('presentations', presentationsRef(userId).get()),
-    debugTimed('profile', userRef(userId).get())
-  ]);
+  // Diagnóstico temporário: rodando sequencial em vez de Promise.all pra
+  // confirmar se o travamento é concorrência de 4 leituras simultâneas no
+  // mesmo processo (visto em produção: as mesmas 4 consultas em paralelo
+  // via Promise.all travavam em "presentations", mas isoladas sempre iam bem).
+  const foldersSnap = await debugTimed('folders', foldersRef(userId).orderBy('createdAt', 'asc').get());
+  const subfoldersSnap = await debugTimed('subfolders', subfoldersRef(userId).get());
+  const presentationsSnap = await debugTimed('presentations', presentationsRef(userId).get());
+  const profileSnap = await debugTimed('profile', userRef(userId).get());
   const defaultSubfolderId = profileSnap.data()?.defaultSubfolderId || null;
 
   const presentationsBySubfolder = new Map();
