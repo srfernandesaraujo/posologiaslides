@@ -8,20 +8,35 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_DIR" || exit 1
 
-# Carrega server/.env pra pegar PM2_PROCESS_NAME/DEPLOY_BRANCH/HEALTH_URL/PORT
-# — não dá pra confiar em variável de ambiente HERDADA de quem chamou este
-# script: `systemd-run` (ver deployWebhookRoutes.js) NÃO repassa o ambiente
-# do processo que o invoca pro processo que ele cria, diferente de um spawn
-# direto. Sem isto, PM2_PROCESS_NAME caía no valor padrão do script (errado)
-# e o pm2 restart falhava silenciosamente — bug real visto em produção
-# (2026-08-14): o healthcheck passava mesmo assim, só porque o processo
-# ANTIGO continuava no ar sem reiniciar de verdade.
+# Pega de server/.env só PM2_PROCESS_NAME/DEPLOY_BRANCH/HEALTH_URL/PORT, via
+# grep/cut em vez de `source` no arquivo inteiro — não dá pra confiar em
+# variável de ambiente HERDADA de quem chamou este script: `systemd-run` (ver
+# deployWebhookRoutes.js) NÃO repassa o ambiente do processo que o invoca pro
+# processo que ele cria, diferente de um spawn direto. Sem isto,
+# PM2_PROCESS_NAME caía no valor padrão do script (errado) e o pm2 restart
+# falhava silenciosamente — bug real visto em produção (2026-08-14): o
+# healthcheck passava mesmo assim, só porque o processo ANTIGO continuava no
+# ar sem reiniciar de verdade.
+# NÃO usa `source` no .env porque ele tem segredos como FIREBASE_PRIVATE_KEY
+# — se esse valor estiver com quebras de linha reais (em vez de `\n`
+# escapado) ou espaços fora de aspas, o bash tenta EXECUTAR pedaços dele como
+# comando, e isso corrompe a leitura de QUALQUER variável declarada depois
+# dela no arquivo. Bug real visto em produção (2026-09-18): PM2_PROCESS_NAME
+# vinha depois de FIREBASE_PRIVATE_KEY no .env e nunca era atualizado por
+# causa disso — todo deploy desde ~08-29 falhava e revertia sozinho, em
+# silêncio. grep/cut só olha a linha certa como texto puro, nunca executa
+# nada do arquivo, então é imune a isso.
+env_var() {
+  local file="$1" name="$2"
+  grep -m1 "^${name}=" "$file" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//'
+}
+
 ENV_FILE="$REPO_DIR/server/.env"
 if [ -f "$ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
+  PM2_PROCESS_NAME="$(env_var "$ENV_FILE" PM2_PROCESS_NAME)"
+  DEPLOY_BRANCH="$(env_var "$ENV_FILE" DEPLOY_BRANCH)"
+  HEALTH_URL="$(env_var "$ENV_FILE" HEALTH_URL)"
+  PORT="$(env_var "$ENV_FILE" PORT)"
 fi
 
 LOCK_FILE="/tmp/posologia-deploy.lock"
