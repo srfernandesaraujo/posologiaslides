@@ -250,47 +250,60 @@ export default function ActiveMethodologiesOverlay({
         </div>
       )}
 
-      {/* Ranking — fica visível o tempo todo que houver pontuação, independente
+      {/* Ranking + Acerto por Assunto agrupados numa coluna só — no modo
+          ampliado (ver `expanded`), o container pai vira `flex-direction:row`
+          com wrap (pedido do usuário pra reduzir a ALTURA total do grupo, ver
+          comentário perto do `return` mais abaixo); sem este agrupamento, os
+          dois eram itens SEPARADOS nessa fileira e, somados ao painel do
+          quiz, a LARGURA total passava da tela em monitores/telas menores —
+          cortando texto sem barra de rolagem (transform:scale não expande a
+          área rolável do ancestral). Empilhando os dois aqui, eles ocupam
+          juntos a largura de só um item na fileira.
+          Também fica visível o tempo todo que houver pontuação, independente
           do slide atual, EXCETO enquanto um quiz ainda não teve o resultado
           final liberado (ver hideRankingWidgets) — do contrário a pontuação
           ao vivo denunciava quem já acertou antes da turma terminar de responder. */}
-      {leaderboard.length > 0 && !hideRankingWidgets && (
-        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
-            <Trophy size={15} /> Ranking da Turma
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-            {leaderboard.slice(0, 5).map((entry, idx) => (
-              <div key={entry.name + idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: idx < 3 ? '#fff' : '#9ca3af' }}>
-                <span>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`} {entry.name}</span>
-                <span style={{ fontWeight: 700 }}>{entry.score}</span>
+      {(leaderboard.length > 0 || topicProgress.length > 0) && !hideRankingWidgets && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
+          {leaderboard.length > 0 && (
+            <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+                <Trophy size={15} /> Ranking da Turma
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                {leaderboard.slice(0, 5).map((entry, idx) => (
+                  <div key={entry.name + idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: idx < 3 ? '#fff' : '#9ca3af' }}>
+                    <span>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`} {entry.name}</span>
+                    <span style={{ fontWeight: 700 }}>{entry.score}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-      {/* Acerto por assunto acumulado ao vivo — indicador rápido pro
-          professor; o relatório completo (com insight de IA) só aparece no
-          encerramento da sessão, ver PresentationReportModal. */}
-      {topicProgress.length > 0 && !hideRankingWidgets && (
-        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
-            <PieChart size={15} /> Acerto por Assunto
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-            {topicProgress.map((t) => (
-              <div key={t.topic} style={{ fontSize: '0.78rem', color: '#e5e7eb' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>{t.topic}</span>
-                  <span style={{ fontWeight: 700, color: t.accuracyPct < 60 ? '#f87171' : '#34d399' }}>{t.accuracyPct}%</span>
-                </div>
-                <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginTop: '0.2rem' }}>
-                  <div style={{ height: '100%', width: `${t.accuracyPct}%`, borderRadius: '2px', background: t.accuracyPct < 60 ? '#f87171' : '#34d399' }} />
-                </div>
+          {/* Acerto por assunto acumulado ao vivo — indicador rápido pro
+              professor; o relatório completo (com insight de IA) só aparece no
+              encerramento da sessão, ver PresentationReportModal. */}
+          {topicProgress.length > 0 && (
+            <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+                <PieChart size={15} /> Acerto por Assunto
               </div>
-            ))}
-          </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                {topicProgress.map((t) => (
+                  <div key={t.topic} style={{ fontSize: '0.78rem', color: '#e5e7eb' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{t.topic}</span>
+                      <span style={{ fontWeight: 700, color: t.accuracyPct < 60 ? '#f87171' : '#34d399' }}>{t.accuracyPct}%</span>
+                    </div>
+                    <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginTop: '0.2rem' }}>
+                      <div style={{ height: '100%', width: `${t.accuracyPct}%`, borderRadius: '2px', background: t.accuracyPct < 60 ? '#f87171' : '#34d399' }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -734,11 +747,18 @@ export default function ActiveMethodologiesOverlay({
           // Linha (não coluna): QR/ranking ficam do LADO da interação, não
           // empilhados em cima — pedido do usuário, e reduz bastante a
           // altura total do grupo.
+          // `maxWidth` em `vw` (não afetado pelo `scale` do próprio elemento,
+          // já que transform nunca conta pro cálculo de layout/overflow dos
+          // ancestrais) força o `flexWrap` a empilhar ranking+quiz em telas
+          // menores (ex.: iPad 11" na horizontal) em vez de vazar pra fora da
+          // tela sem dar pra rolar — sem isto, ranking+painel do quiz juntos
+          // (420px + 260px + gap, vezes 1.7x de escala) cortavam texto na borda.
           <div
             style={{
               display: 'flex', flexDirection: 'row', flexWrap: 'wrap',
               alignItems: 'center', justifyContent: 'center', gap: '2rem',
-              margin: 'auto', transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center'
+              margin: 'auto', maxWidth: `calc(92vw / ${EXPANDED_SCALE})`,
+              transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center'
             }}
           >
             {overlayPanels}
