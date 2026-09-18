@@ -6,3 +6,4 @@ server/tmp-debug-payload.json
 server/logs/
 server/backups/
 server/.deploy-last-good
+server/.healthcheck-fail-count

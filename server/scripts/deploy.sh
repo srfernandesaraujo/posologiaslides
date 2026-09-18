@@ -82,6 +82,13 @@ rollback() {
   (cd server && npm install >> "$LOG_FILE" 2>&1)
   pm2 restart "$PM2_PROCESS_NAME" >> "$LOG_FILE" 2>&1
   log "Rollback concluído para $LAST_GOOD."
+  # Um deploy que falha e reverte sozinho não tinha NENHUM aviso visível pra
+  # Sergio — foi assim que o pipeline inteiro ficou quebrado por ~3 semanas
+  # sem ninguém notar (ver PM2_PROCESS_NAME acima, incidente 2026-09-18).
+  # notify.js nunca lança erro (best-effort), então não precisa de `|| true`.
+  (cd server && node scripts/notify.js "Deploy falhou e reverteu" "$reason
+
+Revertido para $LAST_GOOD. Ver server/logs/deploy.log no servidor pra mais detalhes." >> "$LOG_FILE" 2>&1)
 }
 
 log "Atualizado para $NEW_COMMIT. Instalando dependências do servidor..."
