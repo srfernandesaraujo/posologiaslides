@@ -21,6 +21,7 @@ import deployWebhookRoutes from './routes/deployWebhookRoutes.js';
 import multer from 'multer';
 import { requireAuth } from './middleware/auth.js';
 import { setupSocketIO } from './sockets/sessionSocket.js';
+import { db } from './services/firebaseAdmin.js';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -75,6 +76,18 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // funcionou antes de considerar o deploy concluído (ver scripts/deploy.sh).
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Servidor de Apresentações HTML com IA e Socket.io operacional.' });
+});
+
+// Diagnóstico temporário (getFolderTree trava em produção lendo
+// presentations, mas nunca num script isolado) — mesma leitura crua, direto
+// pelo db, sem passar pelas funções auxiliares de store.js, pra saber se o
+// problema é "reached via HTTP" em geral ou específico daquele caminho de código.
+app.get('/api/debug-presentations-raw', requireAuth, async (req, res) => {
+  const t0 = Date.now();
+  console.log('[raw-debug] iniciando leitura crua de presentations...');
+  const snap = await db.collection('users').doc(req.user.id).collection('presentations').get();
+  console.log(`[raw-debug] OK em ${Date.now() - t0}ms`);
+  res.json({ ok: true, ms: Date.now() - t0, count: snap.size });
 });
 
 // Webhook do GitHub (push → auto-deploy, ver deployWebhookRoutes.js) — sem
