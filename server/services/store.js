@@ -223,12 +223,22 @@ export async function movePresentationToFolder(userId, presentationId, folderId)
   return { subfolderId };
 }
 
+// Diagnóstico temporário (getFolderTree trava pra sempre em produção, mas
+// não isolado num script à parte) — mede cada uma das 4 consultas separado.
+function debugTimed(label, promise) {
+  const start = Date.now();
+  return promise.then(
+    (res) => { console.log(`[tree-debug]   OK  ${label}: ${Date.now() - start}ms`); return res; },
+    (err) => { console.log(`[tree-debug]   ERR ${label}: ${Date.now() - start}ms -- ${err.message}`); throw err; }
+  );
+}
+
 export async function getFolderTree(userId) {
   const [foldersSnap, subfoldersSnap, presentationsSnap, profileSnap] = await Promise.all([
-    foldersRef(userId).orderBy('createdAt', 'asc').get(),
-    subfoldersRef(userId).get(),
-    presentationsRef(userId).get(),
-    userRef(userId).get()
+    debugTimed('folders', foldersRef(userId).orderBy('createdAt', 'asc').get()),
+    debugTimed('subfolders', subfoldersRef(userId).get()),
+    debugTimed('presentations', presentationsRef(userId).get()),
+    debugTimed('profile', userRef(userId).get())
   ]);
   const defaultSubfolderId = profileSnap.data()?.defaultSubfolderId || null;
 
