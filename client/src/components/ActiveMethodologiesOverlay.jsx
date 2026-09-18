@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Users, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2, HelpCircle, ArrowRight, ArrowLeft, X } from 'lucide-react';
+import { Users, Cloud, GitBranch, Trophy, CheckCircle, ShieldAlert, ClipboardCheck, Target, Sparkles, Loader2, PieChart, Maximize2, Minimize2, HelpCircle, ArrowRight, ArrowLeft, X, Eye } from 'lucide-react';
 import { layoutWordCloud } from '../lib/wordCloudLayout';
 import { apiFetch } from '../lib/api';
 
@@ -45,6 +45,11 @@ export default function ActiveMethodologiesOverlay({
   const [topicProgress, setTopicProgress] = useState([]);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  // Perguntas do quiz cujo resultado já foi liberado pro telão (ver botão
+  // "Liberar resultado" mais abaixo) — por índice, não um boolean único,
+  // pra "Voltar" numa pergunta anterior já liberada continuar mostrando o
+  // resultado dela em vez de escondê-lo de novo.
+  const [revealedQuestions, setRevealedQuestions] = useState(() => new Set());
 
   useEffect(() => {
     if (!socket) return;
@@ -93,6 +98,24 @@ export default function ActiveMethodologiesOverlay({
     setSummary(null);
     setLiveData({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   }, [slideIndex, activeQuizQuestionIndex]);
+
+  // Reseta quais perguntas já tiveram resultado liberado só quando o
+  // professor sai do slide de quiz e volta (nova rodada) — trocar de
+  // pergunta DENTRO do mesmo slide (Voltar/Liberar próxima) não deve
+  // escurecer de novo um resultado que já foi liberado.
+  useEffect(() => {
+    setRevealedQuestions(new Set());
+  }, [slideIndex]);
+
+  const isCurrentQuestionRevealed = revealedQuestions.has(activeQuizQuestionIndex || 0);
+
+  const handleRevealResult = () => {
+    setRevealedQuestions((prev) => {
+      const next = new Set(prev);
+      next.add(activeQuizQuestionIndex || 0);
+      return next;
+    });
+  };
 
   const handleSummarize = async () => {
     setSummaryLoading(true);
@@ -288,12 +311,14 @@ export default function ActiveMethodologiesOverlay({
               const pct = total > 0 ? Math.round((count / total) * 100) : 0;
               return (
                 <div key={letter} style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.55rem 0.75rem', borderRadius: '0.5rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <div style={{ position: 'absolute', inset: 0, width: `${pct}%`, background: 'rgba(34,211,238,0.18)', transition: 'width 0.4s ease' }} />
+                  {isCurrentQuestionRevealed && (
+                    <div style={{ position: 'absolute', inset: 0, width: `${pct}%`, background: 'rgba(34,211,238,0.18)', transition: 'width 0.4s ease' }} />
+                  )}
                   <span style={{ position: 'relative', flexShrink: 0, width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: 'rgba(34,211,238,0.15)', border: '1px solid rgba(34,211,238,0.4)', color: '#67e8f9', fontSize: '0.7rem', fontWeight: 800 }}>
                     {letter}
                   </span>
                   <span style={{ position: 'relative', color: '#e2e8f0', fontSize: '0.85rem', flex: 1 }}>{text}</span>
-                  {total > 0 && (
+                  {isCurrentQuestionRevealed && total > 0 && (
                     <span style={{ position: 'relative', color: '#67e8f9', fontSize: '0.75rem', fontWeight: 800, whiteSpace: 'nowrap' }}>{count} ({pct}%)</span>
                   )}
                 </div>
@@ -301,8 +326,17 @@ export default function ActiveMethodologiesOverlay({
             })}
           </div>
 
-          {quizQuestions.length > 1 && (
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem' }}>
+          {/* Enquanto o resultado não é liberado, mostra só a contagem total de
+              respostas recebidas — sem a distribuição por alternativa, pra
+              quem ainda não respondeu não copiar a maioria olhando o telão. */}
+          {!isCurrentQuestionRevealed && (
+            <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '0.5rem 0 0 0' }}>
+              {liveData.answers.length} resposta{liveData.answers.length === 1 ? '' : 's'} recebida{liveData.answers.length === 1 ? '' : 's'} — resultado oculto até você liberar.
+            </p>
+          )}
+
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem' }}>
+            {quizQuestions.length > 1 && (
               <button
                 className="btn-secondary"
                 disabled={activeQuizQuestionIndex <= 0}
@@ -312,6 +346,16 @@ export default function ActiveMethodologiesOverlay({
               >
                 <ArrowLeft size={14} />
               </button>
+            )}
+            {!isCurrentQuestionRevealed ? (
+              <button
+                className="btn-primary"
+                onClick={handleRevealResult}
+                style={{ flex: 1, justifyContent: 'center', padding: '0.5rem 0.8rem', fontSize: '0.78rem', fontWeight: 700 }}
+              >
+                <Eye size={14} /> Liberar resultado
+              </button>
+            ) : quizQuestions.length > 1 ? (
               <button
                 className="btn-primary"
                 disabled={activeQuizQuestionIndex >= quizQuestions.length - 1}
@@ -320,8 +364,8 @@ export default function ActiveMethodologiesOverlay({
               >
                 {activeQuizQuestionIndex >= quizQuestions.length - 1 ? 'Última pergunta' : (<>Liberar próxima <ArrowRight size={14} /></>)}
               </button>
-            </div>
-          )}
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -651,7 +695,18 @@ export default function ActiveMethodologiesOverlay({
                 alignItems: 'safe center', justifyContent: 'safe center',
                 background: 'rgba(9, 13, 22, 0.95)', overflow: 'auto', padding: '2rem'
               }
-            : { position: 'absolute', top: '16px', right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }
+            : {
+                position: 'absolute',
+                // O ícone "?" do quiz (ver applyQuizBadgeToSlideHtml) mora
+                // DENTRO do iframe do slide, também no canto superior
+                // direito (top/right:14px, 38px) — como o iframe é sua
+                // própria árvore de renderização, o z-index dele não compete
+                // com este overlay por cima; sem este respiro, Ranking/Acerto
+                // por Assunto cobrem o ícone por completo em qualquer slide
+                // de quiz que tenha pontuação acumulada.
+                top: currentSlide?.type === 'quiz' ? '64px' : '16px',
+                right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end'
+              }
         }
       >
         {expanded ? (
