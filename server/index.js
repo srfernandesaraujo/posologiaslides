@@ -21,7 +21,6 @@ import deployWebhookRoutes from './routes/deployWebhookRoutes.js';
 import multer from 'multer';
 import { requireAuth } from './middleware/auth.js';
 import { setupSocketIO } from './sockets/sessionSocket.js';
-import { db } from './services/firebaseAdmin.js';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -55,14 +54,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.options('*', cors());
-// Diagnóstico temporário (apresentações travando em "Carregando...", 524 do
-// Cloudflare) — confirma se a requisição chega até aqui de verdade e quando.
-app.use((req, res, next) => {
-  const t0 = Date.now();
-  console.log(`[req-debug] IN  ${req.method} ${req.path}`);
-  res.on('finish', () => console.log(`[req-debug] OUT ${req.method} ${req.path} -> ${res.statusCode} em ${Date.now() - t0}ms`));
-  next();
-});
 // `verify` guarda os bytes crus do corpo em req.rawBody ANTES de parsear —
 // necessário pro webhook de deploy validar a assinatura HMAC do GitHub
 // (ver deployWebhookRoutes.js), que é calculada sobre o payload exato, não
@@ -76,21 +67,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // funcionou antes de considerar o deploy concluído (ver scripts/deploy.sh).
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Servidor de Apresentações HTML com IA e Socket.io operacional.' });
-});
-
-// Diagnóstico temporário (getFolderTree trava em produção lendo
-// presentations, mas nunca num script isolado) — mesma leitura crua, direto
-// pelo db, sem passar pelas funções auxiliares de store.js nem exigir token
-// (só timing/contagem, nenhum dado sensível na resposta), pra saber se o
-// problema é "reached via HTTP" em geral ou específico daquele caminho de código.
-app.get('/api/debug-presentations-raw', async (req, res) => {
-  const t0 = Date.now();
-  console.log('[raw-debug] iniciando leitura crua de presentations...');
-  const usersSnap = await db.collection('users').limit(1).get();
-  const userId = usersSnap.docs[0].id;
-  const snap = await db.collection('users').doc(userId).collection('presentations').get();
-  console.log(`[raw-debug] OK em ${Date.now() - t0}ms`);
-  res.json({ ok: true, ms: Date.now() - t0, count: snap.size });
 });
 
 // Webhook do GitHub (push → auto-deploy, ver deployWebhookRoutes.js) — sem

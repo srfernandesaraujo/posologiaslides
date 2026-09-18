@@ -223,25 +223,33 @@ export async function movePresentationToFolder(userId, presentationId, folderId)
   return { subfolderId };
 }
 
-// Diagnóstico temporário (getFolderTree trava pra sempre em produção, mas
-// não isolado num script à parte) — mede cada uma das 4 consultas separado.
-function debugTimed(label, promise) {
-  const start = Date.now();
-  return promise.then(
-    (res) => { console.log(`[tree-debug]   OK  ${label}: ${Date.now() - start}ms`); return res; },
-    (err) => { console.log(`[tree-debug]   ERR ${label}: ${Date.now() - start}ms -- ${err.message}`); throw err; }
-  );
+// Calculados uma vez ao salvar (ver savePresentation) e guardados no próprio
+// documento, em vez de recalculados toda vez que a biblioteca carrega — sem
+// isso, listar a biblioteca precisava baixar o array `slides` COMPLETO de
+// TODAS as apresentações só pra montar a lista, e com dezenas de
+// apresentações de várias centenas de KB cada isso virava uma leitura de
+// dezenas de MB numa conexão residencial, estourando o timeout do Cloudflare
+// (524) e deixando a biblioteca travada em "Carregando..." pra sempre —
+// bug real visto em produção, 2026-09-18.
+function computeListingFields(slides) {
+  return {
+    firstSlideHtml: Array.isArray(slides) ? slides[0]?.html || null : null,
+    // Mesma medida usada por findOversizedSlide — dá pra biblioteca mostrar
+    // quão perto do limite de 1 MiB do Firestore cada apresentação está.
+    sizeBytes: Array.isArray(slides) ? Buffer.byteLength(JSON.stringify(slides), 'utf8') : 0
+  };
 }
 
 export async function getFolderTree(userId) {
-  // Diagnóstico temporário: rodando sequencial em vez de Promise.all pra
-  // confirmar se o travamento é concorrência de 4 leituras simultâneas no
-  // mesmo processo (visto em produção: as mesmas 4 consultas em paralelo
-  // via Promise.all travavam em "presentations", mas isoladas sempre iam bem).
-  const foldersSnap = await debugTimed('folders', foldersRef(userId).orderBy('createdAt', 'asc').get());
-  const subfoldersSnap = await debugTimed('subfolders', subfoldersRef(userId).get());
-  const presentationsSnap = await debugTimed('presentations', presentationsRef(userId).get());
-  const profileSnap = await debugTimed('profile', userRef(userId).get());
+  const [foldersSnap, subfoldersSnap, presentationsSnap, profileSnap] = await Promise.all([
+    foldersRef(userId).orderBy('createdAt', 'asc').get(),
+    subfoldersRef(userId).get(),
+    // .select() busca só estes campos pequenos — nunca toca no array `slides`
+    // (o grosso do documento) pra montar a listagem. firstSlideHtml/sizeBytes
+    // vêm pré-calculados de savePresentation, não recalculados aqui.
+    presentationsRef(userId).select('subfolderId', 'title', 'favorite', 'updatedAt', 'lastOpenedAt', 'trashed', 'firstSlideHtml', 'sizeBytes').get(),
+    userRef(userId).get()
+  ]);
   const defaultSubfolderId = profileSnap.data()?.defaultSubfolderId || null;
 
   const presentationsBySubfolder = new Map();
@@ -255,11 +263,8 @@ export async function getFolderTree(userId) {
       favorite: !!p.favorite,
       updatedAt: p.updatedAt,
       lastOpenedAt: p.lastOpenedAt || null,
-      firstSlideHtml: Array.isArray(p.slides) ? p.slides[0]?.html || null : null,
-      // Mesma medida usada por findOversizedSlide (só o array `slides`, que é
-      // de longe o grosso do documento) — dá pra biblioteca mostrar quão perto
-      // do limite de 1 MiB do Firestore cada apresentação está.
-      sizeBytes: Array.isArray(p.slides) ? Buffer.byteLength(JSON.stringify(p.slides), 'utf8') : 0
+      firstSlideHtml: p.firstSlideHtml || null,
+      sizeBytes: p.sizeBytes || 0
     });
     presentationsBySubfolder.set(p.subfolderId, list);
   });
@@ -435,7 +440,8 @@ export async function savePresentation(presentation, userId) {
           title, description: description || null, slides, trashedSlides: trashedSlides || [], updatedAt: now,
           lastWriterSessionId: sessionId || null,
           relatedPresentationId: relatedPresentationId || null,
-          relatedPresentationTitle: relatedPresentationTitle || null
+          relatedPresentationTitle: relatedPresentationTitle || null,
+          ...computeListingFields(slides)
         };
         tx.update(ref, data);
         return { conflict: false, presentation: serializePresentation(id, { ...currentData, ...data }) };
@@ -485,7 +491,8 @@ export async function savePresentation(presentation, userId) {
     lastOpenedAt: null,
     lastWriterSessionId: sessionId || null,
     relatedPresentationId: relatedPresentationId || null,
-    relatedPresentationTitle: relatedPresentationTitle || null
+    relatedPresentationTitle: relatedPresentationTitle || null,
+    ...computeListingFields(slides)
   };
   const ref = await presentationsRef(userId).add(data);
   return { conflict: false, presentation: serializePresentation(ref.id, data) };
@@ -510,7 +517,8 @@ export async function createPresentationInSubfolder(userId, subfolderId, present
     updatedAt: updatedAt || now,
     lastOpenedAt: lastOpenedAt || null,
     relatedPresentationId: relatedPresentationId || null,
-    relatedPresentationTitle: relatedPresentationTitle || null
+    relatedPresentationTitle: relatedPresentationTitle || null,
+    ...computeListingFields(slides)
   };
   const ref = await presentationsRef(userId).add(data);
   return serializePresentation(ref.id, data);
