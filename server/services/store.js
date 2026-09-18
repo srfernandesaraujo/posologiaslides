@@ -232,12 +232,27 @@ export async function movePresentationToFolder(userId, presentationId, folderId)
 // (524) e deixando a biblioteca travada em "Carregando..." pra sempre —
 // bug real visto em produção, 2026-09-18.
 function computeListingFields(slides) {
-  return {
-    firstSlideHtml: Array.isArray(slides) ? slides[0]?.html || null : null,
-    // Mesma medida usada por findOversizedSlide — dá pra biblioteca mostrar
-    // quão perto do limite de 1 MiB do Firestore cada apresentação está.
-    sizeBytes: Array.isArray(slides) ? Buffer.byteLength(JSON.stringify(slides), 'utf8') : 0
-  };
+  const sizeBytes = Array.isArray(slides) ? Buffer.byteLength(JSON.stringify(slides), 'utf8') : 0;
+  let firstSlideHtml = Array.isArray(slides) ? slides[0]?.html || null : null;
+
+  if (firstSlideHtml) {
+    // O documento já carrega `slides` inteiro — guardar uma cópia do
+    // primeiro slide de novo, sem cuidado, empurra apresentações já perto do
+    // limite de 1 MiB do Firestore pra fora dele (bug real visto em
+    // produção, 2026-09-18: um documento de ~900KB virou 1,13MB e o Firestore
+    // recusou a gravação). Trunca a prévia pra caber com folga no espaço que
+    // sobra; sem espaço nenhum, prefere não ter prévia a travar o save.
+    const SAFETY_MARGIN_BYTES = 20000; // outros campos do doc + folga
+    const budget = FIRESTORE_MAX_DOCUMENT_BYTES - sizeBytes - SAFETY_MARGIN_BYTES;
+    const htmlBuffer = Buffer.from(firstSlideHtml, 'utf8');
+    if (budget <= 0) {
+      firstSlideHtml = null;
+    } else if (htmlBuffer.length > budget) {
+      firstSlideHtml = htmlBuffer.subarray(0, budget).toString('utf8');
+    }
+  }
+
+  return { firstSlideHtml, sizeBytes };
 }
 
 export async function getFolderTree(userId) {
