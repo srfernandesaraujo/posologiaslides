@@ -224,11 +224,17 @@ export default function ActiveMethodologiesOverlay({
     || (currentSlide?.branches && currentSlide.branches.length > 0)
     || showQuizPanel;
 
-  // Conteúdo dos widgets — extraído pra variável porque é reaproveitado nos
-  // dois estados do `return` abaixo (ampliado, via Portal; e o card pequeno
-  // de canto, normal). Ver comentário perto do Portal pra entender POR QUE
-  // o modo ampliado precisou virar Portal.
-  const overlayPanels = (
+  // Conteúdo dos widgets — extraído pra variáveis porque é reaproveitado nos
+  // dois estados do `return` abaixo (ampliado; e o card pequeno de canto,
+  // normal). Separado em DOIS grupos (em vez de um `overlayPanels` só) pro
+  // modo ampliado poder montar duas colunas lado a lado: `activityPanels`
+  // (QR/quiz/nuvem/iRAT/pontos/hotspot/trilha — a atividade em si) numa
+  // coluna, e `rankingGroupPanel` (Ranking + Acerto por Assunto, empilhados
+  // um sobre o outro) na OUTRA — pedido do usuário pra não competir por
+  // largura com a atividade nem empilhar tudo numa coluna só. Ver
+  // comentário perto do Portal pra entender por que o modo ampliado
+  // precisou escapar do `overflow:hidden` do slide.
+  const activityPanels = (
     <>
       {/* Widget do QR Code no Slide de Abertura / Capa */}
       {isIntroSlide && pin && (
@@ -247,63 +253,6 @@ export default function ActiveMethodologiesOverlay({
               <Users size={12} /> {participantCount} alunos conectados
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Ranking + Acerto por Assunto agrupados numa coluna só — no modo
-          ampliado (ver `expanded`), o container pai vira `flex-direction:row`
-          com wrap (pedido do usuário pra reduzir a ALTURA total do grupo, ver
-          comentário perto do `return` mais abaixo); sem este agrupamento, os
-          dois eram itens SEPARADOS nessa fileira e, somados ao painel do
-          quiz, a LARGURA total passava da tela em monitores/telas menores —
-          cortando texto sem barra de rolagem (transform:scale não expande a
-          área rolável do ancestral). Empilhando os dois aqui, eles ocupam
-          juntos a largura de só um item na fileira.
-          Também fica visível o tempo todo que houver pontuação, independente
-          do slide atual, EXCETO enquanto um quiz ainda não teve o resultado
-          final liberado (ver hideRankingWidgets) — do contrário a pontuação
-          ao vivo denunciava quem já acertou antes da turma terminar de responder. */}
-      {(leaderboard.length > 0 || topicProgress.length > 0) && !hideRankingWidgets && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
-          {leaderboard.length > 0 && (
-            <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
-                <Trophy size={15} /> Ranking da Turma
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                {leaderboard.slice(0, 5).map((entry, idx) => (
-                  <div key={entry.name + idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: idx < 3 ? '#fff' : '#9ca3af' }}>
-                    <span>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`} {entry.name}</span>
-                    <span style={{ fontWeight: 700 }}>{entry.score}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Acerto por assunto acumulado ao vivo — indicador rápido pro
-              professor; o relatório completo (com insight de IA) só aparece no
-              encerramento da sessão, ver PresentationReportModal. */}
-          {topicProgress.length > 0 && (
-            <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
-                <PieChart size={15} /> Acerto por Assunto
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                {topicProgress.map((t) => (
-                  <div key={t.topic} style={{ fontSize: '0.78rem', color: '#e5e7eb' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{t.topic}</span>
-                      <span style={{ fontWeight: 700, color: t.accuracyPct < 60 ? '#f87171' : '#34d399' }}>{t.accuracyPct}%</span>
-                    </div>
-                    <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginTop: '0.2rem' }}>
-                      <div style={{ height: '100%', width: `${t.accuracyPct}%`, borderRadius: '2px', background: t.accuracyPct < 60 ? '#f87171' : '#34d399' }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -670,6 +619,61 @@ export default function ActiveMethodologiesOverlay({
     </>
   );
 
+  // Ranking + Acerto por Assunto empilhados um sobre o outro — no modo
+  // ampliado (ver `expanded` no `return` mais abaixo), isto forma a coluna
+  // da DIREITA (ou esquerda, se `activityPanels` ficar maior e empurrar),
+  // ao lado da atividade em si, em vez de competir por espaço com ela na
+  // mesma fileira ou empilhar tudo numa coluna única por cima da atividade
+  // (pedido do usuário: "perguntas de um lado, ranking+acerto empilhados do
+  // outro"). Também fica visível o tempo todo que houver pontuação,
+  // independente do slide atual, EXCETO enquanto um quiz ainda não teve o
+  // resultado final liberado (ver hideRankingWidgets) — do contrário a
+  // pontuação ao vivo denunciava quem já acertou antes da turma terminar
+  // de responder.
+  const rankingGroupPanel = (leaderboard.length > 0 || topicProgress.length > 0) && !hideRankingWidgets && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
+      {leaderboard.length > 0 && (
+        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+            <Trophy size={15} /> Ranking da Turma
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            {leaderboard.slice(0, 5).map((entry, idx) => (
+              <div key={entry.name + idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: idx < 3 ? '#fff' : '#9ca3af' }}>
+                <span>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`} {entry.name}</span>
+                <span style={{ fontWeight: 700 }}>{entry.score}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Acerto por assunto acumulado ao vivo — indicador rápido pro
+          professor; o relatório completo (com insight de IA) só aparece no
+          encerramento da sessão, ver PresentationReportModal. */}
+      {topicProgress.length > 0 && (
+        <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
+            <PieChart size={15} /> Acerto por Assunto
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            {topicProgress.map((t) => (
+              <div key={t.topic} style={{ fontSize: '0.78rem', color: '#e5e7eb' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{t.topic}</span>
+                  <span style={{ fontWeight: 700, color: t.accuracyPct < 60 ? '#f87171' : '#34d399' }}>{t.accuracyPct}%</span>
+                </div>
+                <div style={{ height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginTop: '0.2rem' }}>
+                  <div style={{ height: '100%', width: `${t.accuracyPct}%`, borderRadius: '2px', background: t.accuracyPct < 60 ? '#f87171' : '#34d399' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   // Voltou a renderizar DENTRO de `.presentation-stage` (nada de Portal) —
   // a tentativa anterior desta correção usava createPortal pra document.body
   // achando que o problema era só o `overflow:hidden` de `.presentation-stage`,
@@ -744,15 +748,19 @@ export default function ActiveMethodologiesOverlay({
         }
       >
         {expanded ? (
-          // Linha (não coluna): QR/ranking ficam do LADO da interação, não
-          // empilhados em cima — pedido do usuário, e reduz bastante a
-          // altura total do grupo.
-          // `maxWidth` em `vw` (não afetado pelo `scale` do próprio elemento,
-          // já que transform nunca conta pro cálculo de layout/overflow dos
-          // ancestrais) força o `flexWrap` a empilhar ranking+quiz em telas
-          // menores (ex.: iPad 11" na horizontal) em vez de vazar pra fora da
-          // tela sem dar pra rolar — sem isto, ranking+painel do quiz juntos
-          // (420px + 260px + gap, vezes 1.7x de escala) cortavam texto na borda.
+          // DUAS colunas lado a lado (pedido do usuário): a atividade
+          // (pergunta do quiz, nuvem de palavras etc.) numa coluna, Ranking +
+          // Acerto por Assunto empilhados na OUTRA — em vez de uma fileira
+          // com itens soltos (que empilhava tudo por cima da atividade
+          // quando não cabia) ou uma coluna só. A coluna da atividade tem
+          // `flex:1` com `minWidth`, então ela ENCOLHE pra abrir espaço pra
+          // coluna do ranking em vez de as duas competirem por largura e
+          // cortarem texto; só quando nem isso resolve (tela bem estreita) o
+          // `flexWrap` empilha a coluna do ranking abaixo da atividade, como
+          // último recurso. `maxWidth` em `vw` (não afetado pelo `scale` do
+          // próprio elemento, já que transform nunca conta pro cálculo de
+          // layout/overflow dos ancestrais) garante que a largura total pós
+          // escala nunca passe da tela.
           <div
             style={{
               display: 'flex', flexDirection: 'row', flexWrap: 'wrap',
@@ -761,9 +769,38 @@ export default function ActiveMethodologiesOverlay({
               transform: `scale(${EXPANDED_SCALE})`, transformOrigin: 'center center'
             }}
           >
-            {overlayPanels}
+            {/* `flex-basis: 280px` (não 420px, que é só o limite MÁXIMO do
+                card — ver `width: min(420px, ...)` nos painéis internos) —
+                o algoritmo de quebra de linha do flexbox decide se um item
+                cabe usando o tamanho HIPOTÉTICO do `flex-basis`, não o
+                tamanho já encolhido; com basis 420px, "420 + gap + coluna do
+                ranking" não cabia no `maxWidth` da fileira e SEMPRE quebrava
+                pra próxima linha, mesmo quando sobraria espaço de sobra
+                depois do encolhimento real. Com basis 280px cabendo ao lado
+                da coluna do ranking, o `flex-grow:1` ainda estica esta
+                coluna pro espaço disponível depois — é só o critério de
+                quebra que precisava de um número menor. */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.85rem', flex: '1 1 280px', minWidth: '280px' }}>
+              {activityPanels}
+            </div>
+            {/* `flex: 0 0 260px` fixo (em vez de deixar o tamanho "auto") —
+                mesmo motivo acima: sem isto, o texto que quebra em duas
+                linhas dentro do card (ex.: "Farmacodinâmica dos Adjuvantes
+                Analgésicos") faz o algoritmo calcular o tamanho hipotético
+                desta coluna pelo conteúdo SEM quebra de linha (bem mais
+                largo que 260px), inflando o cálculo de quebra à toa. */}
+            {rankingGroupPanel && (
+              <div style={{ flex: '0 0 260px' }}>
+                {rankingGroupPanel}
+              </div>
+            )}
           </div>
-        ) : overlayPanels}
+        ) : (
+          <>
+            {activityPanels}
+            {rankingGroupPanel}
+          </>
+        )}
       </div>
     </>
   );
