@@ -107,8 +107,6 @@ export default function ActiveMethodologiesOverlay({
     setRevealedQuestions(new Set());
   }, [slideIndex]);
 
-  const isCurrentQuestionRevealed = revealedQuestions.has(activeQuizQuestionIndex || 0);
-
   const handleRevealResult = () => {
     setRevealedQuestions((prev) => {
       const next = new Set(prev);
@@ -207,6 +205,17 @@ export default function ActiveMethodologiesOverlay({
   const activeQuizQuestion = quizQuestions?.[activeQuizQuestionIndex];
   const showQuizPanel = currentSlide?.type === 'quiz' && quizRevealed && !!activeQuizQuestion;
 
+  // Só existe "Liberar resultado" na ÚLTIMA pergunta do quiz (ou na única,
+  // se for só uma) — perguntas anteriores nunca mostram a distribuição de
+  // respostas, só avançam com "Liberar próxima", pra ninguém decidir a
+  // resposta olhando a maioria de uma pergunta anterior ainda em tela.
+  const isLastQuizQuestion = (activeQuizQuestionIndex || 0) >= (quizQuestions.length - 1);
+  const isQuizResultRevealed = isLastQuizQuestion && revealedQuestions.has(activeQuizQuestionIndex || 0);
+  // Ranking/Acerto por Assunto (ver overlayPanels abaixo) só aparecem de novo
+  // depois que o resultado final for liberado — enquanto o quiz está rolando,
+  // ficam ocultos junto com a distribuição de respostas.
+  const hideRankingWidgets = showQuizPanel && !isQuizResultRevealed;
+
   // Nada pra ampliar (nenhum widget seria mostrado mesmo) — sem isto o botão
   // de ampliar aparecia mesmo em slides sem QR/leaderboard/interatividade
   // nenhuma, expandindo pra uma tela vazia.
@@ -241,8 +250,11 @@ export default function ActiveMethodologiesOverlay({
         </div>
       )}
 
-      {/* Ranking — fica visível o tempo todo que houver pontuação, independente do slide atual */}
-      {leaderboard.length > 0 && (
+      {/* Ranking — fica visível o tempo todo que houver pontuação, independente
+          do slide atual, EXCETO enquanto um quiz ainda não teve o resultado
+          final liberado (ver hideRankingWidgets) — do contrário a pontuação
+          ao vivo denunciava quem já acertou antes da turma terminar de responder. */}
+      {leaderboard.length > 0 && !hideRankingWidgets && (
         <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
             <Trophy size={15} /> Ranking da Turma
@@ -261,7 +273,7 @@ export default function ActiveMethodologiesOverlay({
       {/* Acerto por assunto acumulado ao vivo — indicador rápido pro
           professor; o relatório completo (com insight de IA) só aparece no
           encerramento da sessão, ver PresentationReportModal. */}
-      {topicProgress.length > 0 && (
+      {topicProgress.length > 0 && !hideRankingWidgets && (
         <div className="glass-panel" style={{ padding: '0.85rem 1rem', width: 'min(260px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
             <PieChart size={15} /> Acerto por Assunto
@@ -311,14 +323,14 @@ export default function ActiveMethodologiesOverlay({
               const pct = total > 0 ? Math.round((count / total) * 100) : 0;
               return (
                 <div key={letter} style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.55rem 0.75rem', borderRadius: '0.5rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  {isCurrentQuestionRevealed && (
+                  {isQuizResultRevealed && (
                     <div style={{ position: 'absolute', inset: 0, width: `${pct}%`, background: 'rgba(34,211,238,0.18)', transition: 'width 0.4s ease' }} />
                   )}
                   <span style={{ position: 'relative', flexShrink: 0, width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: 'rgba(34,211,238,0.15)', border: '1px solid rgba(34,211,238,0.4)', color: '#67e8f9', fontSize: '0.7rem', fontWeight: 800 }}>
                     {letter}
                   </span>
                   <span style={{ position: 'relative', color: '#e2e8f0', fontSize: '0.85rem', flex: 1 }}>{text}</span>
-                  {isCurrentQuestionRevealed && total > 0 && (
+                  {isQuizResultRevealed && total > 0 && (
                     <span style={{ position: 'relative', color: '#67e8f9', fontSize: '0.75rem', fontWeight: 800, whiteSpace: 'nowrap' }}>{count} ({pct}%)</span>
                   )}
                 </div>
@@ -326,12 +338,14 @@ export default function ActiveMethodologiesOverlay({
             })}
           </div>
 
-          {/* Enquanto o resultado não é liberado, mostra só a contagem total de
+          {/* Enquanto o resultado final não é liberado (só existe na ÚLTIMA
+              pergunta, ver isLastQuizQuestion), mostra só a contagem total de
               respostas recebidas — sem a distribuição por alternativa, pra
               quem ainda não respondeu não copiar a maioria olhando o telão. */}
-          {!isCurrentQuestionRevealed && (
+          {!isQuizResultRevealed && (
             <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '0.5rem 0 0 0' }}>
-              {liveData.answers.length} resposta{liveData.answers.length === 1 ? '' : 's'} recebida{liveData.answers.length === 1 ? '' : 's'} — resultado oculto até você liberar.
+              {liveData.answers.length} resposta{liveData.answers.length === 1 ? '' : 's'} recebida{liveData.answers.length === 1 ? '' : 's'}
+              {isLastQuizQuestion ? ' — resultado oculto até você liberar.' : '.'}
             </p>
           )}
 
@@ -347,7 +361,15 @@ export default function ActiveMethodologiesOverlay({
                 <ArrowLeft size={14} />
               </button>
             )}
-            {!isCurrentQuestionRevealed ? (
+            {!isLastQuizQuestion ? (
+              <button
+                className="btn-primary"
+                onClick={() => onActivateQuizQuestion?.(activeQuizQuestionIndex + 1)}
+                style={{ flex: 1, justifyContent: 'center', padding: '0.5rem 0.8rem', fontSize: '0.78rem', fontWeight: 700 }}
+              >
+                Liberar próxima <ArrowRight size={14} />
+              </button>
+            ) : !isQuizResultRevealed ? (
               <button
                 className="btn-primary"
                 onClick={handleRevealResult}
@@ -358,11 +380,10 @@ export default function ActiveMethodologiesOverlay({
             ) : quizQuestions.length > 1 ? (
               <button
                 className="btn-primary"
-                disabled={activeQuizQuestionIndex >= quizQuestions.length - 1}
-                onClick={() => onActivateQuizQuestion?.(activeQuizQuestionIndex + 1)}
+                disabled
                 style={{ flex: 1, justifyContent: 'center', padding: '0.5rem 0.8rem', fontSize: '0.78rem', fontWeight: 700 }}
               >
-                {activeQuizQuestionIndex >= quizQuestions.length - 1 ? 'Última pergunta' : (<>Liberar próxima <ArrowRight size={14} /></>)}
+                Última pergunta
               </button>
             ) : null}
           </div>
@@ -704,7 +725,7 @@ export default function ActiveMethodologiesOverlay({
                 // com este overlay por cima; sem este respiro, Ranking/Acerto
                 // por Assunto cobrem o ícone por completo em qualquer slide
                 // de quiz que tenha pontuação acumulada.
-                top: currentSlide?.type === 'quiz' ? '64px' : '16px',
+                top: currentSlide?.type === 'quiz' ? '104px' : '16px',
                 right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end'
               }
         }
