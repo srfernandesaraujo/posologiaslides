@@ -22,7 +22,15 @@ const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, ne
 
 // Árvore de pastas/disciplinas com as apresentações salvas
 router.get('/tree', asyncHandler(async (req, res) => {
-  res.json({ success: true, folders: await getFolderTree(req.user.id), sizeLimitBytes: FIRESTORE_MAX_DOCUMENT_BYTES });
+  // Diagnóstico temporário (rota travando pra sempre em produção, mesmo
+  // testada isoladamente sem travar) — mede exatamente o tempo de
+  // getFolderTree DENTRO da rota de verdade.
+  const t0 = Date.now();
+  console.log(`[tree-debug] chamando getFolderTree(${req.user.id.slice(0, 4)}...)`);
+  const folders = await getFolderTree(req.user.id);
+  console.log(`[tree-debug] getFolderTree OK em ${Date.now() - t0}ms, ${folders.length} pastas`);
+  res.json({ success: true, folders, sizeLimitBytes: FIRESTORE_MAX_DOCUMENT_BYTES });
+  console.log(`[tree-debug] res.json enviado (total ${Date.now() - t0}ms)`);
 }));
 
 // Apresentações na lixeira (excluídas da biblioteca normal, ver getFolderTree)
