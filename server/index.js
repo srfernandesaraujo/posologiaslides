@@ -17,6 +17,7 @@ import settingsRoutes from './routes/settingsRoutes.js';
 import mediaSearchRoutes from './routes/mediaSearchRoutes.js';
 import backupRoutes from './routes/backupRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
+import narrationRoutes from './routes/narrationRoutes.js';
 import deployWebhookRoutes from './routes/deployWebhookRoutes.js';
 import multer from 'multer';
 import { requireAuth } from './middleware/auth.js';
@@ -88,6 +89,11 @@ app.use('/api/backup', requireAuth, backupRoutes);
 // Pública, de propósito (sem requireAuth) — serve apresentações via link de
 // compartilhamento só-visualização, sem exigir login (ver publicRoutes.js).
 app.use('/api/public/presentations', publicRoutes);
+// Pública, de propósito (sem requireAuth) — proxy de narração por IA pra
+// slides de código (ver narrationRoutes.js). Também roda num link de
+// apresentação compartilhado, sem login, então a chave do ElevenLabs precisa
+// ficar só no servidor em vez de embutida no HTML do slide.
+app.use('/api/public/narration', narrationRoutes);
 
 // Tratador de erro genérico — SEM isto, qualquer erro que escape de uma rota
 // (ex.: multer rejeitando um arquivo grande demais, antes mesmo do handler da
