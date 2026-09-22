@@ -3,6 +3,7 @@ import PresentationEditor from './components/PresentationEditor';
 import AIModalGenerator from './components/AIModalGenerator';
 import HomeLibrary from './components/HomeLibrary';
 import SettingsModal from './components/SettingsModal';
+import TurmasModal from './components/TurmasModal';
 import ConflictModal from './components/ConflictModal';
 import Login from './components/Login';
 import StudentJoin from './mobile/StudentJoin';
@@ -12,7 +13,7 @@ import { useAuth } from './context/AuthContext';
 import { apiFetch } from './lib/api';
 import { findInvalidNestedArrayPath, findOversizedSlide } from './lib/dataValidation';
 import { primeOfflineImageCache } from './lib/offlineImageCache';
-import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loader2, FileText } from 'lucide-react';
+import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loader2, FileText, Users } from 'lucide-react';
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
 
@@ -44,6 +45,7 @@ export default function App() {
   const [view, setView] = useState('library'); // 'library' | 'editor'
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isTurmasOpen, setIsTurmasOpen] = useState(false);
   const [presentation, setPresentationState] = useState(null);
   const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
 
@@ -404,6 +406,7 @@ export default function App() {
           onCreateNew={() => setIsModalOpen(true)}
           onCreateBlank={handleCreateBlank}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenTurmas={() => setIsTurmasOpen(true)}
           refreshKey={libraryRefreshKey}
           user={user}
           onLogout={logout}
@@ -440,6 +443,9 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', gap: '0.6rem' }}>
+              <button className="btn-icon" onClick={() => setIsTurmasOpen(true)} title="Turmas (listas de alunos)">
+                <Users size={18} />
+              </button>
               <button className="btn-icon" onClick={() => setIsSettingsOpen(true)} title="Configurar Chaves de API (IA)">
                 <Settings size={18} />
               </button>
@@ -486,6 +492,11 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onBackupRestored={() => setLibraryRefreshKey((k) => k + 1)}
+      />
+
+      <TurmasModal
+        isOpen={isTurmasOpen}
+        onClose={() => setIsTurmasOpen(false)}
       />
 
       <ConflictModal

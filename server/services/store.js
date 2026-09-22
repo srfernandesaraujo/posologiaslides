@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { FieldValue } from 'firebase-admin/firestore';
 import { db } from './firebaseAdmin.js';
 import { seedPresentation } from '../data/seedPresentation.js';
 
@@ -770,4 +771,168 @@ export async function listSessionReports(userId, presentationId) {
 export async function getSavedSessionReport(userId, presentationId, reportId) {
   const snap = await sessionReportsRef(userId, presentationId).doc(reportId).get();
   return snap.exists ? { id: snap.id, ...snap.data() } : null;
+}
+
+// --- Turmas: listas de alunos (nome + e-mail) reutilizáveis entre sessões
+// ao vivo de QUALQUER apresentação — ao contrário de pastas/subpastas
+// (organização de CONTEÚDO), uma turma é escolhida manualmente ao iniciar
+// uma sessão (ver create_session em sessionSocket.js) e existe solta,
+// desvinculada de disciplina específica, porque a mesma turma pode assistir
+// aulas de disciplinas diferentes. O e-mail (normalizado: minúsculo, sem
+// espaço nas pontas) é o ID do documento do aluno — upsert automático (colar
+// a lista de novo só atualiza o nome, nunca duplica), e é a chave estável
+// usada pra somar o desempenho do mesmo aluno em sessões/dias diferentes no
+// boletim (ver upsertStudentStats/getTurmaBoletim abaixo), resolvendo o
+// problema original de nome digitado à mão divergir entre sessões.
+function turmasRef(userId) {
+  return userRef(userId).collection('turmas');
+}
+
+function studentsRef(userId, turmaId) {
+  return turmasRef(userId).doc(turmaId).collection('students');
+}
+
+// Um doc por aluno (por e-mail), com os totais ACUMULADOS de todas as
+// sessões já encerradas desta turma — lido direto pelo boletim, sem precisar
+// varrer o histórico de sessionReports de cada apresentação toda vez que a
+// tela abre (ver getTurmaBoletim).
+function studentStatsRef(userId, turmaId) {
+  return turmasRef(userId).doc(turmaId).collection('studentStats');
+}
+
+function normalizeEmail(email) {
+  return (email || '').trim().toLowerCase();
+}
+
+export async function createTurma(userId, name) {
+  const now = Date.now();
+  const ref = await turmasRef(userId).add({ name, createdAt: now });
+  return { id: ref.id, name, createdAt: now, studentCount: 0 };
+}
+
+export async function listTurmas(userId) {
+  const turmasSnap = await turmasRef(userId).orderBy('createdAt', 'asc').get();
+  return Promise.all(turmasSnap.docs.map(async (doc) => {
+    const studentsSnap = await studentsRef(userId, doc.id).get();
+    return { id: doc.id, ...doc.data(), studentCount: studentsSnap.size };
+  }));
+}
+
+export async function getTurma(userId, turmaId) {
+  const snap = await turmasRef(userId).doc(turmaId).get();
+  return snap.exists ? { id: turmaId, ...snap.data() } : null;
+}
+
+export async function renameTurma(userId, turmaId, name) {
+  const ref = turmasRef(userId).doc(turmaId);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ name });
+  return { id: turmaId, ...snap.data(), name };
+}
+
+// Apaga a turma inteira: alunos + boletim acumulado junto (subcoleções não
+// somem sozinhas no Firestore quando o doc pai é apagado — precisa apagar
+// cada uma explicitamente, mesmo cuidado de deleteFolder/deleteSubfolder
+// pra pastas de apresentação).
+export async function deleteTurma(userId, turmaId) {
+  const ref = turmasRef(userId).doc(turmaId);
+  const snap = await ref.get();
+  if (!snap.exists) return false;
+
+  const [studentsSnap, statsSnap] = await Promise.all([
+    studentsRef(userId, turmaId).get(),
+    studentStatsRef(userId, turmaId).get()
+  ]);
+  const batch = db.batch();
+  studentsSnap.forEach((doc) => batch.delete(doc.ref));
+  statsSnap.forEach((doc) => batch.delete(doc.ref));
+  batch.delete(ref);
+  await batch.commit();
+  return true;
+}
+
+export async function listStudents(userId, turmaId) {
+  const snap = await studentsRef(userId, turmaId).orderBy('name', 'asc').get();
+  return snap.docs.map((doc) => doc.data());
+}
+
+// Cadastra vários alunos de uma vez (colar "Nome, e-mail" linha a linha, ver
+// turmasRoutes.js) — upsert por e-mail normalizado, então recadastrar o
+// mesmo aluno só atualiza o nome em vez de duplicar. Linha sem nome/e-mail
+// válido é ignorada silenciosamente (não trava o lote inteiro por causa de
+// uma linha ruim colada por engano).
+export async function addStudents(userId, turmaId, students) {
+  const now = Date.now();
+  const batch = db.batch();
+  const seen = new Set();
+  let added = 0;
+  for (const { name, email } of students) {
+    const normalizedEmail = normalizeEmail(email);
+    const trimmedName = (name || '').trim();
+    if (!normalizedEmail || !trimmedName || seen.has(normalizedEmail)) continue;
+    seen.add(normalizedEmail);
+    batch.set(studentsRef(userId, turmaId).doc(normalizedEmail), { name: trimmedName, email: normalizedEmail, createdAt: now }, { merge: true });
+    added += 1;
+  }
+  await batch.commit();
+  return added;
+}
+
+export async function removeStudent(userId, turmaId, email) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return false;
+  await studentsRef(userId, turmaId).doc(normalizedEmail).delete();
+  // Não apaga o studentStats correspondente de propósito — o desempenho
+  // acumulado do aluno continua valendo no boletim mesmo se ele for
+  // removido da lista atual (ex.: trancou a disciplina no meio do semestre).
+  return true;
+}
+
+// Único ponto de checagem "este e-mail pode entrar nesta turma" — usado por
+// join_session (sessionSocket.js) pra recusar e-mail não cadastrado, ver
+// decisão explícita do Sergio de exigir cadastro prévio em vez de aceitar
+// qualquer e-mail digitado.
+export async function findStudentByEmail(userId, turmaId, email) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+  const snap = await studentsRef(userId, turmaId).doc(normalizedEmail).get();
+  return snap.exists ? snap.data() : null;
+}
+
+// Chamado por finalizeSession (sessionSocket.js) sempre que uma sessão
+// vinculada a uma turma é encerrada — soma o desempenho DESTA sessão ao
+// total acumulado de cada aluno (por e-mail, a chave estável — nunca pelo
+// nome digitado). `perStudent` vem de buildSessionAnalytics
+// (sessionAnalytics.js), já com { email, name, correctCount, totalCount }
+// por aluno que respondeu algo pontuável nesta sessão.
+export async function upsertStudentStats(userId, turmaId, perStudent) {
+  if (!perStudent?.length) return;
+  const now = Date.now();
+  const batch = db.batch();
+  perStudent.forEach(({ email, name, correctCount, totalCount }) => {
+    if (!email) return; // sem e-mail não deveria chegar aqui (sessão sem turma), mas por segurança
+    batch.set(studentStatsRef(userId, turmaId).doc(email), {
+      email,
+      name,
+      totalCorrect: FieldValue.increment(correctCount || 0),
+      totalQuestions: FieldValue.increment(totalCount || 0),
+      sessionsCount: FieldValue.increment(1),
+      lastSessionAt: now
+    }, { merge: true });
+  });
+  await batch.commit();
+}
+
+// Lido direto pela tela de boletim — já vem pronto, sem precisar varrer
+// sessionReports de apresentação nenhuma (ver comentário em studentStatsRef).
+export async function getTurmaBoletim(userId, turmaId) {
+  const snap = await studentStatsRef(userId, turmaId).get();
+  return snap.docs
+    .map((doc) => {
+      const data = doc.data();
+      const accuracyPct = data.totalQuestions ? Math.round((data.totalCorrect / data.totalQuestions) * 100) : null;
+      return { ...data, accuracyPct };
+    })
+    .sort((a, b) => (b.accuracyPct ?? -1) - (a.accuracyPct ?? -1));
 }

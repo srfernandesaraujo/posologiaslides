@@ -21,6 +21,14 @@ function getActiveQuizOptionsFromQuestion(q) {
 export default function ActiveMethodologiesOverlay({
   socket,
   pin,
+  // Turma vinculada a esta sessão (ver PresentationEditor.jsx/TurmasModal.jsx)
+  // — '' = sem turma (comportamento de sempre, aluno só digita nome). Com
+  // turma escolhida, o aluno precisa entrar com um e-mail cadastrado nela
+  // (ver join_session em sessionSocket.js) e o resultado passa a contar pro
+  // boletim acumulado dela.
+  turmas = [],
+  selectedTurmaId = '',
+  onSelectTurma = null,
   currentSlide,
   slideIndex,
   onNavigateBranch,
@@ -258,6 +266,22 @@ export default function ActiveMethodologiesOverlay({
             <div style={{ fontSize: '0.75rem', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
               <Users size={12} /> {participantCount} alunos conectados
             </div>
+            {/* Sem turma escolhida, o aluno só digita nome (sempre funcionou
+                assim). Com turma, join_session passa a exigir e-mail
+                cadastrado nela — ver TurmasModal.jsx pra cadastrar alunos. */}
+            {onSelectTurma && (
+              <select
+                value={selectedTurmaId}
+                onChange={(e) => onSelectTurma(e.target.value)}
+                style={{ marginTop: '0.4rem', fontSize: '0.72rem', background: 'rgba(255,255,255,0.06)', color: '#e5e7eb', border: '1px solid var(--border-glass)', borderRadius: '0.3rem', padding: '0.2rem 0.4rem', maxWidth: '160px' }}
+                title="Vincular esta sessão a uma turma cadastrada (exige e-mail pra entrar)"
+              >
+                <option value="">Sem turma (só nome)</option>
+                {turmas.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
       )}

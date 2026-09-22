@@ -335,6 +335,32 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Sockets & PIN para sessão ao vivo
   const [socket, setSocket] = useState(null);
   const [pin, setPin] = useState('849201');
+  // Turmas do professor (ver TurmasModal.jsx) — carregadas uma vez pro
+  // seletor no painel de QR Code (ActiveMethodologiesOverlay), e a turma
+  // escolhida pra ESTA sessão ao vivo (null = sem turma, comportamento de
+  // sempre: aluno só digita nome, sem checagem de e-mail). A sessão em si já
+  // nasce automaticamente ao abrir o editor (ver create_session abaixo),
+  // antes do professor decidir — por isso um evento à parte (set_session_turma)
+  // em vez de virar parâmetro de create_session.
+  const [turmas, setTurmas] = useState([]);
+  const [selectedTurmaId, setSelectedTurmaId] = useState('');
+
+  useEffect(() => {
+    apiFetch('/api/turmas')
+      .then((res) => res.json())
+      .then((data) => { if (data.success) setTurmas(data.turmas); })
+      .catch(() => {}); // seletor de turma só fica vazio — não é crítico pro editor funcionar
+  }, []);
+
+  // Avisa o servidor sempre que a turma escolhida mudar — pin/socket podem
+  // ainda não existir no primeiro render (a sessão leva um instante pra ser
+  // criada, ver create_session abaixo), então este efeito roda de novo
+  // assim que qualquer um dos três mudar, não só selectedTurmaId.
+  useEffect(() => {
+    if (!socket || !pin) return;
+    socket.emit('set_session_turma', { pin, turmaId: selectedTurmaId || null });
+  }, [socket, pin, selectedTurmaId]);
+
   const [remoteControlOpen, setRemoteControlOpen] = useState(false);
   // Amplia o painel de QR Code/resultados ao vivo (ActiveMethodologiesOverlay)
   // pra turma ver melhor — ver botão dedicado dentro do próprio overlay.
@@ -3419,6 +3445,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
           <ActiveMethodologiesOverlay
             socket={socket}
             pin={pin}
+            turmas={turmas}
+            selectedTurmaId={selectedTurmaId}
+            onSelectTurma={setSelectedTurmaId}
             currentSlide={currentSlide}
             slideIndex={activeIndex}
             onNavigateBranch={handleNavigateBranch}

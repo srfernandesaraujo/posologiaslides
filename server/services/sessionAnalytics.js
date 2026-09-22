@@ -13,10 +13,10 @@ function scoreableEntries(session) {
   Object.values(session.responses || {}).forEach((slideData) => {
     (slideData.answers || []).forEach((a) => {
       if (a.correct === undefined) return;
-      entries.push({ student: a.student, topic: a.topic || NO_TOPIC, correct: a.correct });
+      entries.push({ student: a.student, studentEmail: a.studentEmail || null, topic: a.topic || NO_TOPIC, correct: a.correct });
     });
     (slideData.hotspots || []).forEach((h) => {
-      entries.push({ student: h.student, topic: h.topic || NO_TOPIC, correct: h.correct });
+      entries.push({ student: h.student, studentEmail: h.studentEmail || null, topic: h.topic || NO_TOPIC, correct: h.correct });
     });
   });
   return entries;
@@ -44,9 +44,14 @@ export function buildSessionAnalytics(session) {
   const entries = scoreableEntries(session);
   const perTopic = computeTopicStats(session);
 
+  // Chave de agrupamento: e-mail quando existe (sessão com turma vinculada —
+  // estável entre sessões/dias, ver [[project_live_session_persistence]]),
+  // senão cai pro nome digitado (sessão sem turma, comportamento de sempre —
+  // pode colidir entre alunos homônimos, mas é o mesmo risco que já existia).
   const byStudent = new Map();
-  entries.forEach(({ student, topic, correct }) => {
-    const stats = byStudent.get(student) || { name: student, correctCount: 0, totalCount: 0, topicTotals: new Map() };
+  entries.forEach(({ student, studentEmail, topic, correct }) => {
+    const key = studentEmail || student;
+    const stats = byStudent.get(key) || { name: student, email: studentEmail, correctCount: 0, totalCount: 0, topicTotals: new Map() };
     stats.totalCount += 1;
     if (correct) stats.correctCount += 1;
 
@@ -55,19 +60,19 @@ export function buildSessionAnalytics(session) {
     if (correct) topicStats.correct += 1;
     stats.topicTotals.set(topic, topicStats);
 
-    byStudent.set(student, stats);
+    byStudent.set(key, stats);
   });
 
   // session.scores é indexado por socketId (que some quando o aluno
-  // desconecta) — usa o nome (já armazenado em cada entrada, ver
-  // scoreAndRecord em sessionSocket.js) como chave estável pro cruzamento.
-  const scoreByName = new Map([...session.scores.values()].map((s) => [s.name, s.score]));
+  // desconecta) — usa e-mail (ou nome, sem turma) como chave estável pro
+  // cruzamento, mesmo critério do agrupamento acima.
+  const scoreByKey = new Map([...session.scores.values()].map((s) => [s.email || s.name, s.score]));
 
-  const perStudent = [...byStudent.values()].map(({ name, correctCount, totalCount, topicTotals }) => {
+  const perStudent = [...byStudent.values()].map(({ name, email, correctCount, totalCount, topicTotals }) => {
     const weakTopics = [...topicTotals.entries()]
       .filter(([, t]) => t.correct < t.total / 2)
       .map(([topic]) => topic);
-    return { name, score: scoreByName.get(name) || 0, correctCount, totalCount, weakTopics };
+    return { name, email, score: scoreByKey.get(email || name) || 0, correctCount, totalCount, weakTopics };
   });
 
   const ranking = [...perStudent]

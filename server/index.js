@@ -13,10 +13,12 @@ import materialsRoutes from './routes/materialsRoutes.js';
 import sessionsRoutes from './routes/sessionsRoutes.js';
 import presentationsRoutes from './routes/presentationsRoutes.js';
 import foldersRoutes from './routes/foldersRoutes.js';
+import turmasRoutes from './routes/turmasRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import mediaSearchRoutes from './routes/mediaSearchRoutes.js';
 import backupRoutes from './routes/backupRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
+import publicSessionsRoutes from './routes/publicSessionsRoutes.js';
 import narrationRoutes from './routes/narrationRoutes.js';
 import deployWebhookRoutes from './routes/deployWebhookRoutes.js';
 import multer from 'multer';
@@ -116,12 +118,16 @@ app.use('/api/materials', requireAuth, materialsRoutes);
 app.use('/api/sessions', requireAuth, sessionsRoutes);
 app.use('/api/presentations', requireAuth, presentationsRoutes);
 app.use('/api/folders', requireAuth, foldersRoutes);
+app.use('/api/turmas', requireAuth, turmasRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 app.use('/api/media-search', requireAuth, mediaSearchRoutes);
 app.use('/api/backup', requireAuth, backupRoutes);
 // Pública, de propósito (sem requireAuth) — serve apresentações via link de
 // compartilhamento só-visualização, sem exigir login (ver publicRoutes.js).
 app.use('/api/public/presentations', publicRoutes);
+// Pública, de propósito (sem requireAuth) — o aluno nunca está logado (ver
+// publicSessionsRoutes.js).
+app.use('/api/public/sessions', publicSessionsRoutes);
 // Pública, de propósito (sem requireAuth) — proxy de narração por IA pra
 // slides de código (ver narrationRoutes.js). Também roda num link de
 // apresentação compartilhado, sem login, então a chave do ElevenLabs precisa

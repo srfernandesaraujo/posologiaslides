@@ -7,7 +7,7 @@ import {
   Presentation, Search, Sparkles, Settings, Star, MoreHorizontal,
   Layers, Clock, FolderOpen, Folder, Trash2, Loader2, LogOut, Menu, X,
   Plus, Check, FolderInput, LayoutGrid, List, FileText, Pencil,
-  ArrowUpDown, ChevronUp, ChevronDown, ChevronRight, RotateCcw
+  ArrowUpDown, ChevronUp, ChevronDown, ChevronRight, RotateCcw, Users
 } from 'lucide-react';
 
 // Mesmas cores já usadas em outros pontos do app (quiz, trilha de decisão) —
@@ -115,7 +115,7 @@ function folderLabel(p) {
   return p.subfolderIsGeneral || !p.subfolderName ? p.folderName : `${p.folderName} / ${p.subfolderName}`;
 }
 
-export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateBlank, onOpenSettings, refreshKey, user, onLogout, active = true }) {
+export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateBlank, onOpenSettings, onOpenTurmas, refreshKey, user, onLogout, active = true }) {
   const [folders, setFolders] = useState([]);
   const [sizeLimitBytes, setSizeLimitBytes] = useState(DEFAULT_SIZE_LIMIT_BYTES);
   const [loading, setLoading] = useState(true);
@@ -701,7 +701,11 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
           })}
         </div>
 
-        <button className="library-nav-item" style={{ marginTop: 'auto' }} onClick={onOpenSettings}>
+        <button className="library-nav-item" style={{ marginTop: 'auto' }} onClick={onOpenTurmas}>
+          <Users size={16} /> Turmas
+        </button>
+
+        <button className="library-nav-item" onClick={onOpenSettings}>
           <Settings size={16} /> Configurações
         </button>
 

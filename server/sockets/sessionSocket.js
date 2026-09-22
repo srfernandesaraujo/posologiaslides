@@ -3,7 +3,7 @@ import { auth, db } from '../services/firebaseAdmin.js';
 import { buildSessionAnalytics, computeTopicStats } from '../services/sessionAnalytics.js';
 import { generateSessionInsight } from '../services/aiService.js';
 import { resolveApiKey } from '../routes/aiRoutes.js';
-import { saveSessionReport } from '../services/store.js';
+import { saveSessionReport, findStudentByEmail, upsertStudentStats } from '../services/store.js';
 
 // Armazenamento em memória das sessões ativas de apresentação
 const activeSessions = new Map();
@@ -71,7 +71,7 @@ export function setupSocketIO(httpServer) {
     console.log(`🔌 Novo cliente conectado: ${socket.id}`);
 
     // 1. Apresentador cria sessão (exige estar autenticado)
-    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, topic, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides, totalQuestions }) => {
+    socket.on('create_session', async ({ presentationId, title, slideType, correctAnswer, topic, hotspotConfig, pointsConfig, wordcloudConfig, branches, quizOptions, slideTitle, slideNotes, totalSlides, totalQuestions, turmaId }) => {
       const userId = await getAuthenticatedUserId(socket);
       if (!userId) {
         return socket.emit('join_error', { message: 'É necessário estar logado para iniciar uma sessão.' });
@@ -92,6 +92,13 @@ export function setupSocketIO(httpServer) {
         // /end de propósito (finalização automática por queda do
         // apresentador ou recuperação de checkpoint após um restart).
         presenterUserId: userId,
+        // Turma escolhida (opcional) ao iniciar a sessão — quando definida,
+        // join_session passa a exigir e-mail cadastrado nela em vez de só
+        // um nome digitado (ver join_session abaixo), e finalizeSession soma
+        // o desempenho desta sessão no boletim acumulado da turma (ver
+        // upsertStudentStats em store.js). Sem turma, comportamento igual
+        // ao de sempre.
+        turmaId: turmaId || null,
         currentSlideIndex: 0,
         currentSlideType: slideType || null,
         // Gabarito (resposta certa / zona certa do hotspot): só existe no servidor,
@@ -136,8 +143,8 @@ export function setupSocketIO(httpServer) {
         currentSlideTitle: slideTitle || null,
         currentSlideNotes: slideNotes || null,
         totalSlides: totalSlides || null,
-        scores: new Map(), // socketId -> { name, score }
-        participants: new Map(), // socketId -> { name, joinedAt }
+        scores: new Map(), // socketId -> { name, email, score }
+        participants: new Map(), // socketId -> { name, email, joinedAt }
         responses: {}, // slideIndex -> { answers: [], words: [], irat: [], hotspots: [], points: [] }
         startTime: Date.now(),
         lastSlideChangeAt: Date.now(),
@@ -151,19 +158,55 @@ export function setupSocketIO(httpServer) {
       console.log(`🎯 Sessão criada PIN: ${pin} para apresentação "${title}"`);
     });
 
-    // 2. Aluno entra na sessão pelo celular com PIN
-    socket.on('join_session', ({ pin, name }) => {
+    // 1b. Apresentador escolhe (ou troca) a turma vinculada a uma sessão já
+    // criada — a sessão nasce automaticamente ao abrir o editor (ver
+    // create_session acima), antes do professor decidir se vai usar turma
+    // nesta aula, então isso não dá pra ser um parâmetro de create_session.
+    // Só o próprio apresentador pode fazer isso (checagem de
+    // presenterSocketId, ao contrário da maioria dos outros eventos — aqui
+    // faz sentido, não é algo um controle remoto/aluno deveria conseguir
+    // disparar).
+    socket.on('set_session_turma', ({ pin, turmaId }, callback) => {
+      const session = activeSessions.get(pin);
+      if (!session || session.presenterSocketId !== socket.id) {
+        if (typeof callback === 'function') callback({ success: false });
+        return;
+      }
+      session.turmaId = turmaId || null;
+      if (typeof callback === 'function') callback({ success: true });
+    });
+
+    // 2. Aluno entra na sessão pelo celular com PIN. Quando a sessão tem
+    // turma vinculada (ver create_session acima), `email` é OBRIGATÓRIO e
+    // precisa estar cadastrado nela (ver findStudentByEmail) — o nome usado
+    // daqui pra frente é sempre o do CADASTRO, nunca o que o aluno digitar,
+    // pra nunca fragmentar o histórico dele por variação de grafia (motivo
+    // desta feature toda). Sem turma, comportamento de sempre: só nome
+    // livre, sem checagem nenhuma.
+    socket.on('join_session', async ({ pin, name, email }) => {
       const session = activeSessions.get(pin);
       if (!session) {
         return socket.emit('join_error', { message: 'Sessão não encontrada ou encerrada. Verifique o PIN.' });
       }
 
-      session.participants.set(socket.id, { name, joinedAt: Date.now() });
+      let finalName = name;
+      let finalEmail = null;
+      if (session.turmaId) {
+        const student = await findStudentByEmail(session.presenterUserId, session.turmaId, email);
+        if (!student) {
+          return socket.emit('join_error', { message: 'E-mail não cadastrado nesta turma. Peça pro professor te cadastrar antes de entrar.' });
+        }
+        finalName = student.name;
+        finalEmail = student.email;
+      }
+
+      session.participants.set(socket.id, { name: finalName, email: finalEmail, joinedAt: Date.now() });
       socket.join(`session_${pin}`);
 
       socket.emit('joined_successfully', {
         pin,
         title: session.title,
+        name: finalName,
         currentSlideIndex: session.currentSlideIndex,
         slideType: session.currentSlideType,
         hotspotImageUrl: session.currentHotspotConfig?.imageUrl || null,
@@ -181,10 +224,10 @@ export function setupSocketIO(httpServer) {
       // Notifica apresentador sobre novo aluno
       io.to(session.presenterSocketId).emit('participant_joined', {
         count: session.participants.size,
-        name
+        name: finalName
       });
 
-      console.log(`📱 Aluno "${name}" entrou na sessão ${pin}`);
+      console.log(`📱 Aluno "${finalName}" entrou na sessão ${pin}`);
     });
 
     // 2b. Celular entra na sessão como CONTROLE REMOTO (não é aluno: não conta
@@ -261,6 +304,7 @@ export function setupSocketIO(httpServer) {
 
       const participant = session.participants.get(socket.id);
       const studentName = participant ? participant.name : 'Anônimo';
+      const studentEmail = participant?.email || null;
 
       const key = responseKey(slideIndex, questionIndex);
       if (!session.responses[key]) {
@@ -275,11 +319,11 @@ export function setupSocketIO(httpServer) {
         // distinção entre "enquete sem certo/errado" e "resposta errada"
         // (ver scoreableEntries em sessionAnalytics.js).
         const correct = session.currentCorrectAnswer ? answer === session.currentCorrectAnswer : undefined;
-        slideData.answers.push({ student: studentName, answer, correct, topic: session.currentTopic || null, timestamp: Date.now() });
+        slideData.answers.push({ student: studentName, studentEmail, answer, correct, topic: session.currentTopic || null, timestamp: Date.now() });
         // Quiz só pontua se o apresentador marcou um gabarito — sem isso continua
         // sendo uma enquete de opinião comum, sem certo/errado (comportamento original).
         if (session.currentCorrectAnswer) {
-          scoreResult = scoreAndRecord(session, socket.id, studentName, correct);
+          scoreResult = scoreAndRecord(session, socket.id, studentName, studentEmail, correct);
         }
       } else if (responseType === 'wordcloud') {
         slideData.words.push({ student: studentName, word: answer.trim(), timestamp: Date.now() });
@@ -288,8 +332,8 @@ export function setupSocketIO(httpServer) {
       } else if (responseType === 'hotspot') {
         const zone = session.currentHotspotConfig;
         const correct = !!zone && isWithinHotspot(answer, zone);
-        slideData.hotspots.push({ student: studentName, x: answer?.x, y: answer?.y, correct, topic: session.currentTopic || null, timestamp: Date.now() });
-        scoreResult = scoreAndRecord(session, socket.id, studentName, correct);
+        slideData.hotspots.push({ student: studentName, studentEmail, x: answer?.x, y: answer?.y, correct, topic: session.currentTopic || null, timestamp: Date.now() });
+        scoreResult = scoreAndRecord(session, socket.id, studentName, studentEmail, correct);
       } else if (responseType === 'branch') {
         // Votação da turma na Trilha de Decisão — raciocínio clínico em grupo,
         // sem certo/errado, então sem pontuação (mesmo espírito do wordcloud).
@@ -482,13 +526,14 @@ export function setupSocketIO(httpServer) {
 // Pontua uma resposta certa/errada e acumula no placar do aluno. Quanto mais rápido
 // responder (a partir do instante em que o slide atual entrou em cena), mais pontos —
 // mesmo espírito de jogos de quiz ao vivo (Kahoot etc.), sem precisar de lib nova.
-function scoreAndRecord(session, socketId, name, correct) {
+function scoreAndRecord(session, socketId, name, email, correct) {
   const elapsedSeconds = (Date.now() - session.lastSlideChangeAt) / 1000;
   const points = correct ? Math.max(10, 100 - Math.floor(elapsedSeconds) * 3) : 0;
   if (correct) {
-    const current = session.scores.get(socketId) || { name, score: 0 };
+    const current = session.scores.get(socketId) || { name, email, score: 0 };
     current.score += points;
     current.name = name;
+    current.email = email;
     session.scores.set(socketId, current);
   }
   return { correct, points };
@@ -607,6 +652,7 @@ async function checkpointSession(pin, session) {
       pin,
       presentationId: session.presentationId,
       presenterUserId: session.presenterUserId,
+      turmaId: session.turmaId || null,
       title: session.title,
       startTime: session.startTime,
       lastSlideChangeAt: session.lastSlideChangeAt,
@@ -677,6 +723,18 @@ export async function finalizeSession(pin, { apiKeyOverride } = {}) {
 
   try {
     const saved = await saveSessionReport(session.presenterUserId, session.presentationId, report);
+    // Soma o desempenho desta sessão no boletim acumulado da turma (ver
+    // upsertStudentStats em store.js) — só quando a sessão foi vinculada a
+    // uma turma (ver create_session/join_session acima). Best-effort: uma
+    // falha aqui não pode impedir o relatório da SESSÃO em si de já estar
+    // salvo (mais importante) — só fica sem contar pro boletim desta vez.
+    if (session.turmaId) {
+      try {
+        await upsertStudentStats(session.presenterUserId, session.turmaId, analytics.perStudent);
+      } catch (err) {
+        console.error(`Falha ao atualizar o boletim da turma ${session.turmaId} (relatório da sessão já foi salvo):`, err.message);
+      }
+    }
     activeSessions.delete(pin);
     const timer = pendingFinalizeTimers.get(pin);
     if (timer) {
@@ -711,6 +769,7 @@ async function recoverOrphanedCheckpoint(data) {
     pin,
     presentationId: data.presentationId,
     presenterUserId: data.presenterUserId,
+    turmaId: data.turmaId || null,
     title: data.title,
     startTime: data.startTime,
     lastSlideChangeAt: data.lastSlideChangeAt,

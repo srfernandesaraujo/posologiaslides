@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { API_URL } from '../lib/api';
+import { API_URL, apiFetch } from '../lib/api';
 import { Smartphone, Send, CheckCircle2, Sparkles, Users, Clock } from 'lucide-react';
 
 const POINTS_TOTAL = 100;
@@ -87,6 +87,15 @@ export default function StudentJoin() {
   const [socket, setSocket] = useState(null);
   const [pin, setPin] = useState('');
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  // Sessão vinculada a uma turma (ver TurmasModal.jsx/create_session) exige
+  // e-mail cadastrado em vez de nome livre — só dá pra saber isso depois de
+  // consultar o PIN (ver checkSessionMeta abaixo), então o formulário troca
+  // de campo dinamicamente assim que o PIN é reconhecido. `null` = ainda não
+  // checou (ou PIN inválido/incompleto), formulário mostra os dois campos
+  // até saber ao certo, pra nunca travar o aluno numa tela sem jeito de entrar.
+  const [requiresEmail, setRequiresEmail] = useState(null);
+  const [checkingMeta, setCheckingMeta] = useState(false);
   const [joined, setJoined] = useState(false);
   const [sessionTitle, setSessionTitle] = useState('');
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
@@ -103,10 +112,33 @@ export default function StudentJoin() {
   // criado (quase sempre "ainda não entrou"), nunca o valor atual.
   const pinRef = useRef('');
   const nameRef = useRef('');
+  const emailRef = useRef('');
   const joinedRef = useRef(false);
   useEffect(() => { pinRef.current = pin; }, [pin]);
   useEffect(() => { nameRef.current = name; }, [name]);
+  useEffect(() => { emailRef.current = email; }, [email]);
   useEffect(() => { joinedRef.current = joined; }, [joined]);
+
+  // Consulta se o PIN exige e-mail cadastrado (turma vinculada, ver
+  // /api/public/sessions/:pin/meta em publicSessionsRoutes.js) assim que o
+  // PIN tiver os 6 dígitos — tanto no auto-preenchido pela URL do QR Code
+  // quanto num digitado à mão. Silencioso em caso de erro/PIN inválido: o
+  // botão "Entrar" de qualquer forma vai mostrar o erro de verdade (PIN não
+  // encontrado) ao tentar, não precisa duplicar a mensagem aqui.
+  useEffect(() => {
+    if (pin.length !== 6) {
+      setRequiresEmail(null);
+      return;
+    }
+    let cancelled = false;
+    setCheckingMeta(true);
+    apiFetch(`/api/public/sessions/${pin}/meta`)
+      .then((res) => res.json())
+      .then((data) => { if (!cancelled) setRequiresEmail(data.success ? !!data.requiresEmail : null); })
+      .catch(() => { if (!cancelled) setRequiresEmail(null); })
+      .finally(() => { if (!cancelled) setCheckingMeta(false); });
+    return () => { cancelled = true; };
+  }, [pin]);
   // Pergunta ativa dentro de um quiz com várias perguntas sequenciais no
   // mesmo slide (ver sync_quiz_question abaixo) — totalQuestions > 1 é o
   // que liga o rótulo "Pergunta X de N" na tela do aluno.
@@ -152,9 +184,9 @@ export default function StudentJoin() {
     // em toda reconexão depois dela.
     newSocket.on('connect', () => {
       logDebug(`connect (socket.id=${newSocket.id})`);
-      if (joinedRef.current && pinRef.current && nameRef.current) {
+      if (joinedRef.current && pinRef.current) {
         logDebug('reenviando join_session apos (re)conexao');
-        newSocket.emit('join_session', { pin: pinRef.current, name: nameRef.current });
+        newSocket.emit('join_session', { pin: pinRef.current, name: nameRef.current, email: emailRef.current });
       }
     });
 
@@ -162,9 +194,14 @@ export default function StudentJoin() {
       logDebug(`disconnect (motivo: ${reason})`);
     });
 
-    newSocket.on('joined_successfully', ({ title, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions, questionIndex, totalQuestions }) => {
+    newSocket.on('joined_successfully', ({ title, name: registeredName, currentSlideIndex, slideType, hotspotImageUrl, pointsConfig, wordcloudConfig, branches, quizOptions, questionIndex, totalQuestions }) => {
       setJoined(true);
       setSessionTitle(title);
+      // Com turma vinculada, este é o nome do CADASTRO (nunca o que foi
+      // digitado) — mantém grafia consistente entre sessões/dias, motivo
+      // desta feature (ver join_session em sessionSocket.js). Sem turma, o
+      // servidor só ecoa de volta o nome já digitado, mesmo efeito de sempre.
+      setName(registeredName);
       setCurrentSlideIndex(currentSlideIndex);
       setSlideType(slideType || null);
       setHotspotImageUrl(hotspotImageUrl || null);
@@ -246,12 +283,20 @@ export default function StudentJoin() {
 
   const handleJoin = (e) => {
     e.preventDefault();
-    if (!pin || !name.trim()) {
-      alert('Digite o PIN e seu nome.');
+    if (!pin) {
+      alert('Digite o PIN.');
+      return;
+    }
+    if (requiresEmail && !email.trim()) {
+      alert('Esta sessão exige o e-mail cadastrado pelo professor pra entrar.');
+      return;
+    }
+    if (!requiresEmail && !name.trim()) {
+      alert('Digite seu nome.');
       return;
     }
     if (socket) {
-      socket.emit('join_session', { pin, name: name.trim() });
+      socket.emit('join_session', { pin, name: name.trim(), email: email.trim() });
     }
   };
 
@@ -347,16 +392,36 @@ export default function StudentJoin() {
                 onChange={(e) => setPin(e.target.value)}
               />
             </div>
-            <div>
-              <input
-                type="text"
-                className="chat-input"
-                placeholder="Seu Nome ou Apelido"
-                style={{ width: '100%', fontSize: '1rem', textAlign: 'center' }}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
+            {checkingMeta && (
+              <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>Verificando PIN...</div>
+            )}
+            {/* requiresEmail === true: turma vinculada, exige e-mail
+                cadastrado (ver join_session em sessionSocket.js) — o nome
+                vem do cadastro, nem é pedido aqui. false/null (ainda não
+                sabe, ou sessão sem turma): campo de nome livre, de sempre. */}
+            {requiresEmail ? (
+              <div>
+                <input
+                  type="email"
+                  className="chat-input"
+                  placeholder="Seu e-mail cadastrado pelo professor"
+                  style={{ width: '100%', fontSize: '1rem', textAlign: 'center' }}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+            ) : (
+              <div>
+                <input
+                  type="text"
+                  className="chat-input"
+                  placeholder="Seu Nome ou Apelido"
+                  style={{ width: '100%', fontSize: '1rem', textAlign: 'center' }}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+            )}
             <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '0.8rem', fontSize: '1rem' }}>
               <Sparkles size={18} /> Entrar na Sessão
             </button>
