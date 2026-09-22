@@ -64,6 +64,17 @@ export default function ActiveMethodologiesOverlay({
   // pra "Voltar" numa pergunta anterior já liberada continuar mostrando o
   // resultado dela em vez de escondê-lo de novo.
   const [revealedQuestions, setRevealedQuestions] = useState(() => new Set());
+  // Até onde o quiz já avançou nesta sessão (não o mesmo que
+  // activeQuizQuestionIndex, que pode RECUAR ao clicar "Voltar pra pergunta
+  // anterior") — uma pergunta já ultrapassada revela o resultado sozinha ao
+  // ser revisitada (ver isQuizResultRevealed abaixo): sem isto, voltar pra
+  // dar feedback numa pergunta anterior mostrava só "N respostas recebidas"
+  // sem marcar a certa nem os percentuais, porque o reveal só existia pra
+  // pergunta ATUAL/última (ver comentário ali). Reseta ao trocar de slide
+  // (quiz novo, índices recomeçam do zero).
+  const [maxQuestionIndexReached, setMaxQuestionIndexReached] = useState(0);
+  useEffect(() => { setMaxQuestionIndexReached(0); }, [slideIndex]);
+  useEffect(() => { setMaxQuestionIndexReached((prev) => Math.max(prev, activeQuizQuestionIndex || 0)); }, [activeQuizQuestionIndex]);
 
   useEffect(() => {
     if (!socket) return;
@@ -219,12 +230,17 @@ export default function ActiveMethodologiesOverlay({
   const activeQuizQuestion = quizQuestions?.[activeQuizQuestionIndex];
   const showQuizPanel = currentSlide?.type === 'quiz' && quizRevealed && !!activeQuizQuestion;
 
-  // Só existe "Liberar resultado" na ÚLTIMA pergunta do quiz (ou na única,
-  // se for só uma) — perguntas anteriores nunca mostram a distribuição de
-  // respostas, só avançam com "Liberar próxima", pra ninguém decidir a
-  // resposta olhando a maioria de uma pergunta anterior ainda em tela.
+  // "Liberar resultado" só existe na ÚLTIMA pergunta do quiz (ou na única) —
+  // enquanto uma pergunta está ATIVA (a mais avançada até agora), esconde a
+  // distribuição de respostas, pra ninguém decidir a resposta olhando a
+  // maioria de uma pergunta ainda rolando. Mas uma pergunta já ULTRAPASSADA
+  // (o professor já avançou além dela) revela sozinha ao ser revisitada via
+  // "Voltar pra pergunta anterior" — é justamente pra isso que o professor
+  // volta, dar feedback com o resultado à mostra (ver maxQuestionIndexReached
+  // acima).
   const isLastQuizQuestion = (activeQuizQuestionIndex || 0) >= (quizQuestions.length - 1);
-  const isQuizResultRevealed = isLastQuizQuestion && revealedQuestions.has(activeQuizQuestionIndex || 0);
+  const isPastQuizQuestion = (activeQuizQuestionIndex || 0) < maxQuestionIndexReached;
+  const isQuizResultRevealed = isPastQuizQuestion || (isLastQuizQuestion && revealedQuestions.has(activeQuizQuestionIndex || 0));
   // Ranking/Acerto por Assunto (ver overlayPanels abaixo) só aparecem de novo
   // depois que o resultado final for liberado — enquanto o quiz está rolando,
   // ficam ocultos junto com a distribuição de respostas.
