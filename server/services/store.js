@@ -294,6 +294,7 @@ export async function getFolderTree(userId, timings = {}) {
     presentationsRef(userId).select('subfolderId', 'title', 'favorite', 'updatedAt', 'lastOpenedAt', 'trashed', 'thumbnail', 'firstSlideHtml', 'sizeBytes').get().then(mark('presentationsMs')),
     userRef(userId).get().then(mark('profileMs'))
   ]);
+  timings.presentationsCount = presentationsSnap.size;
   const defaultSubfolderId = profileSnap.data()?.defaultSubfolderId || null;
 
   const presentationsBySubfolder = new Map();
