@@ -22,29 +22,11 @@ import deployWebhookRoutes from './routes/deployWebhookRoutes.js';
 import multer from 'multer';
 import { requireAuth } from './middleware/auth.js';
 import { setupSocketIO } from './sockets/sessionSocket.js';
+import { db } from './services/firebaseAdmin.js';
 
 const app = express();
 const httpServer = http.createServer(app);
 const PORT = process.env.PORT || 3001;
-
-// DIAGNÓSTICO TEMPORÁRIO (setembro/2026): a biblioteca ficou lenta (dezenas de
-// segundos) mesmo pra respostas pequenas, e continuou igual mesmo isolando
-// banda residencial disputada (ver conversa/memória sobre o assunto). Este
-// cabeçalho mede só o tempo de PROCESSAMENTO do servidor (da entrada do
-// Express até o corpo da resposta ficar pronto) — aparece direto na aba
-// Network > Cabeçalhos do navegador, sem precisar de SSH/log. Se
-// x-server-time-ms for baixo mas o tempo total no DevTools continuar alto, o
-// problema está no trajeto até o cliente (túnel/Cloudflare/ISP), não no
-// código. Remover depois de diagnosticado.
-app.use((req, res, next) => {
-  const startedAt = Date.now();
-  const originalJson = res.json.bind(res);
-  res.json = (body) => {
-    res.setHeader('X-Server-Time-Ms', String(Date.now() - startedAt));
-    return originalJson(body);
-  };
-  next();
-});
 
 // Configurar Socket.io
 const io = setupSocketIO(httpServer);
@@ -85,8 +67,33 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Healthcheck — também usado pelo deploy.sh pra confirmar que o restart
 // funcionou antes de considerar o deploy concluído (ver scripts/deploy.sh).
+// De propósito NÃO toca no Firestore nem em nada externo: deploy.sh dá só
+// alguns segundos de tolerância pra isso responder, e travar aqui numa
+// consulta lenta faria um deploy bom ser revertido por engano — mesma
+// armadilha do bug de 2026-08-14 citado no próprio deploy.sh, só que causada
+// por este endpoint em vez de por ele. Latência de verdade (Firestore/rede)
+// é medida à parte, em /api/health/latency.
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Servidor de Apresentações HTML com IA e Socket.io operacional.' });
+});
+
+// Sonda de latência: usada só pelo cron de scripts/healthcheck.js pra
+// detectar quando a conexão do servidor com a internet está degradada, não
+// pelo deploy.sh (ver comentário acima). Uma consulta mínima ao Firestore
+// (documento provavelmente inexistente, tanto faz — o custo é o mesmo) serve
+// de "canário": se ELA estiver lenta, qualquer outra chamada real ao
+// Firestore (biblioteca, autosave, etc.) também vai estar. Achado real que
+// motivou isto: 2026-09-22, uma consulta trivial levou ~26s por causa da
+// internet da casa ficar degradada — resolvido reiniciando o roteador, sem
+// nada de errado no código. Ver [[project_library_loading_performance]].
+app.get('/api/health/latency', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    await db.collection('_meta').doc('healthcheck').get();
+    res.json({ ok: true, firestoreMs: Date.now() - startedAt });
+  } catch (err) {
+    res.status(503).json({ ok: false, firestoreMs: Date.now() - startedAt, error: err.message });
+  }
 });
 
 // Webhook do GitHub (push → auto-deploy, ver deployWebhookRoutes.js) — sem

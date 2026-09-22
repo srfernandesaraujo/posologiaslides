@@ -277,24 +277,16 @@ function computeListingFields(slides, thumbnail) {
   return { firstSlideHtml, thumbnail: validThumbnail, sizeBytes };
 }
 
-// DIAGNÓSTICO TEMPORÁRIO (ver X-Server-Timing-Detail em presentationsRoutes.js)
-// — `timings`, se passado, recebe quanto tempo (desde o início desta função)
-// cada uma das 4 consultas em paralelo levou pra resolver, pra achar qual
-// delas especificamente está pesando os ~28s vistos em produção. Remover
-// junto do resto do diagnóstico depois de identificado.
-export async function getFolderTree(userId, timings = {}) {
-  const t0 = Date.now();
-  const mark = (key) => (result) => { timings[key] = Date.now() - t0; return result; };
+export async function getFolderTree(userId) {
   const [foldersSnap, subfoldersSnap, presentationsSnap, profileSnap] = await Promise.all([
-    foldersRef(userId).orderBy('createdAt', 'asc').get().then(mark('foldersMs')),
-    subfoldersRef(userId).get().then(mark('subfoldersMs')),
+    foldersRef(userId).orderBy('createdAt', 'asc').get(),
+    subfoldersRef(userId).get(),
     // .select() busca só estes campos pequenos — nunca toca no array `slides`
     // (o grosso do documento) pra montar a listagem. thumbnail/firstSlideHtml/
     // sizeBytes vêm pré-calculados de savePresentation, não recalculados aqui.
-    presentationsRef(userId).select('subfolderId', 'title', 'favorite', 'updatedAt', 'lastOpenedAt', 'trashed', 'thumbnail', 'firstSlideHtml', 'sizeBytes').get().then(mark('presentationsMs')),
-    userRef(userId).get().then(mark('profileMs'))
+    presentationsRef(userId).select('subfolderId', 'title', 'favorite', 'updatedAt', 'lastOpenedAt', 'trashed', 'thumbnail', 'firstSlideHtml', 'sizeBytes').get(),
+    userRef(userId).get()
   ]);
-  timings.presentationsCount = presentationsSnap.size;
   const defaultSubfolderId = profileSnap.data()?.defaultSubfolderId || null;
 
   const presentationsBySubfolder = new Map();
