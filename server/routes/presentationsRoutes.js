@@ -27,9 +27,10 @@ router.get('/tree', asyncHandler(async (req, res) => {
   // verificação de token, garantir perfil, ou a consulta da árvore em si.
   // Remover depois de identificado o gargalo.
   const treeStart = Date.now();
-  const folders = await getFolderTree(req.user.id);
+  const treeTimings = {};
+  const folders = await getFolderTree(req.user.id, treeTimings);
   const treeBuildMs = Date.now() - treeStart;
-  res.setHeader('X-Server-Timing-Detail', `verify-token=${req._authTimings?.verifyIdTokenMs ?? '?'}ms; ensure-profile=${req._authTimings?.ensureUserProfileMs ?? '?'}ms; tree-build=${treeBuildMs}ms`);
+  res.setHeader('X-Server-Timing-Detail', `verify-token=${req._authTimings?.verifyIdTokenMs ?? '?'}ms; ensure-profile=${req._authTimings?.ensureUserProfileMs ?? '?'}ms; tree-build=${treeBuildMs}ms (folders=${treeTimings.foldersMs ?? '?'}ms subfolders=${treeTimings.subfoldersMs ?? '?'}ms presentations=${treeTimings.presentationsMs ?? '?'}ms profile=${treeTimings.profileMs ?? '?'}ms)`);
   res.json({ success: true, folders, sizeLimitBytes: FIRESTORE_MAX_DOCUMENT_BYTES });
 }));
 
