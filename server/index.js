@@ -27,6 +27,25 @@ const app = express();
 const httpServer = http.createServer(app);
 const PORT = process.env.PORT || 3001;
 
+// DIAGNÓSTICO TEMPORÁRIO (setembro/2026): a biblioteca ficou lenta (dezenas de
+// segundos) mesmo pra respostas pequenas, e continuou igual mesmo isolando
+// banda residencial disputada (ver conversa/memória sobre o assunto). Este
+// cabeçalho mede só o tempo de PROCESSAMENTO do servidor (da entrada do
+// Express até o corpo da resposta ficar pronto) — aparece direto na aba
+// Network > Cabeçalhos do navegador, sem precisar de SSH/log. Se
+// x-server-time-ms for baixo mas o tempo total no DevTools continuar alto, o
+// problema está no trajeto até o cliente (túnel/Cloudflare/ISP), não no
+// código. Remover depois de diagnosticado.
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    res.setHeader('X-Server-Time-Ms', String(Date.now() - startedAt));
+    return originalJson(body);
+  };
+  next();
+});
+
 // Configurar Socket.io
 const io = setupSocketIO(httpServer);
 
