@@ -21,7 +21,7 @@ import narrationRoutes from './routes/narrationRoutes.js';
 import deployWebhookRoutes from './routes/deployWebhookRoutes.js';
 import multer from 'multer';
 import { requireAuth } from './middleware/auth.js';
-import { setupSocketIO } from './sockets/sessionSocket.js';
+import { setupSocketIO, recoverOrphanedCheckpoints } from './sockets/sessionSocket.js';
 import { db } from './services/firebaseAdmin.js';
 
 const app = express();
@@ -30,6 +30,13 @@ const PORT = process.env.PORT || 3001;
 
 // Configurar Socket.io
 const io = setupSocketIO(httpServer);
+
+// Sessões ao vivo que sobraram salvas em checkpoint (ver sessionSocket.js) —
+// sinal de que o processo ANTERIOR morreu (crash/deploy/restart) antes de
+// encerrar aquela sessão sozinho. Salva o relatório final delas agora, com
+// os dados de até ~45s antes da queda, em vez de perder tudo em silêncio.
+// Best-effort, nunca atrasa o boot do servidor.
+recoverOrphanedCheckpoints().catch((err) => console.error('Falha ao recuperar sessões ao vivo órfãs:', err.message));
 
 // Frontend (Cloudflare Pages) e backend (servidor doméstico) ficam em origens
 // diferentes, então CORS precisa de uma lista explícita — `CLIENT_URL` no

@@ -1,9 +1,7 @@
 import express from 'express';
-import { getSessionReport, getActiveSession } from '../sockets/sessionSocket.js';
-import { summarizeOpenResponses, generateSessionInsight } from '../services/aiService.js';
+import { getSessionReport, getActiveSession, finalizeSession } from '../sockets/sessionSocket.js';
+import { summarizeOpenResponses } from '../services/aiService.js';
 import { resolveApiKey } from './aiRoutes.js';
-import { buildSessionAnalytics } from '../services/sessionAnalytics.js';
-import { saveSessionReport } from '../services/store.js';
 
 const router = express.Router();
 
@@ -20,36 +18,18 @@ router.get('/:pin/report', (req, res) => {
 // reais, ver sessionAnalytics.js), gera um parágrafo de feedback com IA
 // (best-effort — cai num resumo baseado em regra se falhar) e persiste o
 // relatório final no Firestore, pra sobreviver a um restart do servidor
-// (diferente do resto da sessão, que vive só em memória).
+// (diferente do resto da sessão, que vive só em memória). A lógica em si
+// mora em finalizeSession (sessionSocket.js) — mesmo caminho usado pelas
+// finalizações automáticas (queda do apresentador, recuperação após
+// restart), pra nunca divergir do que o clique manual sempre fez.
 router.post('/:pin/end', async (req, res) => {
   try {
     const { apiKey } = req.body;
-    const session = getActiveSession(req.params.pin);
-    const baseReport = getSessionReport(req.params.pin);
-    if (!session || !baseReport) {
+    const result = await finalizeSession(req.params.pin, { apiKeyOverride: apiKey });
+    if (!result) {
       return res.status(404).json({ error: 'Sessão não encontrada ou já encerrada.' });
     }
-
-    const analytics = buildSessionAnalytics(session);
-    const effectiveApiKey = await resolveApiKey(req.user.id, apiKey);
-    const { insight, warning } = await generateSessionInsight({
-      title: session.title,
-      perTopic: analytics.perTopic,
-      overallAccuracyPct: analytics.overallAccuracyPct,
-      apiKey: effectiveApiKey
-    });
-
-    const report = {
-      ...baseReport,
-      presentationId: session.presentationId,
-      startTime: session.startTime,
-      endTime: Date.now(),
-      ...analytics,
-      insight
-    };
-
-    const saved = await saveSessionReport(req.user.id, session.presentationId, report);
-    res.json({ success: true, report: saved, warning: warning || null });
+    res.json({ success: true, report: result.report, warning: result.warning || null });
   } catch (error) {
     console.error('Erro na rota end (encerrar sessão):', error);
     res.status(500).json({ error: 'Falha ao encerrar a sessão e gerar o relatório final.' });

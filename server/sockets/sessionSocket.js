@@ -1,9 +1,36 @@
 import { Server } from 'socket.io';
-import { auth } from '../services/firebaseAdmin.js';
-import { computeTopicStats } from '../services/sessionAnalytics.js';
+import { auth, db } from '../services/firebaseAdmin.js';
+import { buildSessionAnalytics, computeTopicStats } from '../services/sessionAnalytics.js';
+import { generateSessionInsight } from '../services/aiService.js';
+import { resolveApiKey } from '../routes/aiRoutes.js';
+import { saveSessionReport } from '../services/store.js';
 
 // Armazenamento em memória das sessões ativas de apresentação
 const activeSessions = new Map();
+
+// Timers de finalização automática (ver PRESENTER_GRACE_PERIOD_MS abaixo) —
+// pin -> timeout handle, só pra permitir cancelar/evitar agendar duas vezes.
+const pendingFinalizeTimers = new Map();
+
+// A cada 45s, salva um retrato leve de CADA sessão ativa no Firestore — sem
+// isso, uma sessão ao vivo existia só na memória do processo, e um restart
+// do servidor (deploy, crash, o próprio processo caindo) no meio de uma aula
+// apagava tudo sem deixar rastro nenhum, mesmo que o professor NUNCA tivesse
+// esquecido de clicar "Encerrar". Achado real: Aula 1 de Farmacologia
+// Aplicada, 2026-09, atravessou sexta/segunda/quarta sem nenhum relatório
+// salvo. Ver checkpointSession/recoverOrphanedCheckpoints abaixo.
+const CHECKPOINT_INTERVAL_MS = 45000;
+
+// Tempo de folga depois do socket do APRESENTADOR cair antes de considerar a
+// sessão encerrada de vez e salvar o relatório sozinho — cobre o caso comum
+// de esquecer de clicar "Encerrar sessão" (ex.: aula que continua noutro
+// dia). Não existe hoje um jeito de "retomar" o mesmo PIN depois de uma
+// queda (create_session sempre gera um PIN novo), então uma queda do
+// apresentador já significa, na prática, que esta sessão específica acabou
+// — a folga é só pra não finalizar por causa de um soluço de rede de
+// alguns segundos (o próprio Socket.IO já absorve quedas bem curtas antes
+// de disparar 'disconnect' no servidor).
+const PRESENTER_GRACE_PERIOD_MS = 3 * 60 * 1000;
 
 // Chave composta usada em session.responses — permite várias perguntas
 // sequenciais dentro do MESMO slide de quiz (ver activate_quiz_question
@@ -60,6 +87,11 @@ export function setupSocketIO(httpServer) {
         presentationId,
         title,
         presenterSocketId: socket.id,
+        // Dono da sessão — necessário pra salvar o relatório final (ver
+        // finalizeSession abaixo) mesmo quando ninguém chamou a rota HTTP
+        // /end de propósito (finalização automática por queda do
+        // apresentador ou recuperação de checkpoint após um restart).
+        presenterUserId: userId,
         currentSlideIndex: 0,
         currentSlideType: slideType || null,
         // Gabarito (resposta certa / zona certa do hotspot): só existe no servidor,
@@ -423,9 +455,26 @@ export function setupSocketIO(httpServer) {
             count: session.participants.size
           });
         }
+
+        // O APRESENTADOR caiu — agenda a finalização automática (ver
+        // PRESENTER_GRACE_PERIOD_MS acima). Guardado num Map só pra nunca
+        // agendar duas vezes o mesmo pin (disconnect não deveria disparar
+        // mais de uma vez pro mesmo socket, mas o guard é barato).
+        if (session.presenterSocketId === socket.id && !pendingFinalizeTimers.has(pin)) {
+          const timer = setTimeout(() => {
+            pendingFinalizeTimers.delete(pin);
+            finalizeSession(pin).catch((err) => console.error(`Falha ao auto-finalizar sessão ${pin} após queda do apresentador:`, err.message));
+          }, PRESENTER_GRACE_PERIOD_MS);
+          pendingFinalizeTimers.set(pin, timer);
+        }
       });
     });
   });
+
+  // Checkpoint periódico — ver CHECKPOINT_INTERVAL_MS acima.
+  setInterval(() => {
+    activeSessions.forEach((session, pin) => { checkpointSession(pin, session); });
+  }, CHECKPOINT_INTERVAL_MS);
 
   return io;
 }
@@ -538,4 +587,165 @@ export function getSessionReport(pin) {
     longestSlide,
     mostEngagedSlide
   };
+}
+
+function checkpointsRef() {
+  // Coleção de nível raiz (não por usuário) — assim como `shares`, o pin já
+  // é a chave natural, e a recuperação no boot (ver recoverOrphanedCheckpoints)
+  // precisa varrer todo mundo de uma vez, não usuário por usuário.
+  return db.collection('liveSessionCheckpoints');
+}
+
+// Salva um retrato leve e serializável da sessão (Maps viram objetos planos —
+// Firestore não aceita Map, e um array de pares [chave,valor] seria um array
+// DENTRO de array, que o Firestore também recusa, ver findInvalidNestedArrayPath
+// em store.js pro mesmo problema noutro contexto). Sobrescreve o checkpoint
+// anterior do mesmo pin — não é histórico, é só "o estado mais recente".
+async function checkpointSession(pin, session) {
+  try {
+    await checkpointsRef().doc(pin).set({
+      pin,
+      presentationId: session.presentationId,
+      presenterUserId: session.presenterUserId,
+      title: session.title,
+      startTime: session.startTime,
+      lastSlideChangeAt: session.lastSlideChangeAt,
+      currentSlideIndex: session.currentSlideIndex,
+      slideDwellTimes: session.slideDwellTimes,
+      responses: session.responses,
+      scores: Object.fromEntries(session.scores),
+      participantsCount: session.participants.size,
+      updatedAt: Date.now()
+    });
+  } catch (err) {
+    console.error(`Falha ao salvar checkpoint da sessão ${pin}:`, err.message);
+  }
+}
+
+async function clearCheckpoint(pin) {
+  try {
+    await checkpointsRef().doc(pin).delete();
+  } catch (err) {
+    // Melhor esforço — um checkpoint órfão que sobra não causa dano nenhum
+    // além de ser recuperado (inofensivo, ver recoverOrphanedCheckpoint) de
+    // novo no próximo restart.
+    console.error(`Falha ao limpar checkpoint da sessão ${pin}:`, err.message);
+  }
+}
+
+// Encerra a sessão de verdade: calcula o relatório final (mesma lógica de
+// sempre, ver getSessionReport/buildSessionAnalytics), gera o insight de IA
+// (best-effort — uma falha aqui NUNCA deve impedir o relatório de ser
+// salvo, só fica sem o parágrafo de IA) e persiste no Firestore. Usada tanto
+// pelo clique manual em "Encerrar sessão" (POST /:pin/end) quanto pelas duas
+// finalizações automáticas (queda do apresentador com folga, e recuperação
+// de checkpoint órfão após um restart) — um único caminho de verdade, pra
+// nunca divergir do que a rota HTTP sempre fez.
+export async function finalizeSession(pin, { apiKeyOverride } = {}) {
+  const session = activeSessions.get(pin);
+  if (!session) return null;
+  const baseReport = getSessionReport(pin);
+  if (!baseReport) return null;
+
+  const analytics = buildSessionAnalytics(session);
+
+  let insight = null;
+  let warning = null;
+  try {
+    const effectiveApiKey = await resolveApiKey(session.presenterUserId, apiKeyOverride);
+    const result = await generateSessionInsight({
+      title: session.title,
+      perTopic: analytics.perTopic,
+      overallAccuracyPct: analytics.overallAccuracyPct,
+      apiKey: effectiveApiKey
+    });
+    insight = result.insight;
+    warning = result.warning || null;
+  } catch (err) {
+    console.error(`Falha ao gerar insight da sessão ${pin} (relatório salvo sem ele):`, err.message);
+    warning = 'Falha ao gerar o insight com IA.';
+  }
+
+  const report = {
+    ...baseReport,
+    presentationId: session.presentationId,
+    startTime: session.startTime,
+    endTime: Date.now(),
+    ...analytics,
+    insight
+  };
+
+  try {
+    const saved = await saveSessionReport(session.presenterUserId, session.presentationId, report);
+    activeSessions.delete(pin);
+    const timer = pendingFinalizeTimers.get(pin);
+    if (timer) {
+      clearTimeout(timer);
+      pendingFinalizeTimers.delete(pin);
+    }
+    await clearCheckpoint(pin);
+    return { report: saved, warning };
+  } catch (err) {
+    // Não deleta a sessão da memória nem o checkpoint no Firestore — assim o
+    // próximo ciclo de checkpoint (ou um próximo restart) tenta de novo, em
+    // vez de perder os dados por causa de uma falha pontual de rede/Firestore.
+    console.error(`Falha ao salvar relatório final da sessão ${pin}:`, err.message);
+    return null;
+  }
+}
+
+// Roda uma vez, na subida do servidor (ver index.js) — qualquer checkpoint
+// que sobrou no Firestore significa que o processo ANTERIOR morreu (crash,
+// deploy, restart do pm2) antes de finalizar aquela sessão sozinho, seja
+// pelo clique manual ou pela folga de queda do apresentador (ela também
+// morre junto do processo). Reconstrói uma sessão mínima só com o que
+// finalizeSession/getSessionReport realmente usam (ver campos abaixo) e
+// finaliza pelo mesmo caminho de sempre — o pior caso é perder só os
+// ~45s (CHECKPOINT_INTERVAL_MS) de respostas mais recentes antes da queda,
+// em vez do relatório inteiro.
+async function recoverOrphanedCheckpoint(data) {
+  const { pin } = data;
+  if (activeSessions.has(pin)) return null; // já foi recriada nesta subida (não deveria acontecer)
+
+  activeSessions.set(pin, {
+    pin,
+    presentationId: data.presentationId,
+    presenterUserId: data.presenterUserId,
+    title: data.title,
+    startTime: data.startTime,
+    lastSlideChangeAt: data.lastSlideChangeAt,
+    currentSlideIndex: data.currentSlideIndex,
+    slideDwellTimes: data.slideDwellTimes || {},
+    responses: data.responses || {},
+    scores: new Map(Object.entries(data.scores || {})),
+    // Só `.size` é lido por getSessionReport/buildSessionAnalytics — não
+    // precisa reconstruir participantes de verdade (os sockets deles já
+    // morreram junto do processo anterior de qualquer forma).
+    participants: { size: data.participantsCount || 0 }
+  });
+
+  return finalizeSession(pin);
+}
+
+export async function recoverOrphanedCheckpoints() {
+  let snap;
+  try {
+    snap = await checkpointsRef().get();
+  } catch (err) {
+    console.error('Falha ao consultar checkpoints de sessões órfãs:', err.message);
+    return;
+  }
+  if (snap.empty) return;
+
+  console.log(`🩹 Recuperando ${snap.size} sessão(ões) ao vivo não encerrada(s) pelo processo anterior...`);
+  for (const doc of snap.docs) {
+    try {
+      const result = await recoverOrphanedCheckpoint(doc.data());
+      if (result) {
+        console.log(`🩹 Sessão ${doc.id} recuperada e salva como relatório final.`);
+      }
+    } catch (err) {
+      console.error(`Falha ao recuperar checkpoint da sessão ${doc.id}:`, err.message);
+    }
+  }
 }
