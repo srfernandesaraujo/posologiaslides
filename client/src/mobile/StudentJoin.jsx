@@ -3,6 +3,12 @@ import { io } from 'socket.io-client';
 import { API_URL, apiFetch } from '../lib/api';
 import { Smartphone, Send, CheckCircle2, Sparkles, Users, Clock } from 'lucide-react';
 
+// Mesmo formato de responseKey em server/sockets/sessionSocket.js — chave
+// usada pra saber se este aluno já respondeu uma pergunta específica.
+function responseKey(slideIndex, questionIndex) {
+  return questionIndex ? `${slideIndex}:${questionIndex}` : String(slideIndex);
+}
+
 const POINTS_TOTAL = 100;
 const POINTS_KEYS = ['A', 'B', 'C', 'D'];
 const POINTS_COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981'];
@@ -114,10 +120,14 @@ export default function StudentJoin() {
   const nameRef = useRef('');
   const emailRef = useRef('');
   const joinedRef = useRef(false);
+  // Só pra sync_quiz_question (abaixo) saber o slide ATUAL sem reabrir o
+  // efeito de conexão a cada troca de slide — mesmo motivo das refs acima.
+  const currentSlideIndexRef = useRef(0);
   useEffect(() => { pinRef.current = pin; }, [pin]);
   useEffect(() => { nameRef.current = name; }, [name]);
   useEffect(() => { emailRef.current = email; }, [email]);
   useEffect(() => { joinedRef.current = joined; }, [joined]);
+  useEffect(() => { currentSlideIndexRef.current = currentSlideIndex; }, [currentSlideIndex]);
 
   // Consulta se o PIN exige e-mail cadastrado (turma vinculada, ver
   // /api/public/sessions/:pin/meta em publicSessionsRoutes.js) assim que o
@@ -150,6 +160,18 @@ export default function StudentJoin() {
   const [wordInput, setWordInput] = useState('');
   const [pointsAllocation, setPointsAllocation] = useState(() => buildEvenSplit(null));
   const [submitted, setSubmitted] = useState(false);
+  // Marca "já respondi esta pergunta antes" pra distinguir da tela normal de
+  // "resposta enviada, aguardando o professor" — ver answeredKeysRef abaixo.
+  const [alreadyAnswered, setAlreadyAnswered] = useState(false);
+  // Perguntas de quiz/hotspot (as únicas pontuáveis) que este aluno já
+  // respondeu nesta sessão, por chave slideIndex[:questionIndex] — mesmo
+  // formato de responseKey em sessionSocket.js. Sem isto, o professor voltar
+  // pra uma pergunta já respondida (ex.: pra dar feedback) reabria as
+  // alternativas no celular (sync_quiz_question resetava submitted pra
+  // false) e o aluno podia responder de novo. O servidor também recusa uma
+  // 2ª resposta (defesa de verdade, ver submit_response em
+  // sessionSocket.js) — isto aqui é só pra nem MOSTRAR o botão de novo.
+  const answeredKeysRef = useRef({});
 
   // Log visual na própria tela (?debug=1 na URL) pra depurar em celular real,
   // onde não tem como abrir o DevTools/F12 — mostra os mesmos eventos que
@@ -172,6 +194,19 @@ export default function StudentJoin() {
     const newSocket = io(API_URL || window.location.origin);
     setSocket(newSocket);
     logDebug('pagina carregada, conectando...');
+
+    // Decide se este slide/pergunta já foi respondido por este aluno (ver
+    // answeredKeysRef) — chamado sempre que o servidor sincroniza um
+    // slide/pergunta (entrada inicial, reconexão, navegação do professor
+    // pra frente OU PRA TRÁS). Já respondido: mostra a tela de "já
+    // respondido" em vez de reabrir as alternativas.
+    const applyAnsweredState = (slideIdx, qIdx) => {
+      const key = responseKey(slideIdx, qIdx);
+      const already = !!answeredKeysRef.current[key];
+      setSubmitted(already);
+      setAlreadyAnswered(already);
+      setScoreFeedback(null);
+    };
 
     // Celular reconectando sozinho (tela bloqueou, navegador jogou a aba pro
     // segundo plano, rede caiu um instante — bem comum durante o intervalo
@@ -212,11 +247,12 @@ export default function StudentJoin() {
       setQuestionIndex(questionIndex || 0);
       setTotalQuestions(totalQuestions || 1);
       // Também dispara numa RECONEXÃO (ver 'connect' acima), não só no 1º
-      // ingresso — reseta pra o aluno não ficar preso na tela de "resposta
-      // enviada" de uma pergunta antiga se, enquanto ele estava
-      // desconectado, o professor já tiver avançado pra outra.
-      setSubmitted(false);
-      setScoreFeedback(null);
+      // ingresso — se o slide/pergunta ainda não foi respondido, libera as
+      // alternativas de novo (não ficar preso numa tela antiga se, enquanto
+      // desconectado, o professor tiver avançado pra outra); se já foi
+      // respondido antes (ver answeredKeysRef), mostra "já respondido" em
+      // vez de reabrir.
+      applyAnsweredState(currentSlideIndex, questionIndex || 0);
       setPointsAllocation(buildEvenSplit(pointsConfig));
     });
 
@@ -230,25 +266,33 @@ export default function StudentJoin() {
       setQuizOptions(quizOptions || null);
       setQuestionIndex(questionIndex || 0);
       setTotalQuestions(totalQuestions || 1);
-      setSubmitted(false); // Reseta estado de envio para o novo slide
-      setScoreFeedback(null);
+      applyAnsweredState(currentSlideIndex, questionIndex || 0);
       setPointsAllocation(buildEvenSplit(pointsConfig));
     });
 
-    // Professor liberou a PRÓXIMA pergunta do mesmo quiz (sem trocar de
-    // slide) — mesmo reset de sync_slide, só que sem mexer no restante do
-    // estado do slide (hotspot/pointsConfig/wordcloud/branches continuam
-    // como estavam, já que o slide não mudou).
+    // Professor liberou outra pergunta do mesmo quiz (sem trocar de slide) —
+    // pra FRENTE (próxima nova) ou de VOLTA (ex.: pra revisar/dar feedback
+    // numa já respondida, ver "Voltar pra pergunta anterior" em
+    // ActiveMethodologiesOverlay.jsx). Mesmo tratamento de sync_slide, só
+    // sem mexer no restante do estado do slide (hotspot/pointsConfig/
+    // wordcloud/branches continuam como estavam, já que o slide não mudou).
     newSocket.on('sync_quiz_question', ({ questionIndex, totalQuestions, quizOptions }) => {
       logDebug(`sync_quiz_question recebido: pergunta ${(questionIndex || 0) + 1}/${totalQuestions || 1}`);
       setQuestionIndex(questionIndex || 0);
       setTotalQuestions(totalQuestions || 1);
       setQuizOptions(quizOptions || null);
-      setSubmitted(false);
-      setScoreFeedback(null);
+      applyAnsweredState(currentSlideIndexRef.current, questionIndex || 0);
     });
 
-    newSocket.on('response_scored', ({ correct, points }) => {
+    newSocket.on('response_scored', ({ correct, points, alreadyAnswered: already }) => {
+      // O servidor também recusa uma 2ª resposta (ver submit_response em
+      // sessionSocket.js) — se isto chegar aqui, o cliente deixou passar um
+      // toque duplicado antes do sync atualizar a tela; trata igual, sem
+      // pontuação nova.
+      if (already) {
+        setAlreadyAnswered(true);
+        return;
+      }
       setScoreFeedback({ correct, points });
     });
 
@@ -301,6 +345,13 @@ export default function StudentJoin() {
   };
 
   const handleSendQuiz = (choice) => {
+    // Guarda local contra toque duplicado (ex.: dois taps rápidos antes da
+    // tela atualizar) — o servidor também recusa (submit_response em
+    // sessionSocket.js), isto aqui é só pra não nem tentar mandar de novo.
+    const key = responseKey(currentSlideIndex, questionIndex);
+    if (answeredKeysRef.current[key]) return;
+    answeredKeysRef.current[key] = true;
+
     setQuizChoice(choice);
     setSubmitted(true);
     if (socket) {
@@ -327,6 +378,13 @@ export default function StudentJoin() {
   };
 
   const handleHotspotTap = (e) => {
+    // Hotspot não tem "pergunta" dentro do slide (sempre 1 por slide) — só
+    // slideIndex mesmo na chave, ver responseKey. Mesma guarda local de
+    // handleSendQuiz acima.
+    const key = responseKey(currentSlideIndex, 0);
+    if (answeredKeysRef.current[key]) return;
+    answeredKeysRef.current[key] = true;
+
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
@@ -454,7 +512,12 @@ export default function StudentJoin() {
         {submitted ? (
           <div style={{ textAlign: 'center', background: scoreFeedback && !scoreFeedback.correct ? 'rgba(248, 113, 113, 0.1)' : 'rgba(16, 185, 129, 0.1)', border: `1px solid ${scoreFeedback && !scoreFeedback.correct ? '#f87171' : '#10b981'}`, padding: '2rem', borderRadius: '1rem' }}>
             <CheckCircle2 size={48} color={scoreFeedback && !scoreFeedback.correct ? '#f87171' : '#10b981'} style={{ margin: '0 auto 1rem auto' }} />
-            {scoreFeedback ? (
+            {alreadyAnswered ? (
+              <>
+                <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#34d399' }}>Você já respondeu esta pergunta</h3>
+                <p style={{ fontSize: '0.9rem', color: '#a7f3d0', margin: '0.5rem 0 0 0' }}>Cada pergunta só pode ser respondida uma vez. Aguarde o professor.</p>
+              </>
+            ) : scoreFeedback ? (
               <>
                 <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: scoreFeedback.correct ? '#34d399' : '#fca5a5' }}>
                   {scoreFeedback.correct ? `Correto! +${scoreFeedback.points} pontos` : 'Não foi dessa vez'}

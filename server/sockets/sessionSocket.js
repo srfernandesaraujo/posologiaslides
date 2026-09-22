@@ -312,9 +312,24 @@ export function setupSocketIO(httpServer) {
       }
 
       const slideData = session.responses[key];
+      const identity = studentEmail || studentName; // mesma chave de agrupamento de sessionAnalytics.js
       let scoreResult = null; // { correct, points } — só existe quando a resposta é pontuável
 
       if (responseType === 'quiz') {
+        // Um aluno só pode responder CADA pergunta uma vez — sem isto, o
+        // professor voltar pra uma pergunta já respondida (ex.: pra dar
+        // feedback, ver "Voltar pra pergunta anterior" em
+        // ActiveMethodologiesOverlay.jsx) reabre as alternativas pro aluno
+        // no celular (ver sync_quiz_question em StudentJoin.jsx) e ele podia
+        // responder de novo — inclusive já sabendo o gabarito, se tiver
+        // visto o resultado revelado. Reenvia o resultado JÁ REGISTRADO em
+        // vez de aceitar/pontuar de novo (idempotente: não importa quantas
+        // vezes o cliente reenviar por engano).
+        const previousAnswer = slideData.answers.find((a) => (a.studentEmail || a.student) === identity);
+        if (previousAnswer) {
+          socket.emit('response_scored', { correct: previousAnswer.correct, points: 0, alreadyAnswered: true });
+          return;
+        }
         // correct fica undefined quando não há gabarito definido — mantém a
         // distinção entre "enquete sem certo/errado" e "resposta errada"
         // (ver scoreableEntries em sessionAnalytics.js).
@@ -330,6 +345,12 @@ export function setupSocketIO(httpServer) {
       } else if (responseType === 'tbl') {
         slideData.irat.push({ student: studentName, choice: answer, team: answer.team || 'Geral' });
       } else if (responseType === 'hotspot') {
+        // Mesma regra de "só uma vez" do quiz acima, mesmo motivo.
+        const previousHotspot = slideData.hotspots.find((h) => (h.studentEmail || h.student) === identity);
+        if (previousHotspot) {
+          socket.emit('response_scored', { correct: previousHotspot.correct, points: 0, alreadyAnswered: true });
+          return;
+        }
         const zone = session.currentHotspotConfig;
         const correct = !!zone && isWithinHotspot(answer, zone);
         slideData.hotspots.push({ student: studentName, studentEmail, x: answer?.x, y: answer?.y, correct, topic: session.currentTopic || null, timestamp: Date.now() });

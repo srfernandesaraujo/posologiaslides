@@ -276,9 +276,13 @@ export default function ActiveMethodologiesOverlay({
                 style={{ marginTop: '0.4rem', fontSize: '0.72rem', background: 'rgba(255,255,255,0.06)', color: '#e5e7eb', border: '1px solid var(--border-glass)', borderRadius: '0.3rem', padding: '0.2rem 0.4rem', maxWidth: '160px' }}
                 title="Vincular esta sessão a uma turma cadastrada (exige e-mail pra entrar)"
               >
-                <option value="">Sem turma (só nome)</option>
+                {/* O popup nativo do <select> não herda cor/fundo do próprio
+                    elemento no Chromium — sem estilo explícito em cada
+                    <option>, o navegador usa o tema claro padrão do SO e o
+                    texto claro (herdado do select) ficava ilegível. */}
+                <option value="" style={{ background: '#111827', color: '#e5e7eb' }}>Sem turma (só nome)</option>
                 {turmas.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                  <option key={t.id} value={t.id} style={{ background: '#111827', color: '#e5e7eb' }}>{t.name}</option>
                 ))}
               </select>
             )}
