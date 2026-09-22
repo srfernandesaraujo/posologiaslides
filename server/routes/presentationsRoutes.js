@@ -22,7 +22,15 @@ const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, ne
 
 // Árvore de pastas/disciplinas com as apresentações salvas
 router.get('/tree', asyncHandler(async (req, res) => {
-  res.json({ success: true, folders: await getFolderTree(req.user.id), sizeLimitBytes: FIRESTORE_MAX_DOCUMENT_BYTES });
+  // DIAGNÓSTICO TEMPORÁRIO (ver X-Server-Time-Ms em index.js e req._authTimings
+  // em middleware/auth.js) — detalha quanto do tempo total no servidor foi
+  // verificação de token, garantir perfil, ou a consulta da árvore em si.
+  // Remover depois de identificado o gargalo.
+  const treeStart = Date.now();
+  const folders = await getFolderTree(req.user.id);
+  const treeBuildMs = Date.now() - treeStart;
+  res.setHeader('X-Server-Timing-Detail', `verify-token=${req._authTimings?.verifyIdTokenMs ?? '?'}ms; ensure-profile=${req._authTimings?.ensureUserProfileMs ?? '?'}ms; tree-build=${treeBuildMs}ms`);
+  res.json({ success: true, folders, sizeLimitBytes: FIRESTORE_MAX_DOCUMENT_BYTES });
 }));
 
 // Apresentações na lixeira (excluídas da biblioteca normal, ver getFolderTree)
