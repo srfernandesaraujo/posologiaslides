@@ -73,6 +73,11 @@ export default function App() {
 
   const autosaveTimerRef = useRef(null);
   const autosaveAbortRef = useRef(null);
+  // Cache da última miniatura gerada (ver lib/thumbnailCapture.js), pra não
+  // refazer a captura (html2canvas) a cada autosave quando só slides
+  // DIFERENTES do primeiro mudaram — só recaptura quando o HTML do slide 1
+  // muda de fato.
+  const thumbnailCacheRef = useRef({ html: null, dataUrl: null });
   // Id fixo desta aba (uma vez por carregamento) — deixa o servidor
   // reconhecer "sou eu mesmo, só uma resposta anterior que abortei e nunca
   // processei" e não confundir isso com um conflito de verdade vindo de
@@ -148,6 +153,23 @@ export default function App() {
         return;
       }
 
+      // Miniatura pra listagem da biblioteca (ver HomeLibrary.jsx e
+      // computeListingFields em store.js) — só recaptura (html2canvas, caro)
+      // quando o HTML do slide 1 mudou desde a última captura; caso
+      // contrário reenvia a miniatura já em cache, mantendo o campo sempre
+      // preenchido sem custo extra a cada autosave de outros slides.
+      const firstSlideHtml = presentation.slides?.[0]?.html || null;
+      if (firstSlideHtml !== thumbnailCacheRef.current.html) {
+        try {
+          const { captureThumbnail } = await import('./lib/thumbnailCapture');
+          const dataUrl = await captureThumbnail(firstSlideHtml);
+          thumbnailCacheRef.current = { html: firstSlideHtml, dataUrl };
+        } catch (err) {
+          console.error('Falha ao gerar miniatura:', err);
+          thumbnailCacheRef.current = { html: firstSlideHtml, dataUrl: null };
+        }
+      }
+
       if (autosaveAbortRef.current) autosaveAbortRef.current.abort();
       const controller = new AbortController();
       autosaveAbortRef.current = controller;
@@ -157,7 +179,12 @@ export default function App() {
         const res = await apiFetch('/api/presentations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...presentation, expectedUpdatedAt: presentation.updatedAt ?? null, sessionId: sessionIdRef.current }),
+          body: JSON.stringify({
+            ...presentation,
+            expectedUpdatedAt: presentation.updatedAt ?? null,
+            sessionId: sessionIdRef.current,
+            thumbnail: thumbnailCacheRef.current.dataUrl
+          }),
           signal: controller.signal
         });
         const data = await res.json();
@@ -251,7 +278,7 @@ export default function App() {
       const res = await apiFetch('/api/presentations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...presentation, force: true, sessionId: sessionIdRef.current })
+        body: JSON.stringify({ ...presentation, force: true, sessionId: sessionIdRef.current, thumbnail: thumbnailCacheRef.current.dataUrl })
       });
       const data = await res.json();
       if (data.success) {

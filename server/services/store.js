@@ -231,9 +231,31 @@ export async function movePresentationToFolder(userId, presentationId, folderId)
 // dezenas de MB numa conexão residencial, estourando o timeout do Cloudflare
 // (524) e deixando a biblioteca travada em "Carregando..." pra sempre —
 // bug real visto em produção, 2026-09-18.
-function computeListingFields(slides) {
+// Orçamento de tamanho pra miniatura (data URI JPEG) gerada no cliente via
+// captureThumbnail.js — o cliente já mira bem abaixo disto; este limite aqui
+// é só uma rede de segurança contra um cliente desatualizado (cache) ou
+// bugado mandando algo grande demais.
+const MAX_THUMBNAIL_BYTES = 60000;
+
+function computeListingFields(slides, thumbnail) {
   const sizeBytes = Array.isArray(slides) ? Buffer.byteLength(JSON.stringify(slides), 'utf8') : 0;
-  let firstSlideHtml = Array.isArray(slides) ? slides[0]?.html || null : null;
+
+  // Miniatura JPEG pequena (poucos KB) gerada no cliente a partir do primeiro
+  // slide (ver client/src/lib/thumbnailCapture.js) — substitui o
+  // `firstSlideHtml` bruto abaixo, que incluía o HTML inteiro do slide
+  // (inclusive qualquer imagem colada nele sem compressão nenhuma) e era a
+  // causa real do payload de ~600KB da listagem com poucas apresentações
+  // com imagem (ver comentário em getFolderTree).
+  const validThumbnail = typeof thumbnail === 'string' && thumbnail.startsWith('data:image/')
+    && Buffer.byteLength(thumbnail, 'utf8') <= MAX_THUMBNAIL_BYTES
+    ? thumbnail
+    : null;
+
+  // Sem miniatura ainda (cliente mais antigo ainda em cache, ou a captura
+  // falhou nesta gravação) — cai pro comportamento antigo de guardar o HTML
+  // bruto do primeiro slide, só até este documento ser salvo de novo por um
+  // cliente que já manda thumbnail.
+  let firstSlideHtml = validThumbnail ? null : (Array.isArray(slides) ? slides[0]?.html || null : null);
 
   if (firstSlideHtml) {
     // O documento já carrega `slides` inteiro — guardar uma cópia do
@@ -252,7 +274,7 @@ function computeListingFields(slides) {
     }
   }
 
-  return { firstSlideHtml, sizeBytes };
+  return { firstSlideHtml, thumbnail: validThumbnail, sizeBytes };
 }
 
 export async function getFolderTree(userId) {
@@ -260,9 +282,9 @@ export async function getFolderTree(userId) {
     foldersRef(userId).orderBy('createdAt', 'asc').get(),
     subfoldersRef(userId).get(),
     // .select() busca só estes campos pequenos — nunca toca no array `slides`
-    // (o grosso do documento) pra montar a listagem. firstSlideHtml/sizeBytes
-    // vêm pré-calculados de savePresentation, não recalculados aqui.
-    presentationsRef(userId).select('subfolderId', 'title', 'favorite', 'updatedAt', 'lastOpenedAt', 'trashed', 'firstSlideHtml', 'sizeBytes').get(),
+    // (o grosso do documento) pra montar a listagem. thumbnail/firstSlideHtml/
+    // sizeBytes vêm pré-calculados de savePresentation, não recalculados aqui.
+    presentationsRef(userId).select('subfolderId', 'title', 'favorite', 'updatedAt', 'lastOpenedAt', 'trashed', 'thumbnail', 'firstSlideHtml', 'sizeBytes').get(),
     userRef(userId).get()
   ]);
   const defaultSubfolderId = profileSnap.data()?.defaultSubfolderId || null;
@@ -278,6 +300,7 @@ export async function getFolderTree(userId) {
       favorite: !!p.favorite,
       updatedAt: p.updatedAt,
       lastOpenedAt: p.lastOpenedAt || null,
+      thumbnail: p.thumbnail || null,
       firstSlideHtml: p.firstSlideHtml || null,
       sizeBytes: p.sizeBytes || 0
     });
@@ -428,7 +451,7 @@ export async function getPresentation(id, userId) {
 // expectedUpdatedAt desatualizado — só é conflito de verdade quando o último
 // gravador foi uma sessão DIFERENTE.
 export async function savePresentation(presentation, userId) {
-  const { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId } = presentation;
+  const { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail } = presentation;
   const now = Date.now();
 
   if (id) {
@@ -456,7 +479,7 @@ export async function savePresentation(presentation, userId) {
           lastWriterSessionId: sessionId || null,
           relatedPresentationId: relatedPresentationId || null,
           relatedPresentationTitle: relatedPresentationTitle || null,
-          ...computeListingFields(slides)
+          ...computeListingFields(slides, thumbnail)
         };
         tx.update(ref, data);
         return { conflict: false, presentation: serializePresentation(id, { ...currentData, ...data }) };
@@ -507,7 +530,7 @@ export async function savePresentation(presentation, userId) {
     lastWriterSessionId: sessionId || null,
     relatedPresentationId: relatedPresentationId || null,
     relatedPresentationTitle: relatedPresentationTitle || null,
-    ...computeListingFields(slides)
+    ...computeListingFields(slides, thumbnail)
   };
   const ref = await presentationsRef(userId).add(data);
   return { conflict: false, presentation: serializePresentation(ref.id, data) };
@@ -626,7 +649,8 @@ export async function getTrash(userId) {
         folderName: folder?.name || null,
         folderColor: folder?.color || null,
         subfolderName: subfolder?.name || null,
-        firstSlideHtml: Array.isArray(p.slides) ? p.slides[0]?.html || null : null
+        thumbnail: p.thumbnail || null,
+        firstSlideHtml: p.thumbnail ? null : (Array.isArray(p.slides) ? p.slides[0]?.html || null : null)
       };
     })
     .sort((a, b) => (b.trashedAt || 0) - (a.trashedAt || 0));

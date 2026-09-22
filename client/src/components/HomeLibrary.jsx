@@ -775,7 +775,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
               <div className="library-grid">
                 {trashItems.map((p) => (
                   <div key={p.id} className="library-card">
-                    <SlideThumbnail html={p.firstSlideHtml} />
+                    <SlideThumbnail html={p.firstSlideHtml} thumbnail={p.thumbnail} />
                     <div className="library-card-body">
                       <div className="library-card-title">{p.title}</div>
                       <div className="library-card-meta">
@@ -1007,7 +1007,7 @@ export default function HomeLibrary({ onOpenPresentation, onCreateNew, onCreateB
             <div className="library-grid">
               {visiblePresentations.map((p) => (
                 <div key={p.id} className="library-card" onClick={() => onOpenPresentation(p.id)}>
-                  <SlideThumbnail html={p.firstSlideHtml} />
+                  <SlideThumbnail html={p.firstSlideHtml} thumbnail={p.thumbnail} />
 
                   <button
                     className={`library-card-star ${p.favorite ? 'active' : ''}`}

@@ -41,7 +41,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 // Cria ou atualiza (upsert) uma apresentação completa
 router.post('/', asyncHandler(async (req, res) => {
-  const { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId } = req.body;
+  const { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail } = req.body;
   if (!title || !Array.isArray(slides)) {
     return res.status(400).json({ error: 'title e slides são obrigatórios.' });
   }
@@ -71,7 +71,7 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   const result = await savePresentation(
-    { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId },
+    { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail },
     req.user.id
   );
   // Ver comentário em store.js#savePresentation: conflito de edição concorrente
