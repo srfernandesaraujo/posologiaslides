@@ -1210,20 +1210,22 @@ export function buildAnimationTriggerScript(enabled) {
 
 // Sempre injetado (igual buildNavKeyRelayScript — não depende de estar em
 // tela cheia nem de nenhuma prop liga/desliga): escuta clique no ícone "?"
-// do Quiz ao Vivo (ver applyQuizBadgeToSlideHtml em slideHtmlUtils.js) e
-// avisa o app pai via postMessage. Só um repasse — quem decide o que fazer
-// com o clique (abrir o modal de perguntas, editando; ou revelar a pergunta
-// ativa, apresentando) é o app pai (ver handleMessage em
-// PresentationEditor.jsx), porque só ele sabe em qual desses dois modos o
-// usuário está agora. Se o slide não tiver o badge (a maioria, quiz nenhum),
-// querySelectorAll não acha nada e o listener nunca dispara — sem custo.
-export function buildQuizBadgeClickScript() {
+// de qualquer interatividade do slide (quiz, nuvem de palavras, TBL/iRAT,
+// hotspot, distribuir pontos — ver applyInteractivityBadgeToSlideHtml em
+// slideHtmlUtils.js) e avisa o app pai via postMessage. Só um repasse — quem
+// decide o que fazer com o clique (abrir o modal de perguntas do quiz,
+// editando; ou revelar/esconder o painel de resultados ao vivo) é o app pai
+// (ver handleMessage em PresentationEditor.jsx), porque só ele sabe em qual
+// desses modos o usuário está agora. Se o slide não tiver o badge (nenhuma
+// interatividade configurada), querySelectorAll não acha nada e o listener
+// nunca dispara — sem custo.
+export function buildInteractivityBadgeClickScript() {
   return `
 <script>
 (function () {
   document.addEventListener('click', function (e) {
     if (!e.target.closest || !e.target.closest('[data-quiz-badge]')) return;
-    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'quiz-badge-click' }, '*');
+    window.parent.postMessage({ source: '${SLIDE_EDITOR_MESSAGE_SOURCE}', type: 'interactivity-badge-click' }, '*');
   });
 })();
 </script>`;
@@ -1464,7 +1466,7 @@ ${buildNavKeyRelayScript()}
 ${buildSpotlightScript(spotlightEnabled)}
 ${buildZoomGestureScript(zoomGestureEnabled, panEnabledRef.current)}
 ${buildAnimationTriggerScript(animationTriggersEnabled)}
-${buildQuizBadgeClickScript()}
+${buildInteractivityBadgeClickScript()}
 ${editable ? buildEditorScript(selectedElementRef.current, cropModeRef.current) : ''}
 </body>
 </html>`;

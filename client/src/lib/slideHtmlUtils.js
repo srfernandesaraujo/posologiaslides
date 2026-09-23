@@ -371,24 +371,27 @@ export function getElementMeta(html, index) {
 }
 
 // ==========================================================================
-// Marcador de Quiz ao Vivo (ícone "?" fixo no slide)
+// Marcador de Interatividade (ícone "?" fixo no slide)
 // ==========================================================================
-// A pergunta/alternativas do quiz NÃO ficam mais em texto dentro do HTML do
+// A pergunta/config de qualquer interatividade (quiz, nuvem de palavras,
+// TBL/iRAT, hotspot, distribuir pontos) NÃO fica em texto dentro do HTML do
 // slide (isso poluía slides com outros conteúdos, e um bloco de texto
-// arrastado/alinhado no canvas podia perder a referência de edição). Viram
-// dado puro em slide.quizQuestions (ver PresentationEditor.jsx); o slide só
-// leva este marcador clicável, mesmo padrão de applyBrandingToSlideHtml logo
-// abaixo. Clicar nele dispara 'quiz-badge-click' via postMessage (ver
-// buildQuizBadgeClickScript em PresentationViewer.jsx) — o app pai decide se
-// isso abre o modal de edição ou revela a pergunta ativa pros alunos,
-// dependendo se está em apresentação ou não.
-export function hasQuizBadge(html) {
+// arrastado/alinhado no canvas podia perder a referência de edição). Vira
+// dado puro em campos do próprio slide (quizQuestions/wordcloudConfig/etc.,
+// ver PresentationEditor.jsx); o slide só leva este marcador clicável, mesmo
+// padrão de applyBrandingToSlideHtml logo abaixo. Clicar nele dispara
+// 'interactivity-badge-click' via postMessage (ver
+// buildInteractivityBadgeClickScript em PresentationViewer.jsx) — o app pai
+// decide se isso abre o modal de edição do quiz ou revela/esconde o painel
+// de resultados ao vivo (ActiveMethodologiesOverlay.jsx), dependendo do tipo
+// e se está em apresentação ou não.
+export function hasInteractivityBadge(html) {
   if (!html) return false;
   const template = parseFragment(html);
   return !!template.content.querySelector('[data-quiz-badge="true"]');
 }
 
-export function removeQuizBadgeFromSlideHtml(html) {
+export function removeInteractivityBadgeFromSlideHtml(html) {
   if (!html) return html;
   const template = parseFragment(html);
   const existing = template.content.querySelector('[data-quiz-badge="true"]');
@@ -396,7 +399,7 @@ export function removeQuizBadgeFromSlideHtml(html) {
   return serializeFragment(template);
 }
 
-export function applyQuizBadgeToSlideHtml(html, questionCount = 1) {
+export function applyInteractivityBadgeToSlideHtml(html, questionCount = 1) {
   if (!html) return html;
   const template = parseFragment(html);
   let rootEl = template.content.querySelector('.slide-root') || template.content.firstElementChild;

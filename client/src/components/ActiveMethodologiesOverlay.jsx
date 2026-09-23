@@ -38,14 +38,18 @@ export default function ActiveMethodologiesOverlay({
   // Quiz ao Vivo (ver PresentationEditor.jsx): quizQuestions é o array
   // completo (pergunta ativa + total), activeQuizQuestionIndex é a que está
   // no ar AGORA, onActivateQuizQuestion(idx) libera outra pro celular dos
-  // alunos sem navegar de slide. quizRevealed/onCloseQuizReveal controlam se
-  // este painel aparece — ligado/desligado pelo clique no ícone "?" do
-  // próprio slide (ver applyQuizBadgeToSlideHtml em slideHtmlUtils.js).
+  // alunos sem navegar de slide.
   quizQuestions = [],
   activeQuizQuestionIndex = 0,
   onActivateQuizQuestion = null,
-  quizRevealed = false,
-  onCloseQuizReveal = null
+  // Controla se o painel de resultados ao vivo da interatividade ATIVA
+  // (quiz, nuvem de palavras, TBL/iRAT, hotspot ou distribuir pontos)
+  // aparece aqui no canto — ligado/desligado pelo clique no ícone "?" do
+  // próprio slide (ver applyInteractivityBadgeToSlideHtml em
+  // slideHtmlUtils.js). Um só booleano serve pra todos os tipos porque
+  // `currentSlide.type` é sempre um valor só por vez.
+  interactivityRevealed = false,
+  onCloseInteractivityReveal = null
 }) {
   const [liveData, setLiveData] = useState({ answers: [], words: [], irat: [], hotspots: [], branchVotes: [], points: [] });
   const [participantCount, setParticipantCount] = useState(0);
@@ -225,10 +229,17 @@ export default function ActiveMethodologiesOverlay({
   );
 
   // Pergunta atualmente revelada (clique no ícone "?" do slide, ver
-  // quizRevealed) — a pergunta/alternativas em si só existem como dado
-  // (slide.quizQuestions), nunca em texto no HTML do slide.
+  // interactivityRevealed) — a pergunta/alternativas em si só existem como
+  // dado (slide.quizQuestions), nunca em texto no HTML do slide.
   const activeQuizQuestion = quizQuestions?.[activeQuizQuestionIndex];
-  const showQuizPanel = currentSlide?.type === 'quiz' && quizRevealed && !!activeQuizQuestion;
+  const showQuizPanel = currentSlide?.type === 'quiz' && interactivityRevealed && !!activeQuizQuestion;
+  // Mesmo ícone "?"/mesmo booleano controla os outros tipos — só um fica
+  // ativo por vez (currentSlide.type é mutuamente exclusivo), então não há
+  // risco de dois desses ficarem `true` ao mesmo tempo.
+  const showWordcloudPanel = currentSlide?.type === 'wordcloud' && interactivityRevealed;
+  const showTblPanel = currentSlide?.type === 'tbl' && interactivityRevealed;
+  const showPointsPanel = currentSlide?.type === 'points' && interactivityRevealed;
+  const showHotspotPanel = currentSlide?.type === 'hotspot' && interactivityRevealed && !!currentSlide?.hotspotConfig?.imageUrl;
 
   // "Liberar resultado" só existe na ÚLTIMA pergunta do quiz (ou na única) —
   // enquanto uma pergunta está ATIVA (a mais avançada até agora), esconde a
@@ -250,9 +261,8 @@ export default function ActiveMethodologiesOverlay({
   // de ampliar aparecia mesmo em slides sem QR/leaderboard/interatividade
   // nenhuma, expandindo pra uma tela vazia.
   const hasAnythingToShow = (isIntroSlide && pin) || leaderboard.length > 0
-    || (!!currentSlide?.type && currentSlide.type !== 'quiz')
     || (currentSlide?.branches && currentSlide.branches.length > 0)
-    || showQuizPanel;
+    || showQuizPanel || showWordcloudPanel || showTblPanel || showPointsPanel || showHotspotPanel;
 
   // Conteúdo dos widgets — extraído pra variáveis porque é reaproveitado nos
   // dois estados do `return` abaixo (ampliado; e o card pequeno de canto,
@@ -307,8 +317,8 @@ export default function ActiveMethodologiesOverlay({
       )}
 
       {/* Pergunta ativa do Quiz ao Vivo revelada via clique no ícone "?" do
-          slide (ver quizRevealed) — a pergunta/alternativas moram só aqui
-          (nunca em texto no HTML do slide, ver applyQuizBadgeToSlideHtml),
+          slide (ver interactivityRevealed) — a pergunta/alternativas moram só
+          aqui (nunca em texto no HTML do slide, ver applyInteractivityBadgeToSlideHtml),
           com o resultado ao vivo desenhado em cada alternativa. */}
       {showQuizPanel && (
         <div className="glass-panel" style={{ padding: '1rem 1.1rem', width: 'min(420px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(34,211,238,0.35)' }}>
@@ -316,8 +326,8 @@ export default function ActiveMethodologiesOverlay({
             <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#67e8f9', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <HelpCircle size={15} /> {quizQuestions.length > 1 ? `Pergunta ${activeQuizQuestionIndex + 1} de ${quizQuestions.length}` : 'Pergunta do Quiz'}
             </div>
-            {onCloseQuizReveal && (
-              <button className="btn-icon" onClick={onCloseQuizReveal} title="Esconder" style={{ width: '24px', height: '24px', flexShrink: 0 }}>
+            {onCloseInteractivityReveal && (
+              <button className="btn-icon" onClick={onCloseInteractivityReveal} title="Esconder" style={{ width: '24px', height: '24px', flexShrink: 0 }}>
                 <X size={13} />
               </button>
             )}
@@ -408,7 +418,7 @@ export default function ActiveMethodologiesOverlay({
           cancela o `scale(EXPANDED_SCALE)` do wrapper pai só pro CARD em si —
           sem ele, WORD_CLOUD_AREA maior + esse zoom se multiplicariam e o
           card ficaria gigante. */}
-      {currentSlide?.type === 'wordcloud' && (
+      {showWordcloudPanel && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: expanded ? '0.85rem' : 0 }}>
           {expanded && (
             <div style={{ textAlign: 'center', maxWidth: '620px' }}>
@@ -424,8 +434,15 @@ export default function ActiveMethodologiesOverlay({
           <div className="glass-panel" style={{ padding: '1.1rem', width: `min(${WORD_CLOUD_AREA.width + 50}px, calc(100% - 2rem))`, background: 'rgba(15, 23, 42, 0.92)' }}>
             {!expanded && (
               <>
-                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: currentSlide.wordcloudConfig?.question ? '0.25rem' : '0.75rem' }}>
-                  <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: currentSlide.wordcloudConfig?.question ? '0.25rem' : '0.75rem' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Cloud size={16} /> Nuvem de Palavras ({liveData.words.length})
+                  </div>
+                  {onCloseInteractivityReveal && (
+                    <button className="btn-icon" onClick={onCloseInteractivityReveal} title="Esconder" style={{ width: '24px', height: '24px', flexShrink: 0 }}>
+                      <X size={13} />
+                    </button>
+                  )}
                 </div>
                 {currentSlide.wordcloudConfig?.question && (
                   <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>{currentSlide.wordcloudConfig.question}</div>
@@ -482,7 +499,7 @@ export default function ActiveMethodologiesOverlay({
       )}
 
       {/* Widget de TBL/iRAT — Verificação de Prontidão Individual */}
-      {currentSlide?.type === 'tbl' && (
+      {showTblPanel && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: expanded ? '0.85rem' : 0 }}>
           {expanded && (
             <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#a78bfa', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', textAlign: 'center' }}>
@@ -491,8 +508,15 @@ export default function ActiveMethodologiesOverlay({
           )}
           <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
             {!expanded && (
-              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
-                <ClipboardCheck size={16} /> Verificação Individual — iRAT ({liveData.irat.length})
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <ClipboardCheck size={16} /> Verificação Individual — iRAT ({liveData.irat.length})
+                </div>
+                {onCloseInteractivityReveal && (
+                  <button className="btn-icon" onClick={onCloseInteractivityReveal} title="Esconder" style={{ width: '24px', height: '24px', flexShrink: 0 }}>
+                    <X size={13} />
+                  </button>
+                )}
               </div>
             )}
 
@@ -520,7 +544,7 @@ export default function ActiveMethodologiesOverlay({
       )}
 
       {/* Widget de Distribuição de 100 Pontos */}
-      {currentSlide?.type === 'points' && (
+      {showPointsPanel && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: expanded ? '0.85rem' : 0 }}>
           {expanded && (
             <div style={{ textAlign: 'center', maxWidth: '520px' }}>
@@ -535,8 +559,15 @@ export default function ActiveMethodologiesOverlay({
           <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
             {!expanded && (
               <>
-                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: currentSlide.pointsConfig?.question ? '0.25rem' : '0.75rem' }}>
-                  <PieChart size={16} /> Distribuição de Pontos ({pointsResponses.length})
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: currentSlide.pointsConfig?.question ? '0.25rem' : '0.75rem' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <PieChart size={16} /> Distribuição de Pontos ({pointsResponses.length})
+                  </div>
+                  {onCloseInteractivityReveal && (
+                    <button className="btn-icon" onClick={onCloseInteractivityReveal} title="Esconder" style={{ width: '24px', height: '24px', flexShrink: 0 }}>
+                      <X size={13} />
+                    </button>
+                  )}
                 </div>
                 {currentSlide.pointsConfig?.question && (
                   <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem' }}>{currentSlide.pointsConfig.question}</div>
@@ -568,7 +599,7 @@ export default function ActiveMethodologiesOverlay({
       )}
 
       {/* Widget de Hotspot em Imagem */}
-      {currentSlide?.type === 'hotspot' && currentSlide.hotspotConfig?.imageUrl && (
+      {showHotspotPanel && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: expanded ? '0.85rem' : 0 }}>
           {expanded && (
             <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', textAlign: 'center' }}>
@@ -582,12 +613,19 @@ export default function ActiveMethodologiesOverlay({
           )}
           <div className="glass-panel" style={{ padding: '1rem', width: 'min(320px, calc(100% - 2rem))', background: 'rgba(15, 23, 42, 0.92)' }}>
             {!expanded && (
-              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#22d3ee', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
-                <Target size={16} /> Hotspot ({liveData.hotspots.length})
-                {liveData.hotspots.length > 0 && (
-                  <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#34d399' }}>
-                    {Math.round((liveData.hotspots.filter((h) => h.correct).length / liveData.hotspots.length) * 100)}% certo
-                  </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#22d3ee', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Target size={16} /> Hotspot ({liveData.hotspots.length})
+                  {liveData.hotspots.length > 0 && (
+                    <span style={{ fontWeight: 700, color: '#34d399' }}>
+                      {Math.round((liveData.hotspots.filter((h) => h.correct).length / liveData.hotspots.length) * 100)}% certo
+                    </span>
+                  )}
+                </div>
+                {onCloseInteractivityReveal && (
+                  <button className="btn-icon" onClick={onCloseInteractivityReveal} title="Esconder" style={{ width: '24px', height: '24px', flexShrink: 0 }}>
+                    <X size={13} />
+                  </button>
                 )}
               </div>
             )}
@@ -818,14 +856,15 @@ export default function ActiveMethodologiesOverlay({
               }
             : {
                 position: 'absolute',
-                // O ícone "?" do quiz (ver applyQuizBadgeToSlideHtml) mora
-                // DENTRO do iframe do slide, também no canto superior
-                // direito (top/right:14px, 38px) — como o iframe é sua
-                // própria árvore de renderização, o z-index dele não compete
-                // com este overlay por cima; sem este respiro, Ranking/Acerto
-                // por Assunto cobrem o ícone por completo em qualquer slide
-                // de quiz que tenha pontuação acumulada.
-                top: currentSlide?.type === 'quiz' ? '104px' : '16px',
+                // O ícone "?" de qualquer interatividade (ver
+                // applyInteractivityBadgeToSlideHtml) mora DENTRO do iframe
+                // do slide, também no canto superior direito (top/right:14px,
+                // 38px) — como o iframe é sua própria árvore de renderização,
+                // o z-index dele não compete com este overlay por cima; sem
+                // este respiro, Ranking/Acerto por Assunto cobrem o ícone por
+                // completo em qualquer slide com interatividade que tenha
+                // pontuação acumulada.
+                top: currentSlide?.type ? '104px' : '16px',
                 right: '16px', zIndex: 30, display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end'
               }
         }

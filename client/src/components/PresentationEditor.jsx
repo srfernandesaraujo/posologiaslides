@@ -28,7 +28,7 @@ import { auth } from '../lib/firebase';
 import {
   appendIntoRoot, getElementAt, removeElementAt, replaceElementAt, replaceElementInnerAt,
   moveElementAt, bringToFrontAt, sendToBackAt, regenerateElementIds, setAlignmentAt, groupWithNeighborAt, ungroupAt, isGroupedAt, getElementMeta,
-  applyQuizBadgeToSlideHtml, removeQuizBadgeFromSlideHtml, hasQuizBadge, uniqueId,
+  applyInteractivityBadgeToSlideHtml, removeInteractivityBadgeFromSlideHtml, hasInteractivityBadge, uniqueId,
   setAnimationEntryAt, getAnimationsAt, clearAnimationEntryAt, setAllAnimationsAt, setPositionAt, clearPositionAt, isPositionedAt,
   setCropAt, clearCropAt, isCroppedAt, setTextStyleAt, getTextStyleAt,
   hasTableAt, getTableRowsAt, setTableRowsAt,
@@ -51,7 +51,7 @@ import {
   Bot, Send, Sparkles, Download, Play, Code, Image, BarChart3, Tv, Paperclip, Link as LinkIcon, X, FileText, Loader2, Puzzle, Menu, Upload,
   AlignLeft, AlignCenter, AlignRight, ArrowUp, ArrowDown, Columns2, Rows3, Pencil, Trash2, Target, Wand2, Save, PinOff, ArrowLeftRight, Undo2, Redo2, Share2, Crop,
   GitBranch, Plus, BringToFront, SendToBack, Milestone, Copy, ClipboardPaste, ClipboardCopy, Baseline, Shuffle, Table2, Palette, UserCheck, ScrollText, Maximize2, StickyNote,
-  Smartphone, MousePointer2, Minus, SunMoon, HelpCircle
+  Smartphone, MousePointer2, Minus, SunMoon, HelpCircle, Move
 } from 'lucide-react';
 
 // Trackpad do controle remoto (ver RemoteControl.jsx): os deltas que chegam
@@ -86,7 +86,7 @@ function normalizeFontValue(value) {
 // Perguntas de um Quiz ao Vivo — sempre um array (pelo menos 1 item) uma vez
 // migrado (ver ensureQuizQuestions abaixo); a pergunta/alternativas em si
 // NUNCA ficam em texto dentro de slide.html (só um ícone "?" clicável, ver
-// applyQuizBadgeToSlideHtml em slideHtmlUtils.js) — evita tanto poluir slides
+// applyInteractivityBadgeToSlideHtml em slideHtmlUtils.js) — evita tanto poluir slides
 // com outros conteúdos quanto o bloco de texto "perder a referência" ao ser
 // arrastado/alinhado no canvas (bug da v1 anterior desta feature).
 function getQuizQuestions(slide) {
@@ -109,7 +109,7 @@ function getActiveQuizOptionsFromQuestion(q) {
 // um widget antigo que ainda exista; slides novos não têm nada pra migrar.
 function ensureQuizQuestions(slide) {
   if (slide?.quizQuestions?.length) {
-    return { quizQuestions: slide.quizQuestions, html: hasQuizBadge(slide.html) ? slide.html : applyQuizBadgeToSlideHtml(slide.html, slide.quizQuestions.length) };
+    return { quizQuestions: slide.quizQuestions, html: hasInteractivityBadge(slide.html) ? slide.html : applyInteractivityBadgeToSlideHtml(slide.html, slide.quizQuestions.length) };
   }
 
   const widgetIndex = findLegacyQuizWidgetIndex(slide?.html);
@@ -125,7 +125,7 @@ function ensureQuizQuestions(slide) {
     topic: slide?.topic || ''
   };
   const htmlWithoutOldWidget = widgetIndex >= 0 ? removeElementAt(slide.html, widgetIndex) : slide.html;
-  return { quizQuestions: [migrated], html: applyQuizBadgeToSlideHtml(htmlWithoutOldWidget, 1) };
+  return { quizQuestions: [migrated], html: applyInteractivityBadgeToSlideHtml(htmlWithoutOldWidget, 1) };
 }
 
 // Acha o índice (filho direto de ".slide-root") do widget de pergunta da
@@ -162,14 +162,19 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // Abre/fecha o modal de edição das perguntas do quiz (clique no ícone "?"
   // do slide fora de apresentação, ou no botão da barra de ferramentas).
   const [quizModalOpen, setQuizModalOpen] = useState(false);
-  // Clique no ícone "?" do slide DURANTE a apresentação revela a pergunta
-  // ativa + alternativas + resultado ao vivo no painel flutuante (ver
-  // ActiveMethodologiesOverlay.jsx) — clicar de novo esconde.
-  const [quizRevealed, setQuizRevealed] = useState(false);
+  // Clique no ícone "?" do slide revela/esconde o painel de resultados ao
+  // vivo no canto (quiz, nuvem de palavras, TBL/iRAT, hotspot, distribuir
+  // pontos — ver ActiveMethodologiesOverlay.jsx). Um só booleano serve pra
+  // qualquer tipo porque `slide.type` é sempre um único valor por vez (o
+  // dropdown de interatividade é mutuamente exclusivo) — nunca há dois
+  // painéis concorrendo pelo mesmo ícone no mesmo slide.
+  const [interactivityRevealed, setInteractivityRevealed] = useState(false);
   useEffect(() => {
     setActiveQuizQuestionIndex(0);
-    setQuizRevealed(false);
+    setInteractivityRevealed(false);
     setQuizModalOpen(false);
+    setShowMoveInteractivityPanel(false);
+    setMoveInteractivityTargetId('');
   }, [activeIndex]);
   // Refs "sempre frescas" — usadas só por handlers que continuam depois de um
   // `await` (upload de mídia, resposta da IA no chat): a variável `presentation`/
@@ -203,6 +208,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   const [isMediaDrawerOpen, setIsMediaDrawerOpen] = useState(false);
   const [isWidgetDrawerOpen, setIsWidgetDrawerOpen] = useState(false);
   const [showBranchPanel, setShowBranchPanel] = useState(false);
+  // Painel "Mover atividade" (ver handleMoveInteractivity abaixo) — deixa
+  // levar quiz/nuvem/TBL/hotspot/pontos deste slide pra outro sem perder os
+  // dados, pra poder apagar/atualizar o conteúdo deste slide depois sem
+  // perder a interatividade configurada nele.
+  const [showMoveInteractivityPanel, setShowMoveInteractivityPanel] = useState(false);
+  const [moveInteractivityTargetId, setMoveInteractivityTargetId] = useState('');
   const [isReportOpen, setIsReportOpen] = useState(false);
   // true quando o relatório foi aberto automaticamente ao chegar no slide de
   // encerramento (ver handleNext) — nesse caso o modal chama POST /:pin/end
@@ -744,12 +755,12 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
   // Migra pra badge um slide de quiz salvo ANTES desta mudança (widget de
   // texto no canvas em vez do ícone "?") na primeira vez que ele é aberto —
-  // ver ensureQuizQuestions acima. Só roda quando falta mesmo (hasQuizBadge
+  // ver ensureQuizQuestions acima. Só roda quando falta mesmo (hasInteractivityBadge
   // falso), então não recommита nada em slides já migrados.
   useEffect(() => {
     if (atClosingSlide || !presentation?.slides?.[activeIndex]) return;
     const slide = presentation.slides[activeIndex];
-    if (slide.type !== 'quiz' || hasQuizBadge(slide.html)) return;
+    if (slide.type !== 'quiz' || hasInteractivityBadge(slide.html)) return;
     const { quizQuestions, html } = ensureQuizQuestions(slide);
     const updatedSlides = [...presentation.slides];
     updatedSlides[activeIndex] = { ...slide, html, quizQuestions };
@@ -811,12 +822,16 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
 
   // Centraliza a troca de slide ativo: atualiza o estado local e avisa a
   // sessão ao vivo (se houver) do novo índice E do tipo de interatividade
-  // do slide, pra o celular do aluno já saber o que mostrar.
-  const emitSlideChanged = (newIndex) => {
+  // do slide, pra o celular do aluno já saber o que mostrar. `slidesOverride`
+  // só é usado por quem acabou de `commit`ar um array novo (ex.:
+  // handleMoveInteractivity) — `presentation` ainda não refletiria essa
+  // mudança no mesmo tick, e sem isto o socket avisaria o tipo/config ANTIGO
+  // do slide de destino (o que ele tinha ANTES da interatividade chegar).
+  const emitSlideChanged = (newIndex, slidesOverride) => {
     setActiveIndex(newIndex);
     setAtClosingSlide(false);
     if (socket) {
-      const slide = presentation.slides[newIndex];
+      const slide = (slidesOverride || presentation.slides)[newIndex];
       // Slide de quiz com várias perguntas: entrar no slide sempre começa
       // pela pergunta 0 (ver reset de activeQuizQuestionIndex acima) — o
       // gabarito/assunto/opções enviados aqui são os DA PRIMEIRA pergunta;
@@ -838,7 +853,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         totalQuestions: quizQuestions.length || 1,
         slideTitle: slide?.title || null,
         slideNotes: slide?.notes || null,
-        totalSlides: presentation.slides.length
+        totalSlides: (slidesOverride || presentation.slides).length
       });
     }
   };
@@ -883,14 +898,90 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
       // "?" — ver ensureQuizQuestions acima.
       const { quizQuestions, html } = ensureQuizQuestions(targetSlide);
       targetSlide = { ...targetSlide, html, quizQuestions };
-    } else if (hasQuizBadge(targetSlide.html)) {
-      // Trocou PRA outro tipo — só tira o ícone do slide; quizQuestions fica
-      // guardado (volta a aparecer se o professor marcar "quiz" de novo).
-      targetSlide = { ...targetSlide, html: removeQuizBadgeFromSlideHtml(targetSlide.html) };
+    } else if (type) {
+      // Qualquer outro tipo de interatividade (nuvem de palavras, TBL/iRAT,
+      // hotspot, distribuir pontos) leva o mesmo ícone "?" do quiz — só sem
+      // a bolinha de contagem, que só faz sentido pra várias perguntas.
+      targetSlide = { ...targetSlide, html: applyInteractivityBadgeToSlideHtml(targetSlide.html, 1) };
+    } else if (hasInteractivityBadge(targetSlide.html)) {
+      // Trocou pra "Sem interatividade" — só tira o ícone do slide;
+      // quizQuestions/wordcloudConfig/etc. ficam guardados (voltam a
+      // aparecer se o professor marcar o mesmo tipo de novo).
+      targetSlide = { ...targetSlide, html: removeInteractivityBadgeFromSlideHtml(targetSlide.html) };
     }
     updatedSlides[activeIndex] = targetSlide;
     commit({ ...presentation, slides: updatedSlides });
     if (type === 'quiz') setQuizModalOpen(true);
+  };
+
+  // Rótulo de cada tipo, igual ao texto das <option> do seletor de
+  // interatividade acima — reaproveitado no aviso de conflito de
+  // handleMoveInteractivity.
+  const INTERACTIVITY_TYPE_LABELS = {
+    quiz: 'Quiz ao Vivo',
+    wordcloud: 'Nuvem de Palavras',
+    tbl: 'TBL — Verificação Individual (iRAT)',
+    hotspot: 'Hotspot em Imagem',
+    points: 'Distribuir 100 Pontos'
+  };
+
+  // Campos de dado (além de `type`) que carregam a config de cada
+  // interatividade — usado por handleMoveInteractivity pra saber o que
+  // copiar pro destino e limpar da origem. `topic` só entra junto no hotspot
+  // porque é o único tipo cujo assunto (usado no relatório por assunto) fica
+  // direto no slide — o do quiz mora em cada item de quizQuestions.
+  const INTERACTIVITY_FIELDS_BY_TYPE = {
+    quiz: ['quizQuestions'],
+    wordcloud: ['wordcloudConfig'],
+    tbl: [],
+    hotspot: ['hotspotConfig', 'topic'],
+    points: ['pointsConfig']
+  };
+
+  // Move a interatividade ATIVA deste slide (quiz/nuvem/TBL/hotspot/pontos,
+  // com todos os dados — perguntas, config, contagem) pra outro slide,
+  // limpando este. Pensado pra quando o professor precisa substituir o
+  // conteúdo de um slide (ex.: atualizar o caso clínico) sem perder a
+  // interatividade já configurada nele: move pra um slide novo, depois
+  // apaga o antigo (ver onDeleteSlide — já manda pra lixeira, então nada se
+  // perde mesmo se o professor esquecer de mover antes). Bloqueia (em vez de
+  // sobrescrever) se o destino já tiver uma interatividade diferente
+  // configurada — decisão do usuário, pra nunca perder dados de um slide por
+  // engano só por ter escolhido o destino errado.
+  const handleMoveInteractivity = (targetSlideId) => {
+    const sourceSlide = presentation.slides[activeIndex];
+    const type = sourceSlide?.type;
+    if (!type) return;
+    const targetIdx = presentation.slides.findIndex((s) => s.id === targetSlideId);
+    if (targetIdx === -1 || targetIdx === activeIndex) return;
+    const targetSlide = presentation.slides[targetIdx];
+
+    if (targetSlide.type) {
+      alert(`O slide "${targetSlide.title || `Slide ${targetIdx + 1}`}" já tem uma interatividade configurada (${INTERACTIVITY_TYPE_LABELS[targetSlide.type] || targetSlide.type}). Escolha outro slide de destino, ou remova a interatividade dele antes de mover esta pra lá.`);
+      return;
+    }
+
+    const fields = INTERACTIVITY_FIELDS_BY_TYPE[type] || [];
+    const patch = { type };
+    fields.forEach((f) => { patch[f] = sourceSlide[f]; });
+    const questionCount = type === 'quiz' ? (sourceSlide.quizQuestions?.length || 1) : 1;
+
+    const clearedSource = { ...sourceSlide, type: undefined, html: removeInteractivityBadgeFromSlideHtml(sourceSlide.html) };
+    fields.forEach((f) => { clearedSource[f] = undefined; });
+
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[activeIndex] = clearedSource;
+    updatedSlides[targetIdx] = { ...targetSlide, ...patch, html: applyInteractivityBadgeToSlideHtml(targetSlide.html, questionCount) };
+    commit({ ...presentation, slides: updatedSlides });
+
+    setShowMoveInteractivityPanel(false);
+    setMoveInteractivityTargetId('');
+    // Vai pro slide de destino — deixa o professor confirmar visualmente que
+    // a interatividade chegou lá antes de voltar e apagar o slide de origem.
+    // `updatedSlides` (não `presentation.slides`, que só reflete o commit
+    // acima depois de renderizar de novo) garante que a sessão ao vivo seja
+    // avisada do tipo/config NOVO do slide de destino, não do antigo (vazio).
+    emitSlideChanged(targetIdx, updatedSlides);
   };
 
   // Transição de ENTRADA deste slide específico — cada slide guarda a sua
@@ -923,7 +1014,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
     updatedSlides[activeIndex] = {
       ...slide,
       quizQuestions: updatedQuestions,
-      html: applyQuizBadgeToSlideHtml(slide.html, updatedQuestions.length)
+      html: applyInteractivityBadgeToSlideHtml(slide.html, updatedQuestions.length)
     };
     commit({ ...presentation, slides: updatedSlides });
   };
@@ -933,7 +1024,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // slide, por isso não faz commit nenhum) e avisa a sessão ao vivo via
   // socket (gabarito/assunto só trafegam por aqui, nunca no HTML do slide).
   // Clicar no ícone "?" durante a apresentação revela isto no
-  // ActiveMethodologiesOverlay (ver handleMessage/quiz-badge-click abaixo).
+  // ActiveMethodologiesOverlay (ver handleMessage/interactivity-badge-click abaixo).
   const handleActivateQuizQuestion = (idx) => {
     const slide = presentation.slides[activeIndex];
     const questions = getQuizQuestions(slide);
@@ -1460,13 +1551,17 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
         // considerar pelas deps deste efeito).
         if (data.direction === 'next') handleNext();
         else if (data.direction === 'prev') handlePrev();
-      } else if (data.type === 'quiz-badge-click') {
-        // Clique no ícone "?" do slide (ver applyQuizBadgeToSlideHtml em
-        // slideHtmlUtils.js) — editando, abre o modal de perguntas;
-        // apresentando, revela a pergunta ativa no painel flutuante (ver
-        // ActiveMethodologiesOverlay.jsx).
-        if (isFullscreen) setQuizRevealed((v) => !v);
-        else setQuizModalOpen(true);
+      } else if (data.type === 'interactivity-badge-click') {
+        // Clique no ícone "?" do slide (ver applyInteractivityBadgeToSlideHtml
+        // em slideHtmlUtils.js). Quiz fora de tela cheia é o único caso
+        // especial: abre o modal de edição de perguntas em vez de
+        // revelar/esconder o painel, porque é ali que o professor de fato
+        // edita a pergunta. Todo o resto (quiz apresentando, e qualquer
+        // outro tipo em qualquer modo) alterna o painel de resultados ao
+        // vivo no canto (ver ActiveMethodologiesOverlay.jsx).
+        const slideType = presentation?.slides?.[activeIndex]?.type;
+        if (!isFullscreen && slideType === 'quiz') setQuizModalOpen(true);
+        else setInteractivityRevealed((v) => !v);
       }
     };
     window.addEventListener('message', handleMessage);
@@ -2447,6 +2542,60 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 <option value="hotspot">Hotspot em Imagem</option>
                 <option value="points">Distribuir 100 Pontos</option>
               </select>
+
+              {!atClosingSlide && currentSlide.type && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    className={`btn-icon ${showMoveInteractivityPanel ? 'active' : ''}`}
+                    onClick={() => setShowMoveInteractivityPanel((v) => !v)}
+                    title="Mover esta interatividade pra outro slide (mantém as perguntas/config; útil pra atualizar o conteúdo deste slide sem perder o que já foi configurado)"
+                  >
+                    <Move size={16} />
+                  </button>
+
+                  {showMoveInteractivityPanel && (
+                    <div
+                      className="glass-panel"
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 6px)',
+                        left: 0,
+                        zIndex: 41,
+                        width: '280px',
+                        padding: '0.7rem',
+                        background: 'rgba(15, 23, 42, 0.97)'
+                      }}
+                    >
+                      <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginBottom: '0.5rem' }}>
+                        Move {INTERACTIVITY_TYPE_LABELS[currentSlide.type] || 'esta interatividade'} deste slide pra outro, sem perder os dados. Este slide fica sem interatividade depois.
+                      </div>
+                      <select
+                        className="chat-input"
+                        value={moveInteractivityTargetId}
+                        onChange={(e) => setMoveInteractivityTargetId(e.target.value)}
+                        style={{ width: '100%', fontSize: '0.78rem', marginBottom: '0.55rem' }}
+                      >
+                        <option value="">Escolha o slide de destino...</option>
+                        {presentation.slides.map((s, sIdx) => (
+                          s.id === currentSlide.id ? null : (
+                            <option key={s.id} value={s.id} style={{ background: '#111827', color: '#e5e7eb' }}>
+                              #{sIdx + 1} — {s.title || `Slide ${sIdx + 1}`}{s.type ? ` (já tem ${INTERACTIVITY_TYPE_LABELS[s.type] || s.type})` : ''}
+                            </option>
+                          )
+                        ))}
+                      </select>
+                      <button
+                        className="btn-primary"
+                        onClick={() => handleMoveInteractivity(moveInteractivityTargetId)}
+                        disabled={!moveInteractivityTargetId}
+                        style={{ width: '100%', justifyContent: 'center', fontSize: '0.78rem', padding: '0.4rem' }}
+                      >
+                        <Move size={14} /> Mover
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <ToolbarDivider />
@@ -2614,6 +2763,9 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               onChange={(e) => handleChangeWordcloudConfig({ question: e.target.value })}
               style={{ flex: 1, fontSize: '0.8rem', boxSizing: 'border-box' }}
             />
+            <span style={{ fontSize: '0.75rem', color: '#6b7280', flexShrink: 0 }}>
+              clique no ícone "?" no canto do slide pra ver os resultados
+            </span>
           </div>
         )}
 
@@ -2670,7 +2822,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                 </datalist>
               </div>
               <p style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: '0.4rem' }}>
-                Clique na miniatura ao lado para marcar o ponto correto.
+                Clique na miniatura ao lado para marcar o ponto correto. Pra ver os resultados ao vivo, clique no ícone "?" no canto do slide.
               </p>
             </div>
 
@@ -2723,7 +2875,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               ))}
             </div>
             <p style={{ fontSize: '0.72rem', color: '#6b7280', margin: 0 }}>
-              Deixe em branco pra usar "Opção A/B/C/D" (padrão).
+              Deixe em branco pra usar "Opção A/B/C/D" (padrão). Pra ver os resultados ao vivo, clique no ícone "?" no canto do slide.
             </p>
           </div>
         )}
@@ -3457,8 +3609,8 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             quizQuestions={getQuizQuestions(currentSlide)}
             activeQuizQuestionIndex={activeQuizQuestionIndex}
             onActivateQuizQuestion={handleActivateQuizQuestion}
-            quizRevealed={quizRevealed}
-            onCloseQuizReveal={() => setQuizRevealed(false)}
+            interactivityRevealed={interactivityRevealed}
+            onCloseInteractivityReveal={() => setInteractivityRevealed(false)}
           />
 
           <DrawingCanvas
