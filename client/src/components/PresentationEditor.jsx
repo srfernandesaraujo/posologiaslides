@@ -214,6 +214,15 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
   // perder a interatividade configurada nele.
   const [showMoveInteractivityPanel, setShowMoveInteractivityPanel] = useState(false);
   const [moveInteractivityTargetId, setMoveInteractivityTargetId] = useState('');
+  // A barra de ferramentas rola HORIZONTALMENTE (overflowX:'auto' na linha
+  // dos botões) — por uma regra do próprio CSS, isso converte o overflow-y
+  // dela (deixado no padrão "visible") pra "auto" também, então um painel
+  // position:absolute normal dentro dela fica cortado por baixo (some sem
+  // erro nenhum, só não aparece — foi o bug relatado pelo usuário). Em vez
+  // de position:absolute relativo ao botão, calcula a posição em tela
+  // (position:fixed) no clique, escapando desse corte.
+  const moveInteractivityBtnRef = useRef(null);
+  const [moveInteractivityPanelPos, setMoveInteractivityPanelPos] = useState({ top: 0, left: 0 });
   const [isReportOpen, setIsReportOpen] = useState(false);
   // true quando o relatório foi aberto automaticamente ao chegar no slide de
   // encerramento (ver handleNext) — nesse caso o modal chama POST /:pin/end
@@ -2544,10 +2553,17 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
               </select>
 
               {!atClosingSlide && currentSlide.type && (
-                <div style={{ position: 'relative' }}>
+                <>
                   <button
+                    ref={moveInteractivityBtnRef}
                     className={`btn-icon ${showMoveInteractivityPanel ? 'active' : ''}`}
-                    onClick={() => setShowMoveInteractivityPanel((v) => !v)}
+                    onClick={() => {
+                      if (!showMoveInteractivityPanel) {
+                        const rect = moveInteractivityBtnRef.current.getBoundingClientRect();
+                        setMoveInteractivityPanelPos({ top: rect.bottom + 6, left: rect.left });
+                      }
+                      setShowMoveInteractivityPanel((v) => !v);
+                    }}
                     title="Mover esta interatividade pra outro slide (mantém as perguntas/config; útil pra atualizar o conteúdo deste slide sem perder o que já foi configurado)"
                   >
                     <Move size={16} />
@@ -2557,10 +2573,10 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                     <div
                       className="glass-panel"
                       style={{
-                        position: 'absolute',
-                        top: 'calc(100% + 6px)',
-                        left: 0,
-                        zIndex: 41,
+                        position: 'fixed',
+                        top: `${moveInteractivityPanelPos.top}px`,
+                        left: `${moveInteractivityPanelPos.left}px`,
+                        zIndex: 500,
                         width: '280px',
                         padding: '0.7rem',
                         background: 'rgba(15, 23, 42, 0.97)'
@@ -2594,7 +2610,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
                       </button>
                     </div>
                   )}
-                </div>
+                </>
               )}
             </div>
 
