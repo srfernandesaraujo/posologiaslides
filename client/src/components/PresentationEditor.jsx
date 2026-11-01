@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import PresentationViewer, { SLIDE_EDITOR_MESSAGE_SOURCE, measureIframeEdgeBackground } from './PresentationViewer';
 import DrawingCanvas from './DrawingCanvas';
 import PresentationControls from './PresentationControls';
+import { forwardKeyToOwningSlide } from '../lib/slideKeyOwnership';
 import SlideList from './SlideList';
 import ActiveMethodologiesOverlay from './ActiveMethodologiesOverlay';
 import MediaLibraryDrawer from './MediaLibraryDrawer';
@@ -3641,6 +3642,7 @@ export default function PresentationEditor({ presentation, setPresentation, onOp
             atClosingSlide={atClosingSlide}
             onPrev={handlePrev}
             onNext={handleNext}
+            onSlideKey={(e) => forwardKeyToOwningSlide(stageIframeRef.current, e)}
             activeTool={activeTool}
             setActiveTool={setActiveTool}
             activeColor={activeColor}

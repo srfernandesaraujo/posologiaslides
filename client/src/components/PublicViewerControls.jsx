@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Maximize, Minimize, Lightbulb, ZoomIn, ZoomOut } from 'lucide-react';
+import { isSlideNavKey } from '../lib/slideKeyOwnership';
 
 // Versão enxuta de PresentationControls.jsx pro visualizador público
 // (PublicPresentationView.jsx) — navegação, destaque, zoom manual e tela
@@ -10,6 +11,7 @@ export default function PublicViewerControls({
   totalSlides,
   onPrev,
   onNext,
+  onSlideKey,
   isFullscreen,
   toggleFullscreen,
   spotlightOn,
@@ -42,6 +44,12 @@ export default function PublicViewerControls({
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
+      // Slide dono das setas: a tecla vai pra dentro dele (lib/slideKeyOwnership.js).
+      if (onSlideKey && isSlideNavKey(e.key) && onSlideKey(e)) {
+        e.preventDefault();
+        return;
+      }
+
       if (e.key === 'ArrowRight' || e.key === 'Space' || e.key === 'PageDown') {
         e.preventDefault();
         onNext();
@@ -67,7 +75,7 @@ export default function PublicViewerControls({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onPrev, onNext, toggleFullscreen, onZoomIn, onZoomOut, onZoomReset]);
+  }, [onPrev, onNext, onSlideKey, toggleFullscreen, onZoomIn, onZoomOut, onZoomReset]);
 
   return (
     <div className={`floating-toolbar ${autohide ? 'autohide' : ''}`}>

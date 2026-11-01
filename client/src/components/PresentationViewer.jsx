@@ -791,6 +791,10 @@ export function buildNavKeyRelayScript() {
 (function () {
   document.addEventListener('keydown', function (e) {
     if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    // Slide que revela elementos passo a passo (window.__slideOwnsKeys, ver
+    // lib/slideKeyOwnership.js) trata a seta sozinho: trocar de slide fica
+    // só nos botões da barra do sistema.
+    if (window.__slideOwnsKeys) return;
     var direction = null;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') direction = 'next';
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') direction = 'prev';

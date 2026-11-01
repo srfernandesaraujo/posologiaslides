@@ -235,6 +235,8 @@ function buildNavRelayScript() {
 (function () {
   document.addEventListener('keydown', function (e) {
     if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    // Slide dono das setas (revela elementos passo a passo): não repassa.
+    if (window.__slideOwnsKeys) return;
     var direction = null;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') direction = 'next';
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') direction = 'prev';
@@ -390,6 +392,16 @@ function buildSlideDoc(slide) {
 
   document.addEventListener('keydown', function (e) {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    // Slide dono das setas (window.__slideOwnsKeys): entrega a tecla a ele e não navega.
+    try {
+      var fw = frame.contentWindow;
+      if (fw && fw.__slideOwnsKeys && ['ArrowRight','ArrowLeft','ArrowDown','ArrowUp','PageDown','PageUp',' '].indexOf(e.key) !== -1) {
+        e.preventDefault();
+        var tgt = frame.contentDocument.body || frame.contentDocument.documentElement;
+        tgt.dispatchEvent(new fw.KeyboardEvent('keydown', { key: e.key, code: e.code, bubbles: true, cancelable: true }));
+        return;
+      }
+    } catch (err) {}
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); goNext(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); goPrev(); }
     else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }

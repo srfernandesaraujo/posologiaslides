@@ -14,6 +14,7 @@ import {
   ZoomIn,
   ZoomOut
 } from 'lucide-react';
+import { isSlideNavKey } from '../lib/slideKeyOwnership';
 
 export default function PresentationControls({
   currentIndex,
@@ -21,6 +22,9 @@ export default function PresentationControls({
   atClosingSlide = false,
   onPrev,
   onNext,
+  // (e) => boolean: entrega a tecla ao slide ativo se ele for dono das setas
+  // (revela elementos passo a passo) e devolve true; ver lib/slideKeyOwnership.js.
+  onSlideKey,
   activeTool,
   setActiveTool,
   activeColor,
@@ -73,6 +77,13 @@ export default function PresentationControls({
       // handler nenhum aqui e caíam no comportamento nativo do navegador:
       // rolar o contêiner com overflow mais próximo (a lista de miniaturas
       // na barra lateral), em vez de trocar de slide.
+      // Slide dono das setas (revela elementos passo a passo): a tecla vai
+      // pra dentro dele em vez de trocar de slide — ver lib/slideKeyOwnership.js.
+      if (onSlideKey && isSlideNavKey(e.key) && onSlideKey(e)) {
+        e.preventDefault();
+        return;
+      }
+
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'Space' || e.key === 'PageDown') {
         e.preventDefault();
         onNext();
@@ -99,7 +110,7 @@ export default function PresentationControls({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onPrev, onNext, toggleFullscreen, onZoomIn, onZoomOut, onZoomReset]);
+  }, [onPrev, onNext, onSlideKey, toggleFullscreen, onZoomIn, onZoomOut, onZoomReset]);
 
   const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ffffff'];
 

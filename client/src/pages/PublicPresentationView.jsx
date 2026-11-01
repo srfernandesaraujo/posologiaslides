@@ -10,6 +10,7 @@ import { apiFetch } from '../lib/api';
 import useScreenWakeLock from '../lib/useScreenWakeLock';
 import { primeOfflineImageCache } from '../lib/offlineImageCache';
 import { expandPresentation } from '../lib/presentationCodec';
+import { forwardKeyToOwningSlide } from '../lib/slideKeyOwnership';
 
 // Visualizador público só-visualização: alvo de rota de /view/:shareId (ver
 // App.jsx), fora da parede de login do Firebase — busca a apresentação via
@@ -258,6 +259,7 @@ export default function PublicPresentationView({ shareId }) {
             totalSlides={slides.length}
             onPrev={handlePrev}
             onNext={handleNext}
+            onSlideKey={(e) => forwardKeyToOwningSlide(stageIframeRef.current, e)}
             isFullscreen={isFullscreen}
             toggleFullscreen={toggleFullscreen}
             spotlightOn={spotlightOn}
