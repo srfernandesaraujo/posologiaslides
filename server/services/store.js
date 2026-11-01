@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from './firebaseAdmin.js';
 import { seedPresentation } from '../data/seedPresentation.js';
+import { deflateLists, inflateSlides, inflateHtml, roundTripsExactly, jsonBytes } from './sharedChunks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -238,8 +239,30 @@ export async function movePresentationToFolder(userId, presentationId, folderId)
 // bugado mandando algo grande demais.
 const MAX_THUMBNAIL_BYTES = 60000;
 
-function computeListingFields(slides, thumbnail) {
-  const sizeBytes = Array.isArray(slides) ? Buffer.byteLength(JSON.stringify(slides), 'utf8') : 0;
+// Compacta os blocos <style>/<script> repetidos entre slides (ver
+// sharedChunks.js) ANTES de medir o limite de 1 MiB e de gravar: `slides` e
+// `trashedSlides` saem com marcadores e `sharedChunks` guarda cada bloco uma
+// vez só. `existingChunks` é o que veio do cliente (ou do documento já
+// gravado) pra marcadores que já estejam no HTML recebido. Se, por qualquer
+// motivo, desfazer a compactação não devolver exatamente o HTML de entrada,
+// grava por extenso em vez de arriscar corromper um slide.
+export function prepareSlidesForStorage(slides, trashedSlides, existingChunks) {
+  const normalized = [
+    inflateSlides(slides, existingChunks, true),
+    inflateSlides(trashedSlides || [], existingChunks, true)
+  ];
+  const { lists, chunks } = deflateLists(normalized, {});
+  const ok = roundTripsExactly(normalized[0], lists[0], chunks) && roundTripsExactly(normalized[1], lists[1], chunks);
+  if (!ok) {
+    console.error('[sharedChunks] compactação não reversível; gravando por extenso.');
+    return { slides: normalized[0], trashedSlides: normalized[1], sharedChunks: {} };
+  }
+  return { slides: lists[0], trashedSlides: lists[1], sharedChunks: chunks };
+}
+
+function computeListingFields(slides, thumbnail, sharedChunks = {}) {
+  // Os chunks fazem parte do mesmo documento, então entram no tamanho.
+  const sizeBytes = Array.isArray(slides) ? Buffer.byteLength(JSON.stringify(slides), 'utf8') + jsonBytes(sharedChunks) : 0;
 
   // Miniatura JPEG pequena (poucos KB) gerada no cliente a partir do primeiro
   // slide (ver client/src/lib/thumbnailCapture.js) — substitui o
@@ -256,7 +279,7 @@ function computeListingFields(slides, thumbnail) {
   // falhou nesta gravação) — cai pro comportamento antigo de guardar o HTML
   // bruto do primeiro slide, só até este documento ser salvo de novo por um
   // cliente que já manda thumbnail.
-  let firstSlideHtml = validThumbnail ? null : (Array.isArray(slides) ? slides[0]?.html || null : null);
+  let firstSlideHtml = validThumbnail ? null : (Array.isArray(slides) ? inflateHtml(slides[0]?.html, sharedChunks) || null : null);
 
   if (firstSlideHtml) {
     // O documento já carrega `slides` inteiro — guardar uma cópia do
@@ -342,16 +365,23 @@ export async function getFolderTree(userId) {
   });
 }
 
-function serializePresentation(id, p) {
+// `compact` (respostas da API pro editor/visualizador) devolve os slides COMO
+// ESTÃO gravados, com marcadores, + `sharedChunks` — o cliente expande
+// (client/src/lib/sharedChunks.js), então a rede só carrega cada bloco
+// compartilhado uma vez. Sem `compact` (uso interno: backup, link público
+// antigo, etc.) devolve HTML por extenso, como era antes desta mudança.
+function serializePresentation(id, p, compact = false) {
+  const chunks = p.sharedChunks || {};
   return {
     id,
     title: p.title,
     description: p.description,
-    slides: p.slides,
+    slides: compact ? p.slides : inflateSlides(p.slides, chunks),
+    ...(compact ? { sharedChunks: chunks } : {}),
     // Slides apagados individualmente dentro do editor (ver SlideTrashModal/
     // PresentationEditor) — ficam aqui até serem restaurados ou apagados de
     // vez, persistidos junto do resto pelo autosave normal.
-    trashedSlides: p.trashedSlides || [],
+    trashedSlides: compact ? (p.trashedSlides || []) : inflateSlides(p.trashedSlides || [], chunks),
     favorite: !!p.favorite,
     updatedAt: p.updatedAt,
     lastOpenedAt: p.lastOpenedAt || null,
@@ -423,9 +453,9 @@ export function findOversizedSlide(slides, extraBytes = 0) {
   return { totalBytes, biggest };
 }
 
-export async function getPresentation(id, userId) {
+export async function getPresentation(id, userId, { compact = false } = {}) {
   const snap = await presentationsRef(userId).doc(id).get();
-  return snap.exists ? serializePresentation(snap.id, snap.data()) : null;
+  return snap.exists ? serializePresentation(snap.id, snap.data(), compact) : null;
 }
 
 // Concorrência otimista: se `expectedUpdatedAt` vier preenchido e divergir do
@@ -452,7 +482,10 @@ export async function getPresentation(id, userId) {
 // expectedUpdatedAt desatualizado — só é conflito de verdade quando o último
 // gravador foi uma sessão DIFERENTE.
 export async function savePresentation(presentation, userId) {
-  const { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail } = presentation;
+  const { id, title, description, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail } = presentation;
+  // Blocos <style>/<script> repetidos entre slides são gravados uma vez só
+  // (sharedChunks.js) — é isto que deixa uma aula grande caber em 1 MiB.
+  const { slides, trashedSlides, sharedChunks } = prepareSlidesForStorage(presentation.slides, presentation.trashedSlides, presentation.sharedChunks);
   const now = Date.now();
 
   if (id) {
@@ -472,18 +505,18 @@ export async function savePresentation(presentation, userId) {
         const sameSessionAsLastWriter = !!sessionId && currentData.lastWriterSessionId === sessionId;
 
         if (!force && !sameSessionAsLastWriter && typeof expectedUpdatedAt === 'number' && currentData.updatedAt !== expectedUpdatedAt) {
-          return { conflict: true, presentation: serializePresentation(id, currentData) };
+          return { conflict: true, presentation: serializePresentation(id, currentData, true) };
         }
 
         data = {
-          title, description: description || null, slides, trashedSlides: trashedSlides || [], updatedAt: now,
+          title, description: description || null, slides, trashedSlides: trashedSlides || [], sharedChunks, updatedAt: now,
           lastWriterSessionId: sessionId || null,
           relatedPresentationId: relatedPresentationId || null,
           relatedPresentationTitle: relatedPresentationTitle || null,
-          ...computeListingFields(slides, thumbnail)
+          ...computeListingFields(slides, thumbnail, sharedChunks)
         };
         tx.update(ref, data);
-        return { conflict: false, presentation: serializePresentation(id, { ...currentData, ...data }) };
+        return { conflict: false, presentation: serializePresentation(id, { ...currentData, ...data }, true) };
       });
     } catch (err) {
       // code 3 = INVALID_ARGUMENT do gRPC do Firestore. findInvalidNestedArrayPath
@@ -524,6 +557,7 @@ export async function savePresentation(presentation, userId) {
     description: description || null,
     slides,
     trashedSlides: trashedSlides || [],
+    sharedChunks,
     favorite: false,
     createdAt: now,
     updatedAt: now,
@@ -531,10 +565,10 @@ export async function savePresentation(presentation, userId) {
     lastWriterSessionId: sessionId || null,
     relatedPresentationId: relatedPresentationId || null,
     relatedPresentationTitle: relatedPresentationTitle || null,
-    ...computeListingFields(slides, thumbnail)
+    ...computeListingFields(slides, thumbnail, sharedChunks)
   };
   const ref = await presentationsRef(userId).add(data);
-  return { conflict: false, presentation: serializePresentation(ref.id, data) };
+  return { conflict: false, presentation: serializePresentation(ref.id, data, true) };
 }
 
 // Só pro restore de backup (backupService.js) — savePresentation() sempre
@@ -544,23 +578,25 @@ export async function savePresentation(presentation, userId) {
 // de estender savePresentation pra aceitar um subfolderId explícito —
 // menor superfície de risco pro autosave normal, que continua 100% intocado.
 export async function createPresentationInSubfolder(userId, subfolderId, presentation) {
-  const { title, description, slides, favorite, relatedPresentationId, relatedPresentationTitle, updatedAt, lastOpenedAt } = presentation;
+  const { title, description, favorite, relatedPresentationId, relatedPresentationTitle, updatedAt, lastOpenedAt } = presentation;
+  const { slides, sharedChunks } = prepareSlidesForStorage(presentation.slides, [], presentation.sharedChunks);
   const now = Date.now();
   const data = {
     subfolderId,
     title,
     description: description || null,
     slides,
+    sharedChunks,
     favorite: !!favorite,
     createdAt: now,
     updatedAt: updatedAt || now,
     lastOpenedAt: lastOpenedAt || null,
     relatedPresentationId: relatedPresentationId || null,
     relatedPresentationTitle: relatedPresentationTitle || null,
-    ...computeListingFields(slides)
+    ...computeListingFields(slides, undefined, sharedChunks)
   };
   const ref = await presentationsRef(userId).add(data);
-  return serializePresentation(ref.id, data);
+  return serializePresentation(ref.id, data, true);
 }
 
 export async function setFavorite(id, userId, favorite) {
@@ -568,7 +604,7 @@ export async function setFavorite(id, userId, favorite) {
   const snap = await ref.get();
   if (!snap.exists) return null;
   await ref.update({ favorite: !!favorite });
-  return serializePresentation(id, { ...snap.data(), favorite: !!favorite });
+  return serializePresentation(id, { ...snap.data(), favorite: !!favorite }, true);
 }
 
 export async function renamePresentation(id, userId, title) {
@@ -577,7 +613,7 @@ export async function renamePresentation(id, userId, title) {
   if (!snap.exists) return null;
   const now = Date.now();
   await ref.update({ title: title.trim(), updatedAt: now });
-  return serializePresentation(id, { ...snap.data(), title: title.trim(), updatedAt: now });
+  return serializePresentation(id, { ...snap.data(), title: title.trim(), updatedAt: now }, true);
 }
 
 
@@ -587,7 +623,7 @@ export async function touchPresentation(id, userId) {
   if (!snap.exists) return null;
   const lastOpenedAt = Date.now();
   await ref.update({ lastOpenedAt });
-  return serializePresentation(id, { ...snap.data(), lastOpenedAt });
+  return serializePresentation(id, { ...snap.data(), lastOpenedAt }, true);
 }
 
 // --- Lixeira de apresentações --------------------------------------------
@@ -651,7 +687,7 @@ export async function getTrash(userId) {
         folderColor: folder?.color || null,
         subfolderName: subfolder?.name || null,
         thumbnail: p.thumbnail || null,
-        firstSlideHtml: p.thumbnail ? null : (Array.isArray(p.slides) ? p.slides[0]?.html || null : null)
+        firstSlideHtml: p.thumbnail ? null : (Array.isArray(p.slides) ? inflateHtml(p.slides[0]?.html, p.sharedChunks) || null : null)
       };
     })
     .sort((a, b) => (b.trashedAt || 0) - (a.trashedAt || 0));
@@ -691,14 +727,14 @@ export async function revokeShare(presentationId, userId) {
   return true;
 }
 
-export async function getPresentationByShareId(shareId) {
+export async function getPresentationByShareId(shareId, options) {
   const snap = await sharesRef().doc(shareId).get();
   if (!snap.exists) return null;
   const { userId, presentationId } = snap.data();
   // Reaproveita getPresentation tal como está — o userId usado é sempre o
   // gravado no doc de compartilhamento, nunca algo vindo do cliente. Se a
   // apresentação foi apagada depois, getPresentation já devolve null aqui.
-  return getPresentation(presentationId, userId);
+  return getPresentation(presentationId, userId, options);
 }
 
 // Versão exposta ao link público — lista de permissão explícita (não uma
@@ -712,6 +748,9 @@ export function toPublicPresentation(presentation) {
     id: presentation.id,
     title: presentation.title,
     description: presentation.description,
+    // Presente só quando a apresentação veio compacta (getPresentationByShareId
+    // com { compact: true }): o visualizador público expande, igual ao editor.
+    ...(presentation.sharedChunks ? { sharedChunks: presentation.sharedChunks } : {}),
     slides: (presentation.slides || []).map((s) => ({
       id: s.id,
       title: s.title,

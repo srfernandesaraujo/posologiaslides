@@ -32,8 +32,12 @@ export function findInvalidNestedArrayPath(value, path = 'slides') {
 const FIRESTORE_MAX_DOCUMENT_BYTES = 1048576;
 const SIZE_WARNING_THRESHOLD_BYTES = FIRESTORE_MAX_DOCUMENT_BYTES * 0.9;
 
-export function findOversizedSlide(slides) {
-  const totalBytes = new Blob([JSON.stringify(slides)]).size;
+// `extraBytes`: o que mora no mesmo documento além de `slides` (lixeira e
+// blocos compartilhados, ver sharedChunks.js/presentationCodec.js). Chamar
+// com os slides JÁ COMPACTADOS — por extenso eles passam do limite mesmo
+// quando o documento gravado cabe folgado.
+export function findOversizedSlide(slides, extraBytes = 0) {
+  const totalBytes = new Blob([JSON.stringify(slides)]).size + extraBytes;
   if (totalBytes < SIZE_WARNING_THRESHOLD_BYTES) return null;
 
   let biggest = null;

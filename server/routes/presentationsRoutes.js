@@ -1,8 +1,9 @@
 import express from 'express';
+import { jsonBytes } from '../services/sharedChunks.js';
 import {
   getFolderTree, getPresentation, savePresentation, setFavorite, touchPresentation,
   createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder, movePresentationToSubfolder, renamePresentation,
-  findInvalidNestedArrayPath, findOversizedSlide, FIRESTORE_MAX_DOCUMENT_BYTES,
+  findInvalidNestedArrayPath, findOversizedSlide, FIRESTORE_MAX_DOCUMENT_BYTES, prepareSlidesForStorage,
   trashPresentation, restorePresentation, permanentlyDeletePresentation, emptyTrash, getTrash,
   listSessionReports, getSavedSessionReport
 } from '../services/store.js';
@@ -32,7 +33,9 @@ router.get('/trash', asyncHandler(async (req, res) => {
 
 // Apresentação completa (com slides) por id
 router.get('/:id', asyncHandler(async (req, res) => {
-  const presentation = await getPresentation(req.params.id, req.user.id);
+  // compact: slides com marcadores + sharedChunks (ver sharedChunks.js); o
+  // cliente expande — assim cada bloco <style>/<script> repetido viaja uma vez só.
+  const presentation = await getPresentation(req.params.id, req.user.id, { compact: true });
   if (!presentation) {
     return res.status(404).json({ error: 'Apresentação não encontrada.' });
   }
@@ -41,7 +44,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 // Cria ou atualiza (upsert) uma apresentação completa
 router.post('/', asyncHandler(async (req, res) => {
-  const { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail } = req.body;
+  const { id, title, description, slides, trashedSlides, sharedChunks, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail } = req.body;
   if (!title || !Array.isArray(slides)) {
     return res.status(400).json({ error: 'title e slides são obrigatórios.' });
   }
@@ -60,18 +63,24 @@ router.post('/', asyncHandler(async (req, res) => {
   // 2026-08-07: um slide de 4,5 MB vindo de "Importar Pasta Inteira`).
   // trashedSlides entra só no total (extraBytes) — a lixeira de slides tem
   // limite próprio de itens no cliente, dificilmente é ela a culpada.
-  const trashedBytes = Array.isArray(trashedSlides) ? Buffer.byteLength(JSON.stringify(trashedSlides), 'utf8') : 0;
-  const oversized = findOversizedSlide(slides, trashedBytes);
+  //
+  // O tamanho é medido DEPOIS de compactar os blocos <style>/<script>
+  // repetidos entre slides (prepareSlidesForStorage, ver sharedChunks.js) —
+  // é o que de fato vai pro documento. Os chunks e a lixeira entram como
+  // extraBytes porque moram no mesmo documento.
+  const prepared = prepareSlidesForStorage(slides, trashedSlides, sharedChunks);
+  const extraBytes = jsonBytes(prepared.trashedSlides) + jsonBytes(prepared.sharedChunks);
+  const oversized = findOversizedSlide(prepared.slides, extraBytes);
   if (oversized) {
     const totalMb = (oversized.totalBytes / 1024 / 1024).toFixed(1);
     const biggestKb = (oversized.biggest.bytes / 1024).toFixed(0);
     return res.status(400).json({
-      error: `Apresentação muito grande (${totalMb} MB — o limite do Firestore é 1 MB). O slide "${oversized.biggest.title}" (posição ${oversized.biggest.index + 1}) sozinho tem ${biggestKb} KB — provavelmente uma imagem colada direto em vez de enviada como arquivo. Apague ou refaça esse slide.`
+      error: `Apresentação muito grande (${totalMb} MB — o limite do Firestore é 1 MB, já descontando os blocos CSS/JS repetidos entre slides). O slide "${oversized.biggest.title}" (posição ${oversized.biggest.index + 1}) é o maior, com ${biggestKb} KB — provavelmente uma imagem colada direto em vez de enviada como arquivo. Apague ou refaça esse slide.`
     });
   }
 
   const result = await savePresentation(
-    { id, title, description, slides, trashedSlides, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail },
+    { id, title, description, slides: prepared.slides, trashedSlides: prepared.trashedSlides, sharedChunks: prepared.sharedChunks, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail },
     req.user.id
   );
   // Ver comentário em store.js#savePresentation: conflito de edição concorrente

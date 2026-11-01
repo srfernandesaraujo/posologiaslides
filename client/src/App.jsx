@@ -12,6 +12,7 @@ import PublicPresentationView from './pages/PublicPresentationView';
 import { useAuth } from './context/AuthContext';
 import { apiFetch } from './lib/api';
 import { findInvalidNestedArrayPath, findOversizedSlide } from './lib/dataValidation';
+import { expandPresentation, compactForSave } from './lib/presentationCodec';
 import { primeOfflineImageCache } from './lib/offlineImageCache';
 import { Sparkles, Presentation, Settings, ArrowLeft, LogOut, AlertCircle, Loader2, FileText, Users } from 'lucide-react';
 
@@ -145,7 +146,12 @@ export default function App() {
       // store.js#findOversizedSlide. Achado numa Aula 08 real: um slide de
       // 4,5 MB (imagem colada como base64 em vez de enviada como arquivo)
       // travou o save com um erro que não menciona tamanho em lugar nenhum.
-      const oversized = findOversizedSlide(presentation.slides);
+      // Mede o que de fato vai pro documento: slides já sem os blocos
+      // <style>/<script> repetidos (ver lib/sharedChunks.js) + esses blocos
+      // guardados uma vez só. Por extenso, uma aula com 32 slides
+      // interativos dava ~13 MB e nunca coube, mesmo gravando só ~640 KB.
+      const packed = compactForSave(presentation);
+      const oversized = findOversizedSlide(packed.slides, packed.extraBytes);
       if (oversized) {
         const totalMb = (oversized.totalBytes / 1024 / 1024).toFixed(1);
         const biggestKb = (oversized.biggest.bytes / 1024).toFixed(0);
@@ -183,6 +189,9 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...presentation,
+            slides: packed.slides,
+            trashedSlides: packed.trashedSlides,
+            sharedChunks: packed.sharedChunks,
             expectedUpdatedAt: presentation.updatedAt ?? null,
             sessionId: sessionIdRef.current,
             thumbnail: thumbnailCacheRef.current.dataUrl
@@ -199,7 +208,7 @@ export default function App() {
           // qualquer coisa.
           setSaveStatus('idle');
           conflictPendingRef.current = true;
-          setConflict({ serverPresentation: data.presentation });
+          setConflict({ serverPresentation: expandPresentation(data.presentation) });
           return;
         }
 
@@ -277,10 +286,11 @@ export default function App() {
     const versionAtSaveStart = editVersionRef.current;
     setSaveStatus('saving');
     try {
+      const packed = compactForSave(presentation);
       const res = await apiFetch('/api/presentations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...presentation, force: true, sessionId: sessionIdRef.current, thumbnail: thumbnailCacheRef.current.dataUrl })
+        body: JSON.stringify({ ...presentation, slides: packed.slides, trashedSlides: packed.trashedSlides, sharedChunks: packed.sharedChunks, force: true, sessionId: sessionIdRef.current, thumbnail: thumbnailCacheRef.current.dataUrl })
       });
       const data = await res.json();
       if (data.success) {
@@ -338,10 +348,13 @@ export default function App() {
         // não contar isto como uma edição que precisa de autosave).
         editVersionRef.current = 0;
         savedVersionRef.current = 0;
-        setPresentationState(data.presentation);
+        // O servidor manda os slides compactados (marcadores + sharedChunks);
+        // o resto do app só conhece HTML por extenso.
+        const loaded = expandPresentation(data.presentation);
+        setPresentationState(loaded);
         setView('editor');
         apiFetch(`/api/presentations/${id}/touch`, { method: 'POST' }).catch(() => {});
-        primeOfflineImageCache(data.presentation.slides);
+        primeOfflineImageCache(loaded.slides);
       }
     } catch {
       alert('Não foi possível carregar esta apresentação.');

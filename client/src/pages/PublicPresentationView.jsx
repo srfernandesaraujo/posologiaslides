@@ -9,6 +9,7 @@ import { isSlideColorInverted, invertColorForFilter } from '../lib/slideHtmlUtil
 import { apiFetch } from '../lib/api';
 import useScreenWakeLock from '../lib/useScreenWakeLock';
 import { primeOfflineImageCache } from '../lib/offlineImageCache';
+import { expandPresentation } from '../lib/presentationCodec';
 
 // Visualizador público só-visualização: alvo de rota de /view/:shareId (ver
 // App.jsx), fora da parede de login do Firebase — busca a apresentação via
@@ -115,8 +116,10 @@ export default function PublicPresentationView({ shareId }) {
       .then((data) => {
         if (cancelled) return;
         if (data.success) {
-          setPresentation(data.presentation);
-          primeOfflineImageCache(data.presentation.slides);
+          // Compacto (marcadores + sharedChunks) — ver lib/presentationCodec.js.
+          const loaded = expandPresentation(data.presentation);
+          setPresentation(loaded);
+          primeOfflineImageCache(loaded.slides);
         } else {
           setError(data.error || 'Não foi possível carregar esta apresentação.');
         }

@@ -8,7 +8,7 @@ import { getPresentationByShareId, toPublicPresentation } from '../services/stor
 const router = express.Router();
 
 router.get('/:shareId', async (req, res) => {
-  const presentation = await getPresentationByShareId(req.params.shareId);
+  const presentation = await getPresentationByShareId(req.params.shareId, { compact: true });
   if (!presentation) {
     return res.status(404).json({ error: 'Link inválido ou apresentação não encontrada.' });
   }
