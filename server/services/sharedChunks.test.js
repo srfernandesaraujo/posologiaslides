@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  deflateLists, inflateSlides, inflateHtml, roundTripsExactly, chunkId, marker, MIN_CHUNK_CHARS, MARKER_PREFIX
+  deflateLists, inflateSlides, inflateHtml, roundTripsExactly, chunkId, marker, markerIds, MIN_CHUNK_CHARS, BLOB_MIN_CHARS, MARKER_PREFIX
 } from './sharedChunks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -109,5 +109,51 @@ describe('sharedChunks — cópia do cliente', () => {
     const server = fs.readFileSync(path.join(__dirname, 'sharedChunks.js'), 'utf8');
     const clientPath = path.join(__dirname, '..', '..', 'client', 'src', 'lib', 'sharedChunks.js');
     assert.equal(fs.readFileSync(clientPath, 'utf8'), server);
+  });
+});
+
+describe('sharedChunks — imagens base64 e blocos grandes (BLOB_MIN_CHARS)', () => {
+  const img = (seed, size) => `data:image/jpeg;base64,${(String.fromCharCode(65 + seed) + 'Zm9v').repeat(size)}`;
+
+  test('data URI grande vira chunk mesmo usado em um slide só, e volta idêntico', () => {
+    const slides = [{ id: 'a', html: `<img src="${img(1, 6000)}"><p>oi</p>` }, { id: 'b', html: '<p>sem imagem</p>' }];
+    const { lists, chunks } = deflateLists([slides]);
+    assert.equal(Object.keys(chunks).length, 1);
+    assert.ok(Object.values(chunks)[0].length >= BLOB_MIN_CHARS);
+    assert.ok(lists[0][0].html.length < 100);
+    assert.deepEqual(inflateSlides(lists[0], chunks, true), slides);
+    assert.deepEqual(markerIds(lists[0][0].html), Object.keys(chunks));
+  });
+
+  test('a mesma imagem duas vezes no mesmo slide e em outro vira um chunk só', () => {
+    const i = img(2, 6000);
+    const slides = [{ id: 'a', html: `<img src="${i}"><img src="${i}">` }, { id: 'b', html: `<img src="${i}">` }];
+    const { lists, chunks } = deflateLists([slides]);
+    assert.equal(Object.keys(chunks).length, 1);
+    assert.deepEqual(inflateSlides(lists[0], chunks, true), slides);
+  });
+
+  test('imagem pequena e única continua por extenso (não vale um chunk)', () => {
+    const slides = [{ id: 'a', html: `<img src="${img(3, 100)}">` }];
+    const { lists, chunks } = deflateLists([slides]);
+    assert.deepEqual(chunks, {});
+    assert.deepEqual(lists[0], slides);
+  });
+
+  test('data URI dentro de um <style> grande não é achado à parte (o style inteiro é o chunk)', () => {
+    const style = `<style>@font-face{src:url(${img(4, 6000)})}</style>`;
+    const slides = [{ id: 'a', html: style }, { id: 'b', html: style }];
+    const { lists, chunks } = deflateLists([slides]);
+    assert.equal(Object.keys(chunks).length, 1);
+    assert.equal(Object.values(chunks)[0], style);
+    assert.deepEqual(inflateSlides(lists[0], chunks, true), slides);
+  });
+
+  test('idempotente com blocos grandes: compactar o já compactado não muda nada', () => {
+    const slides = [{ id: 'a', html: `<img src="${img(5, 6000)}">` }, { id: 'b', html: `${BIG_CSS}x` }, { id: 'c', html: `${BIG_CSS}y` }];
+    const once = deflateLists([slides]);
+    const twice = deflateLists([once.lists[0]], once.chunks);
+    assert.deepEqual(twice.lists[0], once.lists[0]);
+    assert.deepEqual(twice.chunks, once.chunks);
   });
 });

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from './firebaseAdmin.js';
 import { seedPresentation } from '../data/seedPresentation.js';
-import { deflateLists, inflateSlides, inflateHtml, roundTripsExactly, jsonBytes } from './sharedChunks.js';
+import { deflateLists, inflateSlides, inflateHtml, roundTripsExactly, jsonBytes, markerIds, marker, MARKER_PREFIX, BLOB_MIN_CHARS } from './sharedChunks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -251,8 +251,12 @@ export function prepareSlidesForStorage(slides, trashedSlides, existingChunks) {
     inflateSlides(slides, existingChunks, true),
     inflateSlides(trashedSlides || [], existingChunks, true)
   ];
-  const { lists, chunks } = deflateLists(normalized, {});
-  const ok = roundTripsExactly(normalized[0], lists[0], chunks) && roundTripsExactly(normalized[1], lists[1], chunks);
+  // `existingChunks` segue valendo aqui: marcadores de blocos que ficaram só na
+  // subcoleção atravessam como "eles mesmos" (ver prepareForSave) e precisam
+  // resolver também na compactação e na conferência de ida e volta.
+  const { lists, chunks } = deflateLists(normalized, existingChunks || {});
+  const known = { ...(existingChunks || {}), ...chunks };
+  const ok = roundTripsExactly(normalized[0], lists[0], known) && roundTripsExactly(normalized[1], lists[1], known);
   if (!ok) {
     console.error('[sharedChunks] compactação não reversível; gravando por extenso.');
     return { slides: normalized[0], trashedSlides: normalized[1], sharedChunks: {} };
@@ -260,8 +264,152 @@ export function prepareSlidesForStorage(slides, trashedSlides, existingChunks) {
   return { slides: lists[0], trashedSlides: lists[1], sharedChunks: chunks };
 }
 
+// --- Blocos grandes em documentos próprios (subcoleção `chunks`) -----------
+// O documento da apresentação tem teto de 1 MiB (Firestore). Blocos grandes —
+// quase sempre imagens base64 e fontes embutidas — vão pra
+// `presentations/{id}/chunks/{chunkId}`, um documento cada, com o PRÓPRIO teto
+// de 1 MiB. O slide guarda só o marcador `<!--@shared:ID-->`. O id é o hash do
+// conteúdo, então gravar de novo é idempotente e o mesmo bloco nunca é
+// duplicado. Na leitura o servidor junta tudo em `sharedChunks` (ver
+// loadResolved), então o formato que o cliente recebe não mudou.
+function blobsRef(userId, presentationId) {
+  return presentationsRef(userId).doc(presentationId).collection('chunks');
+}
+
+const BLOB_MAX_BYTES = 1048576 - 4096; // teto do documento menos overhead dos campos
+const BLOB_GC_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
+function collectMarkerIds(...lists) {
+  const ids = new Set();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const s of list) markerIds(s && s.html).forEach((id) => ids.add(id));
+  }
+  return ids;
+}
+
+async function existingBlobIds(userId, presentationId, ids) {
+  if (!presentationId || ids.length === 0) return new Set();
+  const col = blobsRef(userId, presentationId);
+  const snaps = await db.getAll(...ids.map((id) => col.doc(id)), { fieldMask: ['createdAt'] });
+  return new Set(snaps.filter((s) => s.exists).map((s) => s.id));
+}
+
+async function readBlobs(userId, presentationId, ids) {
+  const out = {};
+  if (ids.length === 0) return out;
+  const col = blobsRef(userId, presentationId);
+  const snaps = await db.getAll(...ids.map((id) => col.doc(id)));
+  for (const s of snaps) if (s.exists) out[s.id] = s.get('text');
+  return out;
+}
+
+// Junta o que está no documento (sharedChunks) com os blocos grandes que os
+// slides referenciam na subcoleção. Devolve `blobIds` (os que vieram da
+// subcoleção) pro cliente saber quais o servidor já tem e não reenviar.
+async function loadResolved(userId, presentationId, p) {
+  const inline = p.sharedChunks || {};
+  const need = [...collectMarkerIds(p.slides, p.trashedSlides)].filter((id) => !Object.prototype.hasOwnProperty.call(inline, id));
+  if (need.length === 0) return { ...p, blobIds: [] };
+  const blobs = await readBlobs(userId, presentationId, need);
+  const missing = need.filter((id) => !Object.prototype.hasOwnProperty.call(blobs, id));
+  if (missing.length) console.error(`[chunks] apresentação ${presentationId}: ${missing.length} bloco(s) referenciado(s) sem documento na subcoleção.`);
+  return { ...p, sharedChunks: { ...inline, ...blobs }, blobIds: Object.keys(blobs) };
+}
+
+async function writeBlobs(userId, presentationId, blobs) {
+  const entries = Object.entries(blobs || {});
+  const col = blobsRef(userId, presentationId);
+  for (let i = 0; i < entries.length; i += 3) {
+    await Promise.all(entries.slice(i, i + 3).map(([id, text]) => {
+      if (Buffer.byteLength(text, 'utf8') > BLOB_MAX_BYTES) {
+        const err = new Error('Um bloco do slide (imagem ou fonte embutida) passa de 1 MB sozinho e não cabe no banco.');
+        err.status = 400;
+        throw err;
+      }
+      return col.doc(id).set({ text, createdAt: Date.now() });
+    }));
+  }
+}
+
+async function deleteAllBlobs(userId, presentationId) {
+  const snap = await blobsRef(userId, presentationId).select().get();
+  for (let i = 0; i < snap.docs.length; i += 400) {
+    const batch = db.batch();
+    snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+
+// Apaga blocos que nenhum slide referencia mais. Só os com mais de 24 h: um
+// bloco recém-gravado por outra aba/sessão que ainda não gravou o documento
+// principal não pode ser confundido com lixo.
+async function collectGarbageBlobs(userId, presentationId, referencedIds) {
+  const snap = await blobsRef(userId, presentationId).select('createdAt').get();
+  const cutoff = Date.now() - BLOB_GC_MIN_AGE_MS;
+  const dead = snap.docs.filter((d) => !referencedIds.has(d.id) && (d.get('createdAt') || 0) < cutoff);
+  for (let i = 0; i < dead.length; i += 400) {
+    const batch = db.batch();
+    dead.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+
+// Passo assíncrono de qualquer gravação: resolve os marcadores de blocos
+// grandes que o cliente NÃO reenviou (já estão na subcoleção — conferidos
+// aqui, nunca presumidos), compacta, e separa o resultado em
+//   sharedChunks -> o que mora no documento da apresentação (pequeno)
+//   newBlobs     -> blocos grandes recebidos agora, a gravar na subcoleção
+//   blobIds      -> todos os blocos grandes que os slides referenciam
+// Marcador sem bloco em lugar nenhum lança 400 com code CHUNKS_MISSING: o
+// cliente reenvia tudo (ele sempre tem o conteúdo por extenso).
+export async function prepareForSave(userId, presentationId, slides, trashedSlides, requestChunks) {
+  const given = requestChunks || {};
+  const referenced = collectMarkerIds(slides, trashedSlides);
+  const unknown = [...referenced].filter((id) => !Object.prototype.hasOwnProperty.call(given, id));
+  const standIns = {};
+  if (unknown.length) {
+    const present = await existingBlobIds(userId, presentationId, unknown);
+    const missing = unknown.filter((id) => !present.has(id));
+    if (missing.length) {
+      const err = new Error(`Faltam ${missing.length} bloco(s) grande(s) no servidor; reenvie a apresentação completa.`);
+      err.status = 400;
+      err.code = 'CHUNKS_MISSING';
+      err.missingChunkIds = missing;
+      throw err;
+    }
+    // O conteúdo não vem junto (já está gravado), então ele atravessa a
+    // compactação como o próprio marcador: inflate o troca por ele mesmo.
+    for (const id of unknown) standIns[id] = marker(id);
+  }
+
+  const prepared = prepareSlidesForStorage(slides, trashedSlides, { ...given, ...standIns });
+  const inline = {};
+  const newBlobs = {};
+  for (const [id, text] of Object.entries(prepared.sharedChunks)) {
+    (text.length >= BLOB_MIN_CHARS ? newBlobs : inline)[id] = text;
+  }
+  const blobIds = [...collectMarkerIds(prepared.slides, prepared.trashedSlides)].filter((id) => !Object.prototype.hasOwnProperty.call(inline, id));
+  return { slides: prepared.slides, trashedSlides: prepared.trashedSlides, sharedChunks: inline, newBlobs, blobIds };
+}
+
+// Bloco grande demais até pra um documento só dele (>1 MiB): aponta o slide.
+export function findOversizedBlob(prepared) {
+  for (const [id, text] of Object.entries(prepared.newBlobs || {})) {
+    const bytes = Buffer.byteLength(text, 'utf8');
+    if (bytes > BLOB_MAX_BYTES) {
+      const m = marker(id);
+      const index = prepared.slides.findIndex((s) => typeof s?.html === 'string' && s.html.includes(m));
+      return { id, bytes, index, title: index >= 0 ? (prepared.slides[index]?.title || '(sem título)') : '(lixeira de slides)' };
+    }
+  }
+  return null;
+}
+
+// `sharedChunks` aqui são SÓ os do documento (conta no tamanho dele). A prévia do
+// slide 1 usa só eles: blocos grandes (imagens) não são reinflados pra dentro do documento.
 function computeListingFields(slides, thumbnail, sharedChunks = {}) {
-  // Os chunks fazem parte do mesmo documento, então entram no tamanho.
+  // Os chunks do documento fazem parte dele, então entram no tamanho.
   const sizeBytes = Array.isArray(slides) ? Buffer.byteLength(JSON.stringify(slides), 'utf8') + jsonBytes(sharedChunks) : 0;
 
   // Miniatura JPEG pequena (poucos KB) gerada no cliente a partir do primeiro
@@ -280,6 +428,9 @@ function computeListingFields(slides, thumbnail, sharedChunks = {}) {
   // bruto do primeiro slide, só até este documento ser salvo de novo por um
   // cliente que já manda thumbnail.
   let firstSlideHtml = validThumbnail ? null : (Array.isArray(slides) ? inflateHtml(slides[0]?.html, sharedChunks) || null : null);
+  // Marcador sem bloco resolvido (bloco grande já gravado na subcoleção) deixaria
+  // um pedaço quebrado de HTML na prévia — sem prévia é melhor que prévia quebrada.
+  if (firstSlideHtml && firstSlideHtml.includes(MARKER_PREFIX)) firstSlideHtml = null;
 
   if (firstSlideHtml) {
     // O documento já carrega `slides` inteiro — guardar uma cópia do
@@ -377,7 +528,7 @@ function serializePresentation(id, p, compact = false) {
     title: p.title,
     description: p.description,
     slides: compact ? p.slides : inflateSlides(p.slides, chunks),
-    ...(compact ? { sharedChunks: chunks } : {}),
+    ...(compact ? { sharedChunks: chunks, blobIds: p.blobIds || [] } : {}),
     // Slides apagados individualmente dentro do editor (ver SlideTrashModal/
     // PresentationEditor) — ficam aqui até serem restaurados ou apagados de
     // vez, persistidos junto do resto pelo autosave normal.
@@ -455,7 +606,10 @@ export function findOversizedSlide(slides, extraBytes = 0) {
 
 export async function getPresentation(id, userId, { compact = false } = {}) {
   const snap = await presentationsRef(userId).doc(id).get();
-  return snap.exists ? serializePresentation(snap.id, snap.data(), compact) : null;
+  if (!snap.exists) return null;
+  // Junta os blocos grandes da subcoleção (ver loadResolved) — o resto do
+  // sistema (editor, link público, backup) continua vendo o formato de sempre.
+  return serializePresentation(snap.id, await loadResolved(userId, snap.id, snap.data()), compact);
 }
 
 // Concorrência otimista: se `expectedUpdatedAt` vier preenchido e divergir do
@@ -483,13 +637,21 @@ export async function getPresentation(id, userId, { compact = false } = {}) {
 // gravador foi uma sessão DIFERENTE.
 export async function savePresentation(presentation, userId) {
   const { id, title, description, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail } = presentation;
-  // Blocos <style>/<script> repetidos entre slides são gravados uma vez só
-  // (sharedChunks.js) — é isto que deixa uma aula grande caber em 1 MiB.
-  const { slides, trashedSlides, sharedChunks } = prepareSlidesForStorage(presentation.slides, presentation.trashedSlides, presentation.sharedChunks);
+  // Blocos repetidos entre slides são gravados uma vez só e os GRANDES (imagens,
+  // fontes) vão pra documentos próprios (ver prepareForSave) — é isto que deixa
+  // uma aula grande caber. A rota já prepara pra checar o tamanho e repassa
+  // aqui em `prepared`; chamada direta (testes) prepara por conta própria.
+  const prepared = presentation.prepared
+    || await prepareForSave(userId, id || null, presentation.slides, presentation.trashedSlides, presentation.sharedChunks);
+  const { slides, trashedSlides, sharedChunks, newBlobs, blobIds } = prepared;
   const now = Date.now();
 
   if (id) {
     const ref = presentationsRef(userId).doc(id);
+    // Blocos primeiro, documento principal depois: o principal nunca aponta
+    // pra um bloco que não existe. Idempotente (id = hash do conteúdo); se a
+    // gravação abaixo der conflito, sobram blocos que a limpeza apaga depois.
+    await writeBlobs(userId, id, newBlobs);
     // `data` fica fora do runTransaction pra ficar acessível no catch abaixo
     // — o gRPC do Firestore só rejeita a gravação de verdade quando a
     // transação faz commit, DEPOIS que o callback já retornou, então o erro
@@ -505,7 +667,7 @@ export async function savePresentation(presentation, userId) {
         const sameSessionAsLastWriter = !!sessionId && currentData.lastWriterSessionId === sessionId;
 
         if (!force && !sameSessionAsLastWriter && typeof expectedUpdatedAt === 'number' && currentData.updatedAt !== expectedUpdatedAt) {
-          return { conflict: true, presentation: serializePresentation(id, currentData, true) };
+          return { conflict: true, conflictData: currentData };
         }
 
         data = {
@@ -516,7 +678,7 @@ export async function savePresentation(presentation, userId) {
           ...computeListingFields(slides, thumbnail, sharedChunks)
         };
         tx.update(ref, data);
-        return { conflict: false, presentation: serializePresentation(id, { ...currentData, ...data }, true) };
+        return { conflict: false, presentation: serializePresentation(id, { ...currentData, ...data, blobIds }, true) };
       });
     } catch (err) {
       // code 3 = INVALID_ARGUMENT do gRPC do Firestore. findInvalidNestedArrayPath
@@ -545,7 +707,25 @@ export async function savePresentation(presentation, userId) {
       }
       throw err;
     }
-    if (result) return result;
+    if (result && result.conflict) {
+      const resolved = await loadResolved(userId, id, result.conflictData);
+      return { conflict: true, presentation: serializePresentation(id, resolved, true) };
+    }
+    if (result) {
+      // Limpeza em segundo plano: não atrasa nem derruba o save.
+      collectGarbageBlobs(userId, id, new Set(blobIds)).catch((err) => console.error('[chunks] limpeza falhou:', err.message));
+      return result;
+    }
+    // Documento com esse id não existe (apagado): cai na criação abaixo, que
+    // grava os blocos sob o id novo. Os que o cliente não reenviou só existiam
+    // sob o id antigo, então pede o reenvio completo.
+    if (blobIds.some((b) => !Object.prototype.hasOwnProperty.call(newBlobs, b))) {
+      const err = new Error('Apresentação original não existe mais; reenvie a apresentação completa.');
+      err.status = 400;
+      err.code = 'CHUNKS_MISSING';
+      err.missingChunkIds = blobIds;
+      throw err;
+    }
   }
 
   const profileSnap = await userRef(userId).get();
@@ -567,8 +747,10 @@ export async function savePresentation(presentation, userId) {
     relatedPresentationTitle: relatedPresentationTitle || null,
     ...computeListingFields(slides, thumbnail, sharedChunks)
   };
-  const ref = await presentationsRef(userId).add(data);
-  return { conflict: false, presentation: serializePresentation(ref.id, data, true) };
+  const ref = presentationsRef(userId).doc();
+  await writeBlobs(userId, ref.id, newBlobs);
+  await ref.set(data);
+  return { conflict: false, presentation: serializePresentation(ref.id, { ...data, blobIds }, true) };
 }
 
 // Só pro restore de backup (backupService.js) — savePresentation() sempre
@@ -579,7 +761,7 @@ export async function savePresentation(presentation, userId) {
 // menor superfície de risco pro autosave normal, que continua 100% intocado.
 export async function createPresentationInSubfolder(userId, subfolderId, presentation) {
   const { title, description, favorite, relatedPresentationId, relatedPresentationTitle, updatedAt, lastOpenedAt } = presentation;
-  const { slides, sharedChunks } = prepareSlidesForStorage(presentation.slides, [], presentation.sharedChunks);
+  const { slides, sharedChunks, newBlobs, blobIds } = await prepareForSave(userId, null, presentation.slides, [], presentation.sharedChunks);
   const now = Date.now();
   const data = {
     subfolderId,
@@ -595,8 +777,10 @@ export async function createPresentationInSubfolder(userId, subfolderId, present
     relatedPresentationTitle: relatedPresentationTitle || null,
     ...computeListingFields(slides, undefined, sharedChunks)
   };
-  const ref = await presentationsRef(userId).add(data);
-  return serializePresentation(ref.id, data, true);
+  const ref = presentationsRef(userId).doc();
+  await writeBlobs(userId, ref.id, newBlobs);
+  await ref.set(data);
+  return serializePresentation(ref.id, { ...data, blobIds }, true);
 }
 
 export async function setFavorite(id, userId, favorite) {
@@ -652,12 +836,15 @@ export async function permanentlyDeletePresentation(id, userId) {
   const ref = presentationsRef(userId).doc(id);
   const snap = await ref.get();
   if (!snap.exists) return false;
+  // A subcoleção de blocos não some junto com o documento pai: apaga antes.
+  await deleteAllBlobs(userId, id);
   await ref.delete();
   return true;
 }
 
 export async function emptyTrash(userId) {
   const snap = await presentationsRef(userId).where('trashed', '==', true).get();
+  for (const doc of snap.docs) await deleteAllBlobs(userId, doc.id);
   const batch = db.batch();
   snap.forEach((doc) => batch.delete(doc.ref));
   await batch.commit();

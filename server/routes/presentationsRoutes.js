@@ -3,7 +3,7 @@ import { jsonBytes } from '../services/sharedChunks.js';
 import {
   getFolderTree, getPresentation, savePresentation, setFavorite, touchPresentation,
   createOrGetShareLink, getShareForPresentation, revokeShare, movePresentationToFolder, movePresentationToSubfolder, renamePresentation,
-  findInvalidNestedArrayPath, findOversizedSlide, FIRESTORE_MAX_DOCUMENT_BYTES, prepareSlidesForStorage,
+  findInvalidNestedArrayPath, findOversizedSlide, findOversizedBlob, FIRESTORE_MAX_DOCUMENT_BYTES, prepareForSave,
   trashPresentation, restorePresentation, permanentlyDeletePresentation, emptyTrash, getTrash,
   listSessionReports, getSavedSessionReport
 } from '../services/store.js';
@@ -68,21 +68,50 @@ router.post('/', asyncHandler(async (req, res) => {
   // repetidos entre slides (prepareSlidesForStorage, ver sharedChunks.js) —
   // é o que de fato vai pro documento. Os chunks e a lixeira entram como
   // extraBytes porque moram no mesmo documento.
-  const prepared = prepareSlidesForStorage(slides, trashedSlides, sharedChunks);
+  //
+  // Imagens/fontes grandes (>= 16 KB) não moram no documento: vão pra
+  // documentos próprios, cada um com seu limite de 1 MiB (prepareForSave).
+  // Por isso o limite do documento principal só pega o que sobra dos slides, e
+  // há uma checagem à parte pra um bloco que sozinho passa de 1 MiB.
+  let prepared;
+  try {
+    prepared = await prepareForSave(req.user.id, id || null, slides, trashedSlides, sharedChunks);
+  } catch (err) {
+    // O cliente reage a `code` reenviando a apresentação completa.
+    if (err && err.code === 'CHUNKS_MISSING') {
+      return res.status(400).json({ error: err.message, code: err.code, missingChunkIds: err.missingChunkIds });
+    }
+    throw err;
+  }
   const extraBytes = jsonBytes(prepared.trashedSlides) + jsonBytes(prepared.sharedChunks);
   const oversized = findOversizedSlide(prepared.slides, extraBytes);
   if (oversized) {
     const totalMb = (oversized.totalBytes / 1024 / 1024).toFixed(1);
     const biggestKb = (oversized.biggest.bytes / 1024).toFixed(0);
     return res.status(400).json({
-      error: `Apresentação muito grande (${totalMb} MB — o limite do Firestore é 1 MB, já descontando os blocos CSS/JS repetidos entre slides). O slide "${oversized.biggest.title}" (posição ${oversized.biggest.index + 1}) é o maior, com ${biggestKb} KB — provavelmente uma imagem colada direto em vez de enviada como arquivo. Apague ou refaça esse slide.`
+      error: `Apresentação muito grande (${totalMb} MB — o limite do Firestore é 1 MB por documento, já descontando imagens/fontes e blocos CSS/JS, que são guardados à parte). O slide "${oversized.biggest.title}" (posição ${oversized.biggest.index + 1}) é o maior, com ${biggestKb} KB de texto/HTML. Divida ou simplifique esse slide.`
+    });
+  }
+  const oversizedBlob = findOversizedBlob(prepared);
+  if (oversizedBlob) {
+    const mb = (oversizedBlob.bytes / 1024 / 1024).toFixed(1);
+    return res.status(400).json({
+      error: `Uma imagem ou fonte embutida no slide "${oversizedBlob.title}" (posição ${oversizedBlob.index + 1}) tem ${mb} MB sozinha — acima do limite de 1 MB do banco. Comprima ou reduza essa imagem.`
     });
   }
 
-  const result = await savePresentation(
-    { id, title, description, slides: prepared.slides, trashedSlides: prepared.trashedSlides, sharedChunks: prepared.sharedChunks, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail },
-    req.user.id
-  );
+  let result;
+  try {
+    result = await savePresentation(
+      { id, title, description, prepared, relatedPresentationId, relatedPresentationTitle, expectedUpdatedAt, force, sessionId, thumbnail },
+      req.user.id
+    );
+  } catch (err) {
+    if (err && err.code === 'CHUNKS_MISSING') {
+      return res.status(400).json({ error: err.message, code: err.code, missingChunkIds: err.missingChunkIds });
+    }
+    throw err;
+  }
   // Ver comentário em store.js#savePresentation: conflito de edição concorrente
   // (outra aba/dispositivo salvou depois que este cliente carregou). O cliente
   // decide o que fazer — nunca sobrescrevemos silenciosamente aqui.

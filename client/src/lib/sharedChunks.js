@@ -19,11 +19,31 @@
 
 export const MARKER_PREFIX = '<!--@shared:';
 const MARKER_RE = /<!--@shared:([A-Za-z0-9-]+)-->/g;
-const BLOCK_RE = /<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+// Dois tipos de bloco candidato, numa passada só (a alternativa 1 consome o
+// <style>/<script> inteiro, então um data URI dentro dele nunca é achado à
+// parte): o elemento <style>/<script> e um data URI base64 (imagem, fonte...)
+// solto no HTML — a causa real de slides com 400 KB+ de JPEG embutido.
+const BLOCK_RE = /<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>|data:(?:image|font|audio|video|application)\/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi;
 
 // Abaixo disto o marcador + a entrada em sharedChunks custam quase o mesmo
 // que repetir o bloco, e blocos pequenos raramente se repetem de verdade.
 export const MIN_CHUNK_CHARS = 1024;
+
+// Blocos GRANDES viram chunk mesmo usados em um slide só: o que importa não é
+// só repetição, é tirar o peso de dentro do slide. O servidor guarda chunks
+// deste tamanho pra cima em documentos próprios (subcoleção chunks/), cada um
+// com o seu próprio limite de 1 MiB, em vez de dentro do documento da
+// apresentação. Cliente e servidor precisam concordar neste número: é ele que
+// separa "mora no documento" de "mora na subcoleção".
+export const BLOB_MIN_CHARS = 16384;
+
+// Ids de todos os marcadores presentes num HTML.
+export function markerIds(html) {
+  const out = [];
+  if (typeof html !== 'string' || !html.includes(MARKER_PREFIX)) return out;
+  html.replace(MARKER_RE, (whole, id) => { out.push(id); return whole; });
+  return out;
+}
 
 export function marker(id) {
   return `${MARKER_PREFIX}${id}-->`;
@@ -104,12 +124,12 @@ export function deflateLists(lists, existingChunks = {}) {
     });
   });
 
-  // 3. Repetidos viram chunk. Colisão de id com texto diferente (não deve
+  // 3. Repetidos (ou grandes, ver BLOB_MIN_CHARS) viram chunk. Colisão de id com texto diferente (não deve
   //    acontecer) deixa aquele bloco por extenso.
   const chunks = {};
   const idByText = new Map();
   for (const [text, where] of seenIn) {
-    if (where.size < 2) continue;
+    if (where.size < 2 && text.length < BLOB_MIN_CHARS) continue;
     const id = chunkId(text);
     if (chunks[id] !== undefined && chunks[id] !== text) continue;
     chunks[id] = text;

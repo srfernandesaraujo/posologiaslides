@@ -90,6 +90,10 @@ export default function App() {
   // store.js#savePresentation) está sem resolução na tela — evita empilhar
   // mais um save em cima de um conflito que o usuário ainda nem viu.
   const conflictPendingRef = useRef(false);
+  // Blocos grandes (imagens/fontes) que o servidor já guarda em documentos
+  // próprios — não vão no corpo do autosave. É só uma otimização: se estiver
+  // errado, o servidor responde CHUNKS_MISSING e o save é refeito com tudo.
+  const knownBlobIdsRef = useRef(new Set());
   const [conflict, setConflict] = useState(null); // { serverPresentation } | null
   // Antes disto, uma falha de autosave (rede, CORS, servidor fora do ar) era
   // 100% silenciosa — nenhum aviso na tela, o usuário só descobria ao dar F5
@@ -150,7 +154,15 @@ export default function App() {
       // <style>/<script> repetidos (ver lib/sharedChunks.js) + esses blocos
       // guardados uma vez só. Por extenso, uma aula com 32 slides
       // interativos dava ~13 MB e nunca coube, mesmo gravando só ~640 KB.
-      const packed = compactForSave(presentation);
+      let packed = compactForSave(presentation, knownBlobIdsRef.current);
+      if (packed.oversizedBlob) {
+        const b = packed.oversizedBlob;
+        const mb = (b.bytes / 1024 / 1024).toFixed(1);
+        console.error(`[autosave] bloco de ${mb} MB no slide ${b.index + 1} ("${b.title}") passa do limite de 1 MB por documento.`);
+        setSaveStatus('error');
+        setSaveErrorDetail(`Uma imagem ou fonte embutida no slide "${b.title}" (posição ${b.index + 1}) tem ${mb} MB sozinha — acima do limite de 1 MB do banco. Comprima ou reduza essa imagem.`);
+        return;
+      }
       const oversized = findOversizedSlide(packed.slides, packed.extraBytes);
       if (oversized) {
         const totalMb = (oversized.totalBytes / 1024 / 1024).toFixed(1);
@@ -184,7 +196,7 @@ export default function App() {
       setSaveStatus('saving');
       setSaveErrorDetail(null);
       try {
-        const res = await apiFetch('/api/presentations', {
+        const post = () => apiFetch('/api/presentations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -198,7 +210,16 @@ export default function App() {
           }),
           signal: controller.signal
         });
-        const data = await res.json();
+        let res = await post();
+        let data = await res.json();
+        // O servidor não tem algum bloco grande que presumimos que tinha
+        // (limpeza, outra apresentação, id novo): esquece o palpite e reenvia tudo.
+        if (res.status === 400 && data.code === 'CHUNKS_MISSING') {
+          knownBlobIdsRef.current = new Set();
+          packed = compactForSave(presentation, knownBlobIdsRef.current);
+          res = await post();
+          data = await res.json();
+        }
 
         if (res.status === 409 && data.conflict) {
           // Servidor recusou o save: outra aba/dispositivo salvou depois que
@@ -208,6 +229,7 @@ export default function App() {
           // qualquer coisa.
           setSaveStatus('idle');
           conflictPendingRef.current = true;
+          knownBlobIdsRef.current = new Set(data.presentation.blobIds || []);
           setConflict({ serverPresentation: expandPresentation(data.presentation) });
           return;
         }
@@ -215,6 +237,7 @@ export default function App() {
         if (data.success) {
           setSaveStatus('idle');
           savedVersionRef.current = versionAtSaveStart;
+          knownBlobIdsRef.current = new Set(data.presentation.blobIds || []);
           // Adota o id (apresentação nova, sem id ainda) e o updatedAt novos
           // devolvidos pelo servidor com um updater FUNCIONAL sobre o estado
           // ATUAL, via `setPresentationState` (NÃO o `setPresentation`
@@ -286,16 +309,24 @@ export default function App() {
     const versionAtSaveStart = editVersionRef.current;
     setSaveStatus('saving');
     try {
-      const packed = compactForSave(presentation);
-      const res = await apiFetch('/api/presentations', {
+      let packed = compactForSave(presentation, knownBlobIdsRef.current);
+      const post = () => apiFetch('/api/presentations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...presentation, slides: packed.slides, trashedSlides: packed.trashedSlides, sharedChunks: packed.sharedChunks, force: true, sessionId: sessionIdRef.current, thumbnail: thumbnailCacheRef.current.dataUrl })
       });
-      const data = await res.json();
+      let res = await post();
+      let data = await res.json();
+      if (res.status === 400 && data.code === 'CHUNKS_MISSING') {
+        knownBlobIdsRef.current = new Set();
+        packed = compactForSave(presentation, knownBlobIdsRef.current);
+        res = await post();
+        data = await res.json();
+      }
       if (data.success) {
         setSaveStatus('idle');
         savedVersionRef.current = versionAtSaveStart;
+        knownBlobIdsRef.current = new Set(data.presentation.blobIds || []);
         // Mesmo backfill do autosave normal acima — ver comentário lá.
         setPresentationState((prev) => {
           if (!prev) return prev;
@@ -350,6 +381,7 @@ export default function App() {
         savedVersionRef.current = 0;
         // O servidor manda os slides compactados (marcadores + sharedChunks);
         // o resto do app só conhece HTML por extenso.
+        knownBlobIdsRef.current = new Set(data.presentation.blobIds || []);
         const loaded = expandPresentation(data.presentation);
         setPresentationState(loaded);
         setView('editor');
