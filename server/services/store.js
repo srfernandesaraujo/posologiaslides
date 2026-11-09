@@ -276,7 +276,14 @@ function blobsRef(userId, presentationId) {
   return presentationsRef(userId).doc(presentationId).collection('chunks');
 }
 
-const BLOB_MAX_BYTES = 1048576 - 4096; // teto do documento menos overhead dos campos
+// Um bloco que não cabe num documento (uma foto de 1 MB em base64, por
+// exemplo) é dividido em partes: `chunks/{id}` guarda {parts: N} e as partes
+// ficam em `chunks/{id}.p0..pN-1`. A principal é gravada POR ÚLTIMO, então
+// "existe" implica "completo". O teto abaixo é só um limite de sanidade (o
+// corpo da requisição já é limitado a 10 MB).
+const BLOB_PART_CHARS = 300000; // 300 mil chars = no máximo ~900 KB mesmo com acentos (3 bytes/char)
+const BLOB_SINGLE_DOC_BYTES = 1048576 - 4096;
+const BLOB_MAX_BYTES = 8 * 1024 * 1024;
 const BLOB_GC_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
 function collectMarkerIds(...lists) {
@@ -300,7 +307,24 @@ async function readBlobs(userId, presentationId, ids) {
   if (ids.length === 0) return out;
   const col = blobsRef(userId, presentationId);
   const snaps = await db.getAll(...ids.map((id) => col.doc(id)));
-  for (const s of snaps) if (s.exists) out[s.id] = s.get('text');
+  const partRefs = [];
+  for (const s of snaps) {
+    if (!s.exists) continue;
+    const parts = s.get('parts');
+    if (parts > 0) {
+      for (let i = 0; i < parts; i++) partRefs.push([s.id, col.doc(`${s.id}.p${i}`)]);
+    } else {
+      out[s.id] = s.get('text');
+    }
+  }
+  if (partRefs.length) {
+    const partSnaps = await db.getAll(...partRefs.map(([, r]) => r));
+    const byId = {};
+    partRefs.forEach(([id], i) => { (byId[id] = byId[id] || []).push(partSnaps[i]); });
+    for (const [id, list] of Object.entries(byId)) {
+      if (list.every((p) => p.exists)) out[id] = list.map((p) => p.get('text')).join('');
+    }
+  }
   return out;
 }
 
@@ -321,13 +345,23 @@ async function writeBlobs(userId, presentationId, blobs) {
   const entries = Object.entries(blobs || {});
   const col = blobsRef(userId, presentationId);
   for (let i = 0; i < entries.length; i += 3) {
-    await Promise.all(entries.slice(i, i + 3).map(([id, text]) => {
-      if (Buffer.byteLength(text, 'utf8') > BLOB_MAX_BYTES) {
-        const err = new Error('Um bloco do slide (imagem ou fonte embutida) passa de 1 MB sozinho e não cabe no banco.');
+    await Promise.all(entries.slice(i, i + 3).map(async ([id, text]) => {
+      const bytes = Buffer.byteLength(text, 'utf8');
+      if (bytes > BLOB_MAX_BYTES) {
+        const err = new Error('Um bloco do slide (imagem ou fonte embutida) passa de 8 MB sozinho.');
         err.status = 400;
         throw err;
       }
-      return col.doc(id).set({ text, createdAt: Date.now() });
+      const createdAt = Date.now();
+      if (bytes <= BLOB_SINGLE_DOC_BYTES) {
+        await col.doc(id).set({ text, createdAt });
+        return;
+      }
+      const parts = Math.ceil(text.length / BLOB_PART_CHARS);
+      for (let p = 0; p < parts; p++) {
+        await col.doc(`${id}.p${p}`).set({ text: text.slice(p * BLOB_PART_CHARS, (p + 1) * BLOB_PART_CHARS), createdAt });
+      }
+      await col.doc(id).set({ parts, createdAt }); // por último: existir = estar completo
     }));
   }
 }
@@ -347,7 +381,8 @@ async function deleteAllBlobs(userId, presentationId) {
 async function collectGarbageBlobs(userId, presentationId, referencedIds) {
   const snap = await blobsRef(userId, presentationId).select('createdAt').get();
   const cutoff = Date.now() - BLOB_GC_MIN_AGE_MS;
-  const dead = snap.docs.filter((d) => !referencedIds.has(d.id) && (d.get('createdAt') || 0) < cutoff);
+  // As partes de um bloco dividido (`{id}.pN`) valem pelo id do bloco.
+  const dead = snap.docs.filter((d) => !referencedIds.has(d.id.split('.p')[0]) && (d.get('createdAt') || 0) < cutoff);
   for (let i = 0; i < dead.length; i += 400) {
     const batch = db.batch();
     dead.slice(i, i + 400).forEach((d) => batch.delete(d.ref));

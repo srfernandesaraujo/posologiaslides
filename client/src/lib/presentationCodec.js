@@ -9,9 +9,9 @@
 // leitura e de gravação) e o cliente não os reenvia a cada autosave.
 import { inflateSlides, deflateLists, jsonBytes, marker, BLOB_MIN_CHARS } from './sharedChunks';
 
-// Teto de um documento do Firestore (1 MiB) menos o overhead dos campos —
+// Teto de sanidade de um bloco (imagens maiores que um documento são divididas em partes pelo servidor) —
 // mesmo número de server/services/store.js (BLOB_MAX_BYTES).
-const BLOB_MAX_BYTES = 1048576 - 4096;
+const BLOB_MAX_BYTES = 8 * 1024 * 1024;
 
 function utf8Bytes(text) {
   // Base64 é ASCII (1 byte por caractere); só mede de verdade quando está perto do teto.

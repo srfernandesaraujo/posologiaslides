@@ -96,7 +96,7 @@ router.post('/', asyncHandler(async (req, res) => {
   if (oversizedBlob) {
     const mb = (oversizedBlob.bytes / 1024 / 1024).toFixed(1);
     return res.status(400).json({
-      error: `Uma imagem ou fonte embutida no slide "${oversizedBlob.title}" (posição ${oversizedBlob.index + 1}) tem ${mb} MB sozinha — acima do limite de 1 MB do banco. Comprima ou reduza essa imagem.`
+      error: `Uma imagem ou fonte embutida no slide "${oversizedBlob.title}" (posição ${oversizedBlob.index + 1}) tem ${mb} MB sozinha — acima do limite de 8 MB por imagem. Comprima ou reduza essa imagem.`
     });
   }
 

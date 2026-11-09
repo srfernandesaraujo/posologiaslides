@@ -142,8 +142,30 @@ test('excluir de vez apaga os blocos; limpeza só remove órfãos antigos', asyn
   assert.ok(!store.has(mainPath(id)));
 });
 
-test('bloco único acima de 1 MiB é apontado, não explode no Firestore', async () => {
-  const huge = { id: 'h', title: 'Enorme', html: '<img src="data:image/png;base64,' + 'A'.repeat(1100000) + '">' };
+test('imagem acima de 1 MiB é dividida em partes e volta idêntica', async () => {
+  const photo = { id: 'p', title: 'Foto', html: '<img src="data:image/jpeg;base64,' + 'Zm9vYg=='.repeat(140000) + '">' }; // ~1,1 MB
+  const prepared = await S.prepareForSave(U, null, [mk(1), photo], [], {});
+  assert.equal(S.findOversizedBlob(prepared), null);
+  const id = (await S.savePresentation({ title: 'F', prepared }, U)).presentation.id;
+  const parts = [...store.keys()].filter((k) => k.startsWith(mainPath(id) + '/chunks/') && k.includes('.p'));
+  assert.ok(parts.length >= 4, 'partes: ' + parts.length);
+  for (const k of parts) assert.ok(Buffer.byteLength(JSON.stringify(store.get(k))) < 1048576);
+  const got = await S.getPresentation(id, U, { compact: true });
+  assert.deepEqual(inflateSlides(got.slides, got.sharedChunks, true), [mk(1), photo]);
+  // save seguinte sem reenviar o bloco: confere existência da principal
+  const again = await S.prepareForSave(U, id, got.slides, [], {});
+  assert.deepEqual(again.newBlobs, {});
+  // limpeza não pode apagar partes de bloco que ainda é usado
+  await S.savePresentation({ id, title: 'F', expectedUpdatedAt: got.updatedAt, prepared: again }, U);
+  await new Promise((r) => setTimeout(r, 20));
+  const left = [...store.keys()].filter((k) => k.startsWith(mainPath(id) + '/chunks/') && k.includes('.p')).length;
+  assert.equal(left, parts.length);
+  await S.permanentlyDeletePresentation(id, U);
+  assert.equal(blobPaths(id).length, 0);
+});
+
+test('bloco acima de 8 MB é apontado, não explode', async () => {
+  const huge = { id: 'h', title: 'Enorme', html: '<img src="data:image/png;base64,' + 'A'.repeat(8500000) + '">' };
   const prepared = await S.prepareForSave(U, null, [mk(1), huge], [], {});
   const o = S.findOversizedBlob(prepared);
   assert.ok(o && o.index === 1 && o.title === 'Enorme');

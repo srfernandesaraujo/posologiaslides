@@ -158,9 +158,9 @@ export default function App() {
       if (packed.oversizedBlob) {
         const b = packed.oversizedBlob;
         const mb = (b.bytes / 1024 / 1024).toFixed(1);
-        console.error(`[autosave] bloco de ${mb} MB no slide ${b.index + 1} ("${b.title}") passa do limite de 1 MB por documento.`);
+        console.error(`[autosave] bloco de ${mb} MB no slide ${b.index + 1} ("${b.title}") passa do limite de 8 MB por imagem.`);
         setSaveStatus('error');
-        setSaveErrorDetail(`Uma imagem ou fonte embutida no slide "${b.title}" (posição ${b.index + 1}) tem ${mb} MB sozinha — acima do limite de 1 MB do banco. Comprima ou reduza essa imagem.`);
+        setSaveErrorDetail(`Uma imagem ou fonte embutida no slide "${b.title}" (posição ${b.index + 1}) tem ${mb} MB sozinha — acima do limite de 8 MB por imagem. Comprima ou reduza essa imagem.`);
         return;
       }
       const oversized = findOversizedSlide(packed.slides, packed.extraBytes);
