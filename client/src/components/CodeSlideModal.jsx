@@ -90,7 +90,12 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
 
     try {
       // Detecção de código React / JSX (ex.: export default function App, import React, className=, etc.)
-      const isReactJsx = trimmed.includes('import React') || trimmed.includes('export default function') || (trimmed.includes('className=') && trimmed.includes('return'));
+      // `className=` só conta como JSX quando é atributo de tag (`<div className="x"`).
+      // `el.className = 'x'` em JS puro (comum em slides com <script>) NÃO é JSX —
+      // tratar assim trocava por `el.class = ` e quebrava as classes criadas via JS
+      // (slides de pré-teste/gráficos da Aula 01 ficavam sem estilo).
+      const hasJsxClassName = /<[A-Za-z][^<>]*\sclassName\s*=\s*["'{]/.test(trimmed);
+      const isReactJsx = trimmed.includes('import React') || trimmed.includes('export default function') || (hasJsxClassName && trimmed.includes('return'));
 
       // Detecção de referência a arquivo local externo (ex.: <link href="styles.css">,
       // <script src="app.js">, <image href="foto.jpg">) — comum em páginas exportadas de
@@ -179,7 +184,8 @@ export default function CodeSlideModal({ isOpen, onClose, onInsert }) {
 
         // Se for React JSX, limpa automaticamente className -> class e comentários JSX
         if (isReactJsx) {
-          finalHtml = finalHtml.replace(/className=/g, 'class=');
+          // Só dentro de tags (atributo), nunca em código de <script>.
+          finalHtml = finalHtml.replace(/(<[A-Za-z][^<>]*?\s)className=/g, '$1class=');
           finalHtml = finalHtml.replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
         }
 
