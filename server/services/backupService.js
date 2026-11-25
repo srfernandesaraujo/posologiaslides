@@ -149,18 +149,48 @@ export async function createBackup({ userId, user, bucket, onEvent = () => {}, s
       output.on('close', resolve);
       archive.on('error', reject);
       output.on('error', reject);
+      // Midias sao adicionadas UMA POR VEZ (cada createReadStream() do GCS abre a
+      // conexao na hora; criar todos de uma vez deixava conexoes ociosas ate dar
+      // ETIMEDOUT) e com tratamento de erro/travamento por stream — antes um
+      // 'error' sem handler derrubava o processo inteiro.
+      const STALL_MS = 60_000; // sem receber dados por 60s = trava
+      const queue = [...mediaEntries];
+      const appendNext = () => {
+        const entry = queue.shift();
+        if (!entry) {
+          archive.finalize();
+          return;
+        }
+        const src = entry.file.createReadStream();
+        let timer;
+        const arm = () => {
+          clearTimeout(timer);
+          timer = setTimeout(
+            () => src.destroy(new Error(`sem dados por ${STALL_MS / 1000}s: ${entry.zipPath}`)),
+            STALL_MS
+          );
+        };
+        arm();
+        src.on('data', arm);
+        src.on('end', () => clearTimeout(timer));
+        src.on('error', (err) => {
+          clearTimeout(timer);
+          archive.abort();
+          reject(err);
+        });
+        archive.append(src, { name: entry.zipPath });
+      };
+
       archive.on('entry', (entryData) => {
         if (entryData.name === 'manifest.json') return;
         done += 1;
         emit({ type: 'progress', stage: 'packaging', done, total: mediaEntries.length });
+        appendNext();
       });
 
       archive.pipe(output);
       archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
-      for (const entry of mediaEntries) {
-        archive.append(entry.file.createReadStream(), { name: entry.zipPath });
-      }
-      archive.finalize();
+      appendNext();
     });
 
     const fileName = buildBackupFileName();

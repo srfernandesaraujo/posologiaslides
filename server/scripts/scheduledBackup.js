@@ -24,6 +24,16 @@ const BACKUP_ROOT = process.env.BACKUP_DIR || path.join(__dirname, '..', 'backup
 // disso são apagados a cada execução (backup diário + retenção 7 = ~1 semana
 // de histórico, ajustável via .env sem editar código).
 const RETENTION_PER_USER = Number(process.env.BACKUP_RETENTION || 7);
+// Retenção diferente para usuários específicos (ex.: quem tem muita mídia e gera
+// zips de GB). Formato no .env: BACKUP_RETENTION_BY_USER=uid1:1,uid2:3
+const RETENTION_OVERRIDES = Object.fromEntries(
+  (process.env.BACKUP_RETENTION_BY_USER || '')
+    .split(',')
+    .map((p) => p.trim().split(':'))
+    .filter(([id, n]) => id && Number(n) >= 1)
+    .map(([id, n]) => [id, Number(n)])
+);
+const retentionFor = (userId) => RETENTION_OVERRIDES[userId] || RETENTION_PER_USER;
 
 // Por padrão o .zip só fica no disco local (BACKUP_ROOT) — protege contra
 // "apaguei sem querer"/bug do app, mas não contra a própria máquina ou disco
@@ -33,18 +43,18 @@ const RETENTION_PER_USER = Number(process.env.BACKUP_RETENTION || 7);
 const OFFSITE_UPLOAD = process.env.BACKUP_OFFSITE_UPLOAD === 'true';
 const OFFSITE_PREFIX = '_system-backups';
 
-function pruneOldBackups(userDir) {
+function pruneOldBackups(userDir, keep) {
   const files = fs.readdirSync(userDir)
     .filter((f) => f.endsWith('.zip'))
     .map((f) => ({ f, mtime: fs.statSync(path.join(userDir, f)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
-  for (const { f } of files.slice(RETENTION_PER_USER)) {
+  for (const { f } of files.slice(keep)) {
     fs.unlinkSync(path.join(userDir, f));
     console.log(`[backup] removido (retenção): ${path.join(userDir, f)}`);
   }
 }
 
-async function uploadOffsite(bucket, userId, destPath) {
+async function uploadOffsite(bucket, userId, destPath, keep) {
   const remotePath = `${OFFSITE_PREFIX}/${userId}/${path.basename(destPath)}`;
   await bucket.upload(destPath, { destination: remotePath });
 
@@ -52,7 +62,7 @@ async function uploadOffsite(bucket, userId, destPath) {
   const sorted = files
     .map((f) => ({ f, time: new Date(f.metadata.timeCreated || 0).getTime() }))
     .sort((a, b) => b.time - a.time);
-  for (const { f } of sorted.slice(RETENTION_PER_USER)) {
+  for (const { f } of sorted.slice(keep)) {
     await f.delete().catch(() => {});
     console.log(`[backup] removido da nuvem (retenção): ${f.name}`);
   }
@@ -77,13 +87,23 @@ async function backupAllUsers() {
     const destPath = path.join(userDir, `backup-${stamp}.zip`);
 
     try {
-      const result = await createBackup({ userId, user, bucket, destPath });
+      let result;
+      let lastErr;
+      for (let attempt = 1; attempt <= 3 && !result; attempt++) {
+        try {
+          result = await createBackup({ userId, user, bucket, destPath });
+        } catch (e) {
+          lastErr = e;
+          console.error(`[backup] tentativa ${attempt}/3 falhou — ${label}:`, e.message);
+        }
+      }
+      if (!result) throw lastErr;
       console.log(`[backup] OK — ${label} → ${result.filePath} (${(result.size / 1024).toFixed(0)} KB)`);
-      pruneOldBackups(userDir);
+      pruneOldBackups(userDir, retentionFor(userId));
 
       if (OFFSITE_UPLOAD) {
         try {
-          await uploadOffsite(bucket, userId, destPath);
+          await uploadOffsite(bucket, userId, destPath, retentionFor(userId));
           console.log(`[backup] enviado pra nuvem (offsite) — ${label}`);
         } catch (offsiteErr) {
           console.error(`[backup] falhou upload offsite — ${label}:`, offsiteErr.message);
